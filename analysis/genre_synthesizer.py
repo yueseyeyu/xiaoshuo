@@ -18,14 +18,27 @@ from pathlib import Path
 from collections import Counter
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-LLM_DIR = PROJECT_ROOT / "data" / "processed" / "llm_scores"
-CALIB_DIR = PROJECT_ROOT / "analysis" / "outputs" / "calibration"
+
+
+def _llm_dir(genre):
+    """Genre-aware LLM scores dir: data/processed/{genre}/llm_scores/"""
+    return PROJECT_ROOT / "data" / "processed" / genre / "llm_scores"
+
+
+def _calib_dir(genre):
+    """Genre-aware calibration dir: data/reports/{genre}/calibration/"""
+    return PROJECT_ROOT / "data" / "reports" / genre / "calibration"
 
 # ── Bayesian BMA weights (loaded once from calibrate_v2) ──
 _bayesian_weights_cache = None
 
 
-def _load_bayesian_weights():
+def _rhythm_dir(genre):
+    """Genre-aware rhythm CSV dir: data/processed/{genre}/rhythm/"""
+    return PROJECT_ROOT / "data" / "processed" / genre / "rhythm"
+
+
+def _load_bayesian_weights(genre="末世"):
     """v8: Read calibrate_v2 feature importance, compute per-metric Bayesian blend weights.
     Based on arxiv 2504.21303 (Bayesian LLM Evaluation) + Self-Preference Bias mitigation.
     Returns {metric: {rule_weight, llm_weight, best_rule_feature}}"""
@@ -33,7 +46,7 @@ def _load_bayesian_weights():
     if _bayesian_weights_cache is not None:
         return _bayesian_weights_cache
 
-    fi_path = CALIB_DIR / "feature_importance.csv"
+    fi_path = _calib_dir(genre) / "feature_importance.csv"
     if not fi_path.exists():
         # Fallback to default weights (r_min=0.2 → w_rule≈0.04)
         _bayesian_weights_cache = {
@@ -73,20 +86,33 @@ def _load_bayesian_weights():
 
 
 def _load_all_llm_scores():
-    """v7: Load all LLM scores keyed by (book_stem, ch_num). Cached at module level."""
-    # Use module-level cache pattern
+    """v7→v12: Load all LLM scores keyed by (book_stem, ch_num). Cached at module level.
+    v12: expanded to load hook/pace/conflict for signing+retention scoring."""
     cache = getattr(_load_all_llm_scores, "_cache", None)
     if cache is not None:
         return cache
+    # Convert categorical LLM outputs to numeric
+    _hook_map = {"none": 0.0, "weak": 5.0, "strong": 10.0}
+    _pace_map = {"slow": 3.0, "medium": 6.0, "fast": 9.0}
+    _conflict_map = {"none": 0.0, "low": 3.0, "medium": 6.0, "high": 9.0}
     all_scores = {}
-    for fp in LLM_DIR.glob("*_llm.csv"):
-        stem = fp.stem.replace("_llm", "")
-        with open(fp, 'r', encoding='utf-8-sig') as f:
-            for r in csv.DictReader(f):
-                all_scores[(stem, int(r["ch_num"]))] = {
-                    "intensity": float(r["llm_intensity"]),
-                    "retention": float(r["llm_retention"]),
-                }
+    for genre_sub in (PROJECT_ROOT / "data" / "processed").iterdir():
+        llm_sub = genre_sub / "llm_scores"
+        if not llm_sub.is_dir(): continue
+        for fp in llm_sub.glob("*_llm.csv"):
+            stem = fp.stem.replace("_llm", "")
+            with open(fp, 'r', encoding='utf-8-sig') as f:
+                for r in csv.DictReader(f):
+                    try:
+                        all_scores[(stem, int(r["ch_num"]))] = {
+                            "intensity": float(r["llm_intensity"]),
+                            "retention": float(r["llm_retention"]),
+                            "hook": _hook_map.get(r.get("llm_hook", ""), 5.0),
+                            "pace": _pace_map.get(r.get("llm_pace", ""), 6.0),
+                            "conflict": _conflict_map.get(r.get("llm_conflict", ""), 5.0),
+                        }
+                    except (ValueError, KeyError):
+                        continue  # skip malformed rows
     _load_all_llm_scores._cache = all_scores
     return all_scores
 
@@ -104,7 +130,6 @@ def _find_book_stem(rows, all_scores):
 
 
 DATA_DIR = PROJECT_ROOT / "data"
-RHYTHM_DIR = DATA_DIR / "processed" / "rhythm"
 INDEX_PATH = DATA_DIR / "raw" / "novel_index.json"
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
@@ -134,8 +159,8 @@ def load_genre_novels(genre):
     return index["genres"].get(genre, {}).get("novels", [])
 
 
-def load_rhythm_data(csv_name):
-    csv_path = RHYTHM_DIR / csv_name
+def load_rhythm_data(csv_name, genre="末世"):
+    csv_path = _rhythm_dir(genre) / csv_name
     if not csv_path.exists():
         return None
     rows = []
@@ -255,7 +280,7 @@ def get_firebook_pool(genre="末世", exclude_name=None):
 
     novels = load_genre_novels(genre)
     # P1 pool isolation: only include PASS books from quality_manifest
-    manifest_path = PROJECT_ROOT / "data" / "processed" / "quality_manifest.json"
+    manifest_path = PROJECT_ROOT / "data" / "processed" / genre / "quality_manifest.json"
     pass_stems = set()
     if manifest_path.exists():
         try:
@@ -285,7 +310,7 @@ def get_firebook_pool(genre="末世", exclude_name=None):
         csv_name = novel.get("rhythm_csv")
         if not csv_name:
             continue
-        rows = load_rhythm_data(csv_name)
+        rows = load_rhythm_data(csv_name, genre)
         if not rows or len(rows) < 10:
             continue
 
@@ -316,7 +341,7 @@ def get_firebook_pool(genre="末世", exclude_name=None):
         all_large_rates.append(pl.get("large", 0) / max(total, 1))
 
         # v8: LLM retention pool (read from CSV to build percentile baseline)
-        llm_csv = LLM_DIR / f"{Path(csv_name).stem.replace('rhythm_', '')}_llm.csv"
+        llm_csv = _llm_dir(genre) / f"{Path(csv_name).stem.replace('rhythm_', '')}_llm.csv"
         if llm_csv.exists():
             with open(llm_csv, 'r', encoding='utf-8-sig') as f:
                 llm_rows = list(csv.DictReader(f))
@@ -337,7 +362,7 @@ def get_firebook_pool(genre="末世", exclude_name=None):
             csv_name = novel.get("rhythm_csv")
             if not csv_name:
                 continue
-            rows = load_rhythm_data(csv_name)
+            rows = load_rhythm_data(csv_name, genre)
             if not rows or len(rows) < 10:
                 continue
             total = len(rows)
@@ -356,7 +381,7 @@ def get_firebook_pool(genre="末世", exclude_name=None):
             all_suspense_rates.append(ht.get("悬念式", 0) / max(total, 1))
             pl = Counter(r["pleasure_level"] for r in rows)
             all_large_rates.append(pl.get("large", 0) / max(total, 1))
-            llm_csv = LLM_DIR / f"{Path(csv_name).stem.replace('rhythm_', '')}_llm.csv"
+            llm_csv = _llm_dir(genre) / f"{Path(csv_name).stem.replace('rhythm_', '')}_llm.csv"
             if llm_csv.exists():
                 with open(llm_csv, 'r', encoding='utf-8-sig') as f:
                     llm_rows = list(csv.DictReader(f))
@@ -437,15 +462,111 @@ def percentile_score(value, pool, metric):
     return round((rank - 0.5) / n * 100) if n > 0 else 50
 
 
-def _detect_sub_genre(rows):
-    """v4: Detect sub-genre from dominant pleasure sub-type distribution.
-    Used for adaptive slap rate scoring.
-    External review consensus: one-size-fits-all slap zone is invalid for non-打脸流 genres."""
+# v12: LLM sub-genre classification cache
+_llm_sub_genre_cache = {}
+
+_SUB_GENRE_PROMPT = (
+    "你是专业网文编辑。根据以下前3章摘要，判断这本书的子类型。\n"
+    "可选类型: 打脸流 | 智斗流 | 羁绊流 | 恐怖悬疑流 | 升级流 | 通用\n\n"
+    "类型说明:\n"
+    "- 打脸流: 主角频繁打脸对手、装逼反转、碾压敌人\n"
+    "- 智斗流: 烧脑博弈、信息差、心理战、谋略对决\n"
+    "- 羁绊流: 伙伴情感、牺牲、成长羁绊、团队情深\n"
+    "- 恐怖悬疑流: 诡异氛围、心理恐怖、未知恐惧、解谜\n"
+    "- 升级流: 实力提升、碾压、等级突破、修炼进化\n"
+    "- 通用: 以上都不突出，多种元素混合\n\n"
+    "只输出类型名称，不要其他文字。\n\n"
+    "前3章摘要:\n{text}"
+)
+
+
+def _llm_classify_sub_genre(txt_path):
+    """v12: Use LLM to classify sub-genre from first 3 chapters. Falls back to None on error."""
+    try:
+        import http.client
+        with open(txt_path, 'r', encoding='utf-8', errors='ignore') as f:
+            full_text = f.read(15000)  # first ~15k chars (roughly 3 chapters)
+        # Build summary: first 1500 chars + chapter markers
+        text = full_text[:1500] if len(full_text) > 1500 else full_text
+        prompt = _SUB_GENRE_PROMPT.format(text=text)
+        data = json.dumps({
+            "messages": [
+                {"role": "system", "content": "你是网文分类专家，只输出类型名称。"},
+                {"role": "user", "content": prompt}
+            ],
+            "max_tokens": 20, "temperature": 0.0,
+        }).encode("utf-8")
+        port = _get_llm_port() if '_get_llm_port' in dir() else 8000
+        conn = http.client.HTTPConnection(f"127.0.0.1:{port}", timeout=30)
+        conn.request("POST", "/v1/chat/completions", body=data,
+                     headers={"Content-Type": "application/json"})
+        resp = json.loads(conn.getresponse().read())
+        conn.close()
+        raw = resp.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+        # Map response to known labels
+        for label in ["打脸流", "智斗流", "羁绊流", "恐怖悬疑流", "升级流", "通用"]:
+            if label in raw:
+                return label
+        return None
+    except Exception:
+        return None
+
+
+def classify_all_sub_genres(genre, novels):
+    """v12: Classify sub-genre for all novels in a genre using LLM. Stores in module cache."""
+    global _llm_sub_genre_cache
+    # Check if LLM is available
+    try:
+        import http.client
+        port = 8000
+        try:
+            with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+                cfg = yaml.safe_load(f) or {}
+            port = cfg.get("analysis", {}).get("llm_port", 8000)
+        except Exception:
+            pass
+        conn = http.client.HTTPConnection(f"127.0.0.1:{port}", timeout=5)
+        conn.request("GET", "/v1/models")
+        conn.getresponse().read()
+        conn.close()
+        llm_available = True
+    except Exception:
+        llm_available = False
+
+    classified = 0
+    for novel in novels:
+        name = novel.get("file", "").replace(".txt", "")
+        if name in _llm_sub_genre_cache:
+            continue
+        if not llm_available:
+            break
+        txt_path = PROJECT_ROOT / "data" / "raw" / "novels" / genre / novel.get("file", "")
+        if not txt_path.exists():
+            continue
+        label = _llm_classify_sub_genre(str(txt_path))
+        if label:
+            _llm_sub_genre_cache[name] = label
+            classified += 1
+    if classified > 0:
+        print(f"[OK] LLM sub-genre: {classified} books classified")
+    # Save cache to JSON for inspection
+    cache_path = PROJECT_ROOT / "data" / "processed" / genre / "sub_genre_llm.json"
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(_llm_sub_genre_cache, ensure_ascii=False, indent=2), encoding='utf-8')
+
+
+def _detect_sub_genre(rows, book_name=None):
+    """v4→v12: Detect sub-genre. LLM classification takes priority (from cache), regex fallback."""
+    # v12: Check LLM cache first by book_name
+    if book_name and _llm_sub_genre_cache:
+        for cached_name, label in _llm_sub_genre_cache.items():
+            if cached_name in book_name or book_name in cached_name:
+                return label
+    # Regex fallback (v4 original)
     subs = Counter(r["dominant_sub"] for r in rows if r.get("dominant_sub") != "none")
     total = sum(subs.values())
     if total == 0:
         return "通用"
-    # Also check v4 implicit fields if present
     bond_ct = sum(r.get("bond_count", 0) for r in rows)
     cognitive_ct = sum(r.get("cognitive_count", 0) for r in rows)
     sacrifice_ct = sum(r.get("sacrifice_count", 0) for r in rows)
@@ -454,7 +575,6 @@ def _detect_sub_genre(rows):
 
     slap_ratio = slap_ct / max(total, 1)
     bond_cog_sac = bond_ct + cognitive_ct + sacrifice_ct
-    # Explicit subtypes from Counter
     explicit_pleasure = (slap_ct + subs.get("突破", 0) + subs.get("碾压", 0) +
                          comeback_ct + subs.get("扮猪吃虎", 0))
     total_pleasure = explicit_pleasure + bond_cog_sac
@@ -469,7 +589,7 @@ def _detect_sub_genre(rows):
     return "通用"
 
 
-def compute_commercial_score(rows):
+def compute_commercial_score(rows, genre="末世", book_name=None):
     """分布驱动商业评分 (v6): 百分位排名替代魔术数字, S曲线替代线性, 频率替代二元."""
     total = len(rows)
     if total < 10:
@@ -503,7 +623,7 @@ def compute_commercial_score(rows):
     large_rate = pleasure_levels.get("large", 0) / max(total, 1)
 
     # ── P0-3: Read annotation reliability → adjust weights for low-F1 metrics ──
-    rel_path = PROJECT_ROOT / "data" / "processed" / "annotation_reliability.json"
+    rel_path = PROJECT_ROOT / "data" / "processed" / genre / "annotation_reliability.json"
     f1_weights = {"pleasure": 1.0, "hook": 1.0, "conflict": 1.0}
     if rel_path.exists():
         try:
@@ -527,176 +647,119 @@ def compute_commercial_score(rows):
     # Find this book's stem from its rhythm data
     book_stem = _find_book_stem(rows, llm_ch)
 
+    # v12: Load ALL LLM dimensions for signing+retention scoring
+    llm_data = {"intensity": [], "retention": [], "hook": [], "pace": [], "conflict": []}
     if book_stem:
-        # Merge LLM scores for current book
-        llm_intensities = []
-        llm_retentions = []
         sample_n = min(30, total)
         for r in rows[:sample_n]:
             key = (book_stem, r["ch_num"])
             if key in llm_ch:
-                llm_intensities.append(llm_ch[key]["intensity"])
-                llm_retentions.append(llm_ch[key]["retention"])
-        llm_avg_intensity = statistics.mean(llm_intensities) if llm_intensities else opening_intensity
-        llm_avg_retention = statistics.mean(llm_retentions) if llm_retentions else 5.0
-    else:
-        llm_avg_intensity = opening_intensity
-        llm_avg_retention = 5.0
+                for dim in llm_data:
+                    llm_data[dim].append(llm_ch[key][dim])
+    # Compute LLM averages (fallback to rule-based if no LLM data)
+    llm_avg_intensity = statistics.mean(llm_data["intensity"]) if llm_data["intensity"] else opening_intensity
+    llm_avg_retention = statistics.mean(llm_data["retention"]) if llm_data["retention"] else 5.0
+    llm_avg_hook = statistics.mean(llm_data["hook"]) if llm_data["hook"] else (opening_hook * 10)
+    llm_avg_pace = statistics.mean(llm_data["pace"]) if llm_data["pace"] else 6.0
+    llm_avg_conflict = statistics.mean(llm_data["conflict"]) if llm_data["conflict"] else (opening_conflict * 10)
+    # Opening-specific LLM scores (first 3 chapters)
+    llm_opening_int = llm_data["intensity"][:3] if len(llm_data["intensity"]) >= 3 else llm_data["intensity"]
+    llm_opening_hook = llm_data["hook"][:3] if len(llm_data["hook"]) >= 3 else llm_data["hook"]
+    llm_opening_ret = llm_data["retention"][:3] if len(llm_data["retention"]) >= 3 else llm_data["retention"]
+    llm_opening_intensity = statistics.mean(llm_opening_int) if llm_opening_int else llm_avg_intensity
+    llm_opening_hook_val = statistics.mean(llm_opening_hook) if llm_opening_hook else llm_avg_hook
+    llm_opening_retention = statistics.mean(llm_opening_ret) if llm_opening_ret else llm_avg_retention
+    # Paywall hook: LLM retention at ~20% mark (free chapter boundary)
+    paywall_idx = max(0, min(len(llm_data["retention"]) - 1, len(llm_data["retention"]) // 5))
+    llm_paywall_ret = llm_data["retention"][paywall_idx] if llm_data["retention"] else 5.0
 
     # ── v4: Sub-genre detection for adaptive scoring ──
-    sub_genre = _detect_sub_genre(rows)
+    sub_genre = _detect_sub_genre(rows, book_name=book_name)
 
     # ── v9: Bayesian Stacking (replaces Pseudo-BMA, arxiv 2504.21303 + stan loo) ──
     # Stacking optimizes weights to maximize leave-one-out predictive log score,
     # avoiding BMA's "winner-take-all" weight collapse.
-    bw = _load_bayesian_weights()
+    bw = _load_bayesian_weights(genre)
 
-    # P1-2: DACA — disagreement-aware confidence alignment
-    # When rule and LLM disagree sharply, downweight that dimension
-    rule_intensity_proxy = min(10.0, max(0.0, (opening_pos_density + 0.5) * 10.0))
-    disagreement_intensity = abs(rule_intensity_proxy - llm_avg_intensity) / max(rule_intensity_proxy + llm_avg_intensity, 1)
-    daca_penalty_intensity = 1.0 - disagreement_intensity * 0.3  # 30% penalty at max disagreement
+    # ══════════════════════════════════════════════════════════════
+    # v12: LLM-DOMINANT SCORING — "赚钱导向"重构
+    # 核心理念: 新人作者赚钱 = 签约(前3章质量) + 留存(读者追读)
+    # LLM语义评分占 85%, 正则仅作 15% 补充
+    # ══════════════════════════════════════════════════════════════
 
-    # Intensity: Bayesian Stacking blend with DACA penalty
-    bw_int = bw["intensity"]
-    stacked_intensity = rule_intensity_proxy * bw_int["w_rule"] + llm_avg_intensity * bw_int["w_llm"]
-    scores["首章爽点"] = percentile_score(stacked_intensity * daca_penalty_intensity, pool, "intensity")
+    # ── Score 1: 签约概率 (Signing Probability) ──
+    # 对标: 番茄编辑评估 + 前3章完读率≥45%方可进入首秀池
+    # LLM opening scores (0-10 scale) → percentile in fire-book pool
+    signing_intensity = percentile_score(llm_opening_intensity, pool, "intensity")  # 首章爽感
+    signing_hook = percentile_score(llm_opening_hook_val, pool, "hook_density")     # 前3章钩子
+    signing_paywall = percentile_score(llm_paywall_ret, pool, "retention")          # 付费墙钩子
+    # Rule-based supplement (15% weight)
+    rule_conflict_pct = percentile_score(opening_conflict, pool, "conflict")
+    signing_score = round(
+        signing_intensity * 0.35 +
+        signing_hook * 0.30 +
+        signing_paywall * 0.20 +
+        rule_conflict_pct * 0.15
+    )
 
-    # Hook: Bayesian Stacking
-    bw_hook = bw["hook"]
-    blended_hook = opening_hook * bw_hook["w_rule"]
-    if book_stem and llm_avg_intensity > opening_intensity:
-        blended_hook += llm_avg_intensity * 0.025 * 2.8
-    # P1-2: DACA for hook — rule hook vs LLM intensity disagreement
-    disagreement_hook = abs(opening_hook - llm_avg_intensity * 0.025) / max(opening_hook + llm_avg_intensity * 0.025, 0.1)
-    daca_penalty_hook = 1.0 - disagreement_hook * 0.3
-    scores["前3章钩子"] = percentile_score(max(blended_hook, opening_hook) * daca_penalty_hook, pool, "hook_density")
+    # ── Score 2: 留存预测 (Retention Prediction) ──
+    # 对标: 读者追读动力 → 完读率
+    retention_llm = percentile_score(llm_avg_retention, pool, "retention")        # 全书 LLM 留存
+    intensity_llm = percentile_score(llm_avg_intensity, pool, "intensity")        # 全书 LLM 爽感
+    # Pace consistency: low variance in LLM pace = consistent = good
+    pace_vals = llm_data["pace"] if llm_data["pace"] else [6.0]
+    pace_std = statistics.stdev(pace_vals) if len(pace_vals) > 1 else 0
+    pace_consistency = max(0, 100 - pace_std * 15)  # std=0→100, std=3→55
+    retention_pace = percentile_score(pace_consistency, pool, "hook_density")  # use hook_density pool as proxy
+    # Rule-based hook coverage supplement (15%)
+    hook_coverage = sum(1 for r in rows if r.get("hook_density", 0) > 0) / max(total, 1) * 100
+    retention_rule = percentile_score(hook_coverage, pool, "hook_density")
+    retention_score = round(
+        retention_llm * 0.40 +
+        intensity_llm * 0.25 +
+        retention_pace * 0.20 +
+        retention_rule * 0.15
+    )
 
-    # Conflict: Bayesian Stacking
-    bw_cf = bw["conflict"]
-    blended_conflict = opening_conflict * (1.0 + bw_cf["w_rule"] * 0.3)
-    scores["前3章冲突"] = percentile_score(blended_conflict, pool, "conflict")
-
-    # 留存 (v4: 子类型感知打脸频率)
-    scores["零钩子连续"] = 100 if zero_hook_streak <= 2 else max(0, 100 - zero_hook_streak * 30)
-    # v4: Sub-genre aware slap zone
-    # 外部评审: 0.25-0.5 只适用于打脸流, 智斗/羁绊流应使用不同区间
-    _slap_zones = {
-        "打脸流": (0.25, 0.50),
-        "智斗流": (0.05, 0.15),
-        "羁绊流": (0.05, 0.10),
-        "通用": (0.20, 0.45),
-    }
-    slap_lo, slap_hi = _slap_zones.get(sub_genre, (0.20, 0.45))
-    if slap_lo <= slap_rate <= slap_hi:
-        scores["打脸频率"] = 90
-    elif slap_rate < slap_lo * 0.4:
-        scores["打脸频率"] = max(0, round(slap_rate / (slap_lo * 0.4) * 50))
-    elif slap_rate > slap_hi * 1.5:
-        scores["打脸频率"] = max(0, 90 - (slap_rate - slap_hi * 1.5) * 100)
-    else:
-        scores["打脸频率"] = percentile_score(slap_rate, pool, "slap_rate")
-
-    # 爽点多样性 (Shannon index → percentile)
+    # ── Backward-compatible sub-scores (for Borda ranking dims) ──
+    scores["前3章钩子"] = signing_hook
+    scores["前3章冲突"] = rule_conflict_pct
+    scores["首章爽点"] = signing_intensity
+    scores["读者留存力"] = retention_llm
     scores["爽点多样性"] = percentile_score(shannon_div, pool, "diversity")
-
-    # 爆款 (v4: 频率制 + 方差检测)
-    scores["反转频率"] = percentile_score(reversal_rate, pool, "reversal_rate")
-    scores["悬念频率"] = percentile_score(suspense_rate, pool, "suspense_rate")
-    scores["大爽频率"] = percentile_score(large_rate, pool, "large_rate")
-
-    # v6: 读者留存力 (P0: 规则代理 — 零钩子连续簇数量, 消除LLM幻觉)
-    zero_hook_clusters = 0
-    current_streak = 0
-    for r in rows:
-        if r.get("hook_density", 1) == 0:
-            current_streak += 1
-        else:
-            if current_streak >= 2:
-                zero_hook_clusters += 1
-            current_streak = 0
-    if current_streak >= 2:
-        zero_hook_clusters += 1
-    scores["读者留存力"] = percentile_score(100 - zero_hook_clusters * 5, pool, "retention")
-
-    # P0: 付费转化钩子 — 免费章末钩子强度
-    free_ch = min(30, max(10, len(rows) // 5))
-    if len(rows) > free_ch:
-        last_free = rows[free_ch - 1] if free_ch <= len(rows) else rows[-1]
-        paywall_hook = last_free.get("hook_density", 0)
-        paywall_type = last_free.get("hook_type", "none")
-        scores["付费转化钩子"] = percentile_score(paywall_hook * 100, pool, "hook_density")
-    else:
-        scores["付费转化钩子"] = 50
-
-    # ── v4: 维度方差检测 ──
-    bonus_dims = {
-        "反转频率": scores["反转频率"],
-        "悬念频率": scores["悬念频率"],
-        "大爽频率": scores["大爽频率"],
-        "读者留存力": scores["读者留存力"],
-        "付费转化钩子": scores["付费转化钩子"],
-    }
-    bonus_vals = list(bonus_dims.values())
-    zero_var_dims = [k for k, v in bonus_dims.items() if v == 50]
-
-    # ── P1-1: Bradley-Terry pairwise ranking (arxiv 2502.10985) ──
-    # Compute pairwise win probability against all pool books, then average.
-    # Score = mean(BT_win_prob) * 100, gives relative ranking without absolute scores.
+    scores["付费转化钩子"] = signing_paywall
+    # BT ranking (keep — uses rule hook for pairwise comparison)
     bt_wins = 0
     bt_comparisons = 0
     if pool.get("_sorted"):
         for other_hook in pool["_sorted"].get("hook_density", []):
             bt_comparisons += 1
-            # Bradley-Terry: P(book beats other) = exp(book_score) / (exp(book_score) + exp(other_score))
-            our = max(0.1, opening_hook)
+            our = max(0.1, llm_opening_hook_val / 10.0)  # LLM hook normalized
             th = max(0.1, other_hook)
             if our / (our + th) > 0.5:
                 bt_wins += 1
     bt_rank = round(bt_wins / max(bt_comparisons, 1) * 100)
     scores["BT相对排名"] = bt_rank
-
-    # ── P2: WebNovelBench 8-dim alignment (arxiv 2505.14818) ──
-    # Map our metrics to the 8 narrative quality dimensions
-    # plot(情节), character(人物), style(文笔), readability(可读性),
-    # creativity(创新), coherence(连贯), emotion(情感), engagement(吸引力)
-    webnovel = {}
-    webnovel["情节强度"] = percentile_score(blended_conflict, pool, "conflict")
-    webnovel["人物深度"] = percentile_score(shannon_div * 10, pool, "diversity")  # diversity→character
-    avg_readable = statistics.mean([r.get("readability", 0.5) for r in rows])
-    webnovel["文笔风格"] = percentile_score(avg_readable * 100, pool, "readability")
-    webnovel["创新度"] = percentile_score(reversal_rate * 100, pool, "reversal_rate")  # 反转率→创新
-    webnovel["连贯性"] = percentile_score(100 - zero_hook_streak * 5, pool, "hook_density")
-    webnovel["情感张力"] = scores["首章爽点"]  # intensity→emotion
-    webnovel["读者吸引力"] = scores["BT相对排名"]  # BT rank→engagement proxy
+    # WebNovelBench (simplified — LLM-based)
+    webnovel = {
+        "情节强度": rule_conflict_pct,
+        "人物深度": percentile_score(shannon_div * 10, pool, "diversity"),
+        "文笔风格": percentile_score(statistics.mean([r.get("readability", 0.5) for r in rows]) * 100, pool, "readability"),
+        "情感张力": signing_intensity,
+        "读者吸引力": bt_rank,
+    }
     scores["WebNovelBench综合"] = round(statistics.mean(webnovel.values()))
 
-    # 综合加权 (P1: equal-weight when n<30, gradual transition to data-driven)
-    sign = (scores["前3章钩子"] + scores["前3章冲突"] + scores["首章爽点"]) / 3
-    retain_old = (scores["零钩子连续"] + scores["打脸频率"] + scores["爽点多样性"]) / 3
-    bonus = statistics.mean(bonus_vals)
+    # ── v12: Overall = signing * 0.5 + retention * 0.5 ──
+    # (equal weight — both equally important for new author survival)
+    sign = signing_score
+    retain_old = retention_score  # backward compat variable name
+    bonus = retention_score  # for backward compat with grade calculation
+    overall = round(signing_score * 0.5 + retention_score * 0.5)
 
-    # Equal weights for small sample (avoid Grid Search overfitting at n=10)
-    # v10: boost bonus weight 1/3→1/2 (WebN8综合+BT排名 signal > pure hook_density)
-    equal_weights = {"sign": 0.20, "retain": 0.30, "bonus": 0.50}
-    _genre_weights = {
-        "打脸流": {"sign": 0.30, "retain": 0.25, "bonus": 0.45},  # v10: bonus↑
-        "智斗流": {"sign": 0.30, "retain": 0.15, "bonus": 0.55},  # 智斗重创新
-        "羁绊流": {"sign": 0.15, "retain": 0.20, "bonus": 0.65},  # 羁绊重情感深度
-        "通用":   {"sign": 0.20, "retain": 0.35, "bonus": 0.45},
-    }
-    data_driven = _genre_weights.get(sub_genre, _genre_weights["通用"])
-    n_pool = pool.get("n_books", 0)
-    # Shrinkage: n<30 → equal, 30≤n<50 → 0.7*equal+0.3*data, n≥50 → data_driven
-    if n_pool < 30:
-        gw = equal_weights
-    elif n_pool < 50:
-        gw = {k: 0.7 * equal_weights[k] + 0.3 * data_driven.get(k, equal_weights[k])
-              for k in equal_weights}
-    else:
-        gw = data_driven
-
-    overall = round(sign * gw["sign"] + retain_old * gw["retain"] + bonus * gw["bonus"])
+    # zero_var_dims: keep for backward compat
+    zero_var_dims = []
+    gw = {"sign": 0.5, "retain": 0.5, "bonus": 0.0}  # v12: simplified
 
     # ── Bootstrap 95% CI (resample dimension scores with replacement, n=1000) ──
     import random as _random
@@ -745,6 +808,9 @@ def compute_commercial_score(rows):
         "scores": scores, "risks": risks[:10],
         "pool_n": pool["n_books"],
         "sub_genre": sub_genre,
+        "signing_score": signing_score,   # v12: LLM-dominant signing probability
+        "retention_score": retention_score,  # v12: LLM-dominant retention prediction
+        "llm_coverage": len(llm_data["intensity"]) > 0,  # v12: whether LLM data was available
         "zero_var_dims": zero_var_dims,
         "grade_stability": round(grade_stable * 100),
         "annotation_reliability": f1_weights,
@@ -752,8 +818,8 @@ def compute_commercial_score(rows):
     }
 
 
-def analyze_single_novel(name, csv_name):
-    rows = load_rhythm_data(csv_name)
+def analyze_single_novel(name, csv_name, genre="末世"):
+    rows = load_rhythm_data(csv_name, genre)
     if not rows: return None
     total_ch = len(rows)
     if total_ch == 0: return None
@@ -807,7 +873,7 @@ def analyze_single_novel(name, csv_name):
     result["tags"] = compute_tags(rows)
 
     # Commercial viability 🆕
-    result["commercial"] = compute_commercial_score(rows)
+    result["commercial"] = compute_commercial_score(rows, genre, book_name=name)
 
     # Diversity + arc (keep existing)
     result["plot_diversity"] = _compute_plot_diversity(rows)
@@ -1274,7 +1340,7 @@ def evaluate_loocv(genre, analyses):
             print(f"  LOOCV[{i+1}/10] [SKIP] no csv match for {name[:20]}")
             continue
         try:
-            rows = load_rhythm_data(csv_name)
+            rows = load_rhythm_data(csv_name, genre)
         except Exception as e:
             print(f"  LOOCV[{i+1}/10] [SKIP] {name[:20]}: CSV error ({e})")
             continue
@@ -1283,7 +1349,7 @@ def evaluate_loocv(genre, analyses):
             continue
 
         # Score against 9-book pool
-        comm = compute_commercial_score(rows)
+        comm = compute_commercial_score(rows, genre, book_name=name)
         overall = comm.get("overall", 0)
         if overall > 0:
             pred_scores.append(overall)
@@ -1329,30 +1395,55 @@ def process_genre(genre):
     if not novels:
         print(f"[SKIP] {genre}: 无书籍数据")
         return None
+    # v12: LLM sub-genre classification (before analysis loop)
+    global _llm_sub_genre_cache
+    cache_path = PROJECT_ROOT / "data" / "processed" / genre / "sub_genre_llm.json"
+    if cache_path.exists():
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                _llm_sub_genre_cache = json.load(f)
+        except Exception:
+            pass
+    classify_all_sub_genres(genre, novels)
     analyses = []
     for novel in novels:
         csv_name = novel.get("rhythm_csv")
         if not csv_name: continue
         print(f"[ANALYZE] {novel['file']}")
-        a = analyze_single_novel(novel['file'].replace('.txt', ''), csv_name)
+        a = analyze_single_novel(novel['file'].replace('.txt', ''), csv_name, genre)
         if a: analyses.append(a)
     if not analyses: return None
     evaluate_loocv(genre, analyses)
 
-    # ── v10: Borda Count multi-dimensional consensus ranking (IJCAI 2024, Borda 1770) ──
+    # ── v11: Borda Count multi-dimensional consensus ranking ──
     # Each dimension ranks books independently, then Borda sums positions.
     # Dims: hook, conflict, intensity, readability, BT_rank, WebN8_aggregate, diversity, dialogue
-    # f1_weights from annotation_reliability: downweight low-F1 dimensions
+    # v11b: length correction — per-chapter averages penalize long books (e.g. 1800ch)
+    # Apply log-correction: score *= 1 + 0.20 * log2(ch/median_ch) for ch > 1.5*median
     f1_default = {"pleasure": 1.0, "hook": 1.0, "conflict": 1.0}
+    ch_counts = [a.get("total_ch", 0) for a in analyses if a.get("total_ch", 0) > 0]
+    median_ch = sorted(ch_counts)[len(ch_counts) // 2] if ch_counts else 100
+
+    def _length_correct(score, total_ch):
+        """Correct per-chapter average metrics for book length dilution.
+        Books >1.5x median get a log-scaled bonus; shorter books unchanged.
+        v11b: lowered threshold (2x→1.5x), raised coeff (0.15→0.20), cap 1.8x."""
+        if total_ch <= median_ch * 1.5 or median_ch <= 0:
+            return score
+        ratio = total_ch / max(median_ch, 1)
+        correction = 1.0 + 0.20 * math.log2(ratio)
+        return score * min(correction, 1.8)  # cap at 1.8x to prevent over-correction
+
+    # v12: Borda 5-dim LLM-dominant ranking
+    # Reduced from 8 regex-based dims to 5 dims with LLM as primary signal source.
+    # signing + retention from LLM-dominant commercial score (v12).
     dims = [
-        ("hook_density", lambda a, f1=f1_default: a.get("commercial", {}).get("scores", {}).get("前3章钩子", 50) * a.get("commercial", {}).get("annotation_reliability", f1).get("hook", 1.0)),
-        ("conflict",     lambda a, f1=f1_default: a.get("commercial", {}).get("scores", {}).get("前3章冲突", 50) * a.get("commercial", {}).get("annotation_reliability", f1).get("conflict", 1.0)),
-        ("intensity",    lambda a, f1=f1_default: a.get("commercial", {}).get("scores", {}).get("首章爽点", 50) * a.get("commercial", {}).get("annotation_reliability", f1).get("pleasure", 1.0)),
-        ("readability",  lambda a: a.get("commercial", {}).get("scores", {}).get("读者留存力", 50)),
-        ("diversity",    lambda a: a.get("commercial", {}).get("scores", {}).get("爽点多样性", 50)),
+        ("signing",      lambda a: a.get("commercial", {}).get("signing_score", 50)),
+        ("retention",    lambda a: a.get("commercial", {}).get("retention_score", 50)),
+        ("diversity",    lambda a: _length_correct(
+            a.get("commercial", {}).get("scores", {}).get("爽点多样性", 50), a.get("total_ch", 0))),
         ("bt_rank",      lambda a: a.get("commercial", {}).get("scores", {}).get("BT相对排名", 50)),
         ("webnovel8",    lambda a: a.get("commercial", {}).get("scores", {}).get("WebNovelBench综合", 50)),
-        ("dialogue",     lambda a: a.get("rhythm_stats", {}).get("dialogue_ratio", 0.25) * 100),
     ]
     borda = {}
     for dim_name, score_fn in dims:
@@ -1372,14 +1463,30 @@ def process_genre(genre):
         data["book_name"] = stem
         ranking_data.append(data)
     # Save ranking
-    rank_path = PROJECT_ROOT / "outputs" / "reports" / genre / "synthesis" / f"{genre}_borda_ranking.json"
+    rank_path = PROJECT_ROOT / "data" / "reports" / genre / "synthesis" / f"{genre}_borda_ranking.json"
     rank_path.parent.mkdir(parents=True, exist_ok=True)
     with open(rank_path, 'w', encoding='utf-8') as f:
         json.dump(ranking_data, f, ensure_ascii=False, indent=2)
     print(f"[OK] Borda Ranking: {rank_path}")
 
+    # v11: Persist commercial scores to JSON for quality_gate consumption
+    # This closes the data loop: synthesizer → JSON → quality_gate (next run)
+    scores_path = PROJECT_ROOT / "data" / "processed" / genre / "commercial_scores.json"
+    scores_path.parent.mkdir(parents=True, exist_ok=True)
+    scores_data = {}
+    for a in analyses:
+        comm = a.get("commercial", {})
+        if comm and isinstance(comm.get("overall"), int):
+            scores_data[a["name"]] = {
+                "overall": comm["overall"],
+                "grade": comm.get("grade", ""),
+                "sub_genre": comm.get("sub_genre", ""),
+            }
+    scores_path.write_text(json.dumps(scores_data, ensure_ascii=False, indent=2), encoding='utf-8')
+    print(f"[OK] Commercial Scores: {scores_path}")
+
     synth = synthesize_genre(genre, analyses)
-    output_dir = PROJECT_ROOT / "outputs" / "reports" / genre / "synthesis"
+    output_dir = PROJECT_ROOT / "data" / "reports" / genre / "synthesis"
     output_dir.mkdir(parents=True, exist_ok=True)
     generate_report(genre, analyses, synth, output_dir / f"{genre}_写作技法总纲.md")
     auto_benchmark(synth, analyses, output_dir)
@@ -1413,7 +1520,7 @@ def cross_genre_summary(genre_results):
             f"{synth.get('avg_hook','?')} | {synth.get('avg_conflict','?')} | "
             f"{synth.get('avg_pleasure','?')} |")
     lines.append("\n## 写作建议\n- 同一题材书籍越多,基准越可靠\n- 差异过大的题材可能需要不同创作策略")
-    out = PROJECT_ROOT / "outputs" / "reports" / "cross_genre_comparison.md"
+    out = PROJECT_ROOT / "data" / "reports" / "cross_genre_comparison.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines), encoding='utf-8')
     print(f"\n[CROSS-GENRE] 跨题材对比报告: {out}")

@@ -23,10 +23,12 @@ from collections import Counter
 import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-RHYTHM_DIR = PROJECT_ROOT / "data" / "processed" / "rhythm"
 NOVELS_DIR = PROJECT_ROOT / "data" / "raw" / "novels"
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
-OUTPUT_DIR = PROJECT_ROOT / "outputs" / "reports"
+
+
+def _rhythm_dir(genre):
+    return PROJECT_ROOT / "data" / "processed" / genre / "rhythm"
 
 # LLM server config
 def _load_llama_base():
@@ -477,7 +479,7 @@ def run_deep(genre="末世", top_n=3, bottom_n=3, n_key=30):
         n_key: key chapters per book (default 30)
     """
     # Load Borda ranking
-    borda_path = PROJECT_ROOT / "outputs" / "reports" / genre / "synthesis" / f"{genre}_borda_ranking.json"
+    borda_path = PROJECT_ROOT / "data" / "reports" / genre / "synthesis" / f"{genre}_borda_ranking.json"
     if not borda_path.exists():
         print(f"[FAIL] Borda ranking not found: {borda_path}")
         print("  Run first: python analysis/genre_synthesizer.py --genre", genre)
@@ -509,7 +511,7 @@ def run_deep(genre="末世", top_n=3, bottom_n=3, n_key=30):
     print("=" * 60)
 
     # Load manifest for stem→file mapping
-    manifest_path = PROJECT_ROOT / "data" / "processed" / "quality_manifest.json"
+    manifest_path = PROJECT_ROOT / "data" / "processed" / genre / "quality_manifest.json"
     stem_map = {}
     if manifest_path.exists():
         with open(manifest_path, 'r', encoding='utf-8') as f:
@@ -531,19 +533,19 @@ def run_deep(genre="末世", top_n=3, bottom_n=3, n_key=30):
                 txt_path = Path(filepath) if Path(filepath).exists() else None
                 if not txt_path:
                     txt_path = genre_dir / filepath
-                csv_path = RHYTHM_DIR / f"rhythm_{Path(filepath).stem}.csv"
+                csv_path = _rhythm_dir(genre) / f"rhythm_{Path(filepath).stem}.csv"
                 if csv_path.exists() and (txt_path and txt_path.exists()):
                     return txt_path, csv_path
 
         # Fallback: scan directory
         for txt in sorted(genre_dir.glob("*.txt")):
             if book_name[:6] in txt.stem or txt.stem[:6] in book_name:
-                csv_path = RHYTHM_DIR / f"rhythm_{txt.stem}.csv"
+                csv_path = _rhythm_dir(genre) / f"rhythm_{txt.stem}.csv"
                 if csv_path.exists():
                     return txt, csv_path
 
         # Last fallback: try any CSV
-        for csv_f in sorted(RHYTHM_DIR.glob("rhythm_*.csv")):
+        for csv_f in sorted(_rhythm_dir(genre).glob("rhythm_*.csv")):
             stem = csv_f.stem.replace("rhythm_", "")
             if book_name[:6] in stem or stem[:6] in book_name:
                 for txt in sorted(genre_dir.glob("*.txt")):
@@ -560,7 +562,7 @@ def run_deep(genre="末世", top_n=3, bottom_n=3, n_key=30):
     except Exception:
         pass
 
-    out_dir = OUTPUT_DIR / genre / "deep_diagnosis"
+    out_dir = PROJECT_ROOT / "data" / "reports" / genre / "deep_diagnosis"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     top_diags = []

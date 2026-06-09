@@ -1,0 +1,16 @@
+﻿feature,r_vs_llm_intensity,r_vs_llm_conflict,r_vs_llm_bond,keep
+pos_density,0.445,0.327,0.095,yes
+neg_density,0.241,0.443,0.13,yes
+conflict_density,0.406,0.348,-0.1,yes
+hook_density,0.096,0.135,-0.015,yes
+excl_density,0.108,0.069,0.188,yes
+dialogue_ratio,-0.091,-0.105,0.177,yes
+slap_count,0.096,0.109,0.048,yes
+bond_count,0.155,0.212,0.08,yes
+cognitive_count,0.017,0.072,0.037,no
+sacrifice_count,0.053,0.024,-0.13,no
+physio_count,0.179,0.221,0.285,yes
+crush_count,0.3,0.338,-0.068,yes
+comeback_count,0.178,0.082,-0.119,yes
+level_count,0.086,0.053,-0.081,no
+rule_intensity,0.123,0.087,0.189,yes

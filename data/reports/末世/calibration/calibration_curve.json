@@ -1,0 +1,28 @@
+{
+  "n_samples": 100,
+  "rule_llm_r": 0.123,
+  "linear_model": {
+    "a": 0.106,
+    "b": 2.8,
+    "formula": "llm = 0.106*rule + 2.8"
+  },
+  "per_subgenre_bias": {
+    "slap": {
+      "bias": -3.54,
+      "n": 5
+    },
+    "smart": {
+      "bias": -0.69,
+      "n": 9
+    },
+    "bond": {
+      "bias": -0.29,
+      "n": 48
+    },
+    "general": {
+      "bias": -1.31,
+      "n": 38
+    }
+  },
+  "feature_importance_file": "D:\\Code\\xiaoshuo\\data\\calibration\\feature_importance.csv"
+}

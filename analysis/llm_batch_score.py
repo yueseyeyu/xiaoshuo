@@ -49,8 +49,14 @@ from collections import Counter
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 NOVELS_DIR = PROJECT_ROOT / "data" / "raw" / "novels"
 INDEX_PATH = PROJECT_ROOT / "data" / "raw" / "novel_index.json"
-RHYTHM_DIR = PROJECT_ROOT / "data" / "processed" / "rhythm"
-LLM_DIR = PROJECT_ROOT / "data" / "processed" / "llm_scores"
+
+
+def _rhythm_dir(genre):
+    return PROJECT_ROOT / "data" / "processed" / genre / "rhythm"
+
+
+def _llm_dir(genre):
+    return PROJECT_ROOT / "data" / "processed" / genre / "llm_scores"
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
 
@@ -67,6 +73,19 @@ def _load_llama_base():
 
 LLAMA_BASE = _load_llama_base()
 LLAMA_HOST = urllib.parse.urlparse(LLAMA_BASE).netloc  # e.g. "127.0.0.1:8000"
+
+
+def _get_server_parallel():
+    """Read LLM server parallel setting from config.yaml for optimal worker count."""
+    try:
+        with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+            cfg = yaml.safe_load(f)
+        return cfg.get("analysis", {}).get("llm_parallel", 2)
+    except Exception:
+        return 2
+
+
+LLM_PARALLEL = _get_server_parallel()
 
 sys.path.insert(0, str(PROJECT_ROOT / "analysis"))
 from rhythm_analyzer import extract_chapters
@@ -104,38 +123,41 @@ _RUBRIC_TEMPLATE = (
 )
 
 
-def _build_rubric_prompt(chapter_text, ch_num):
-    """Build rubric scoring prompt from template (safe replace, avoids format() KeyError).
-    v8: Use head(400)+tail(800) to capture chapter-end hooks while minimizing prefill tokens.
-    v3: L1-1 LLMLingua-2 compression for rubric prefix (fixed 200 tokens cached)."""
+def _build_rubric_prompts(chapter_text, ch_num):
+    """Build system+user message pair for rubric scoring.
+    v9: Prefix Caching — rubric in system (fixed), chapter in user (variable).
+    llama-server --cache-prompt reuses KV for system prefix across all calls."""
     text = chapter_text
     if len(text) > 1200:
-        text = text[:400] + "\n...[中段省略]...\n" + text[-800:]
+        text = text[:400] + "\n...[中段省略...\n" + text[-800:]
     else:
         text = text[:1200]
 
-    # L1-1: Compress rubric prefix (fixed 200 tokens, repeated 900 times = best caching target)
-    rubric = _RUBRIC_TEMPLATE
-    if not getattr(_build_rubric_prompt, "_rubric_cached", False) and _init_lingua():
+    # System message: fixed rubric template (KV cache reusable)
+    system_msg = _RUBRIC_TEMPLATE
+    if not getattr(_build_rubric_prompts, "_rubric_cached", False) and _init_lingua():
         try:
-            rubric = _lingua.compress_prompt(
+            system_msg = _lingua.compress_prompt(
                 _RUBRIC_TEMPLATE, rate=0.5, force_tokens=["intensity", "conflict", "emotion", "pace", "hook", "retention", "JSON"]
             )["compressed_prompt"]
-            _build_rubric_prompt._rubric_cached = True
+            _build_rubric_prompts._rubric_cached = True
         except Exception:
             pass
 
-    return (rubric
-            .replace("{ch_num}", str(ch_num))
-            .replace("{chapter_text}", text))
+    # User message: only chapter-specific content (varies per call)
+    user_msg = f"第{ch_num}章:\n{text}"
+    return system_msg, user_msg
 
 
 def llm_score_rubric(chapter_text, ch_num, conn=None):
     """Rubric-based scoring (Rubric Is All You Need, ACM 2025).
-    v8: Optional conn for HTTP connection reuse (avoid 600 TCP handshakes)."""
-    prompt = _build_rubric_prompt(chapter_text, ch_num)
+    v9: system/user separation for prefix caching."""
+    system_msg, user_msg = _build_rubric_prompts(chapter_text, ch_num)
     data = json.dumps({
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": [
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_msg}
+        ],
         "max_tokens": 180, "temperature": 0.1,
     }).encode("utf-8")
 
@@ -211,9 +233,12 @@ def llm_score_self_consistency(chapter_text, ch_num, n_samples=3, conn=None):
     for t in temps:
         # Multiple temperature samples for self-consistency
         try:
-            prompt = _build_rubric_prompt(chapter_text, ch_num)
+            system_msg, user_msg = _build_rubric_prompts(chapter_text, ch_num)
             data = json.dumps({
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": [
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": user_msg}
+                ],
                 "max_tokens": 180, "temperature": t,
             }).encode("utf-8")
             if conn:
@@ -317,9 +342,9 @@ def batch_book(txt_path, csv_path, max_chapters=None, sc_samples=1):
             return (i, ch_num, None)
         return (i, ch_num, llm, rule, ch["wc"])
 
-    # Submit all, collect in order (P1-5: max_workers=1 to avoid slot contention)
+    # Submit all, collect in order (v9: max_workers matches server --parallel)
     ordered = [None] * n
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=LLM_PARALLEL) as executor:
         futures = {}
         for packed in enumerate(idx_to_score):
             fut = executor.submit(_score_chapter, packed)
@@ -398,8 +423,10 @@ def batch_book(txt_path, csv_path, max_chapters=None, sc_samples=1):
         return None
 
     # Save
-    LLM_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = LLM_DIR / f"{name}_llm.csv"
+    genre = Path(txt_path).parent.name
+    llm_out = _llm_dir(genre)
+    llm_out.mkdir(parents=True, exist_ok=True)
+    out_path = llm_out / f"{name}_llm.csv"
     fields = ["ch_num", "wc",
               "llm_intensity", "llm_conflict", "llm_emotion", "llm_pace", "llm_hook", "llm_retention",
               "rule_intensity", "rule_hook", "rule_emotion", "rule_pace"]
@@ -456,12 +483,12 @@ def main():
             continue
 
         csv_name = novel.get("rhythm_csv", "")
-        csv_path = RHYTHM_DIR / csv_name if csv_name else None
+        csv_path = _rhythm_dir(genre) / csv_name if csv_name else None
 
         print(f"\n[BOOK] {txt_file[:40]}")
         batch_book(txt_path, csv_path, max_ch, sc_samples)
 
-    print(f"\n[DONE] LLM scores saved to {LLM_DIR}")
+    print(f"\n[DONE] LLM scores saved to {_llm_dir(genre)}")
 
 
 if __name__ == "__main__":

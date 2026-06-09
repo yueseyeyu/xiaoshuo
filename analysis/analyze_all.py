@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-analyze_all.py — 一键全量分析管线 v5
+analyze_all.py — 一键全量分析管线 v6
 =====================================
-流程: book_processor → rhythm → genre_synthesizer → quality_gate → creative_bridge
-     ↑ Step0          ↑ Step1   ↑ Step2              ↑ Step3        ↑ Step4
+流程: book_processor → rhythm → rhythm_audit → genre_synthesizer → score_audit → quality_gate → creative_bridge
+     ↑ Step0          ↑ Step1   ↑ Step1.5       ↑ Step2             ↑ Step2.5      ↑ Step3        ↑ Step4
      (--with-llm 开启 llm_labeler → llm_batch_score 注入LLM增强)
 
 fixes (R3): ① 纳入 llm_labeler + llm_batch_score (--with-llm)
@@ -82,7 +82,7 @@ def main():
         if arg == "--with-llm":
             with_llm = True
 
-    total = 7 if with_llm else 5
+    total = 9 if with_llm else 7
     step_n = 0
 
     # Step 0: Book processor
@@ -104,6 +104,11 @@ def main():
     if not run_step(f"Step {step_n}/{total}: Rhythm Analysis", "rhythm_analyzer.py", rhythm_args):
         return
 
+    # Step 1.5: Rhythm data audit (quality check on split data)
+    step_n += 1
+    audit_args = genre_arg if genre_arg else []
+    run_optional(f"Step {step_n}/{total}: Rhythm Audit (拆书数据质检)", "rhythm_auditor.py", audit_args)
+
     # Step 1.5 (optional): LLM batch score — rubric-based chapter scoring
     if with_llm:
         step_n += 1
@@ -116,6 +121,11 @@ def main():
     step_n += 1
     if not run_step(f"Step {step_n}/{total}: Genre Synthesis", "genre_synthesizer.py", genre_arg):
         return
+
+    # Step 2.5: Score audit (quality check on commercial scores + Borda ranking)
+    step_n += 1
+    score_audit_args = genre_arg if genre_arg else []
+    run_optional(f"Step {step_n}/{total}: Score Audit (商业评分质检)", "score_auditor.py", score_audit_args)
 
     # Step 3: Quality gate AFTER synthesis (reads real commercial scores, not proxy)
     if not skip_gate:
@@ -135,9 +145,9 @@ def main():
         print(f"\n[SKIP] Creative bridge skipped (--skip-bridge)")
 
     print(f"\n[DONE] Full pipeline complete ({'LLM enhanced' if with_llm else 'rule-only'}).")
-    print(f"  Reports:     outputs/reports/")
-    print(f"  Guidance:    outputs/reports/creative_guidance/")
-    print(f"  Manifest:    data/processed/quality_manifest.json")
+    print(f"  Reports:     data/reports/")
+    print(f"  Guidance:    data/reports/{{genre}}/creative_guidance/")
+    print(f"  Manifest:    data/processed/{{genre}}/quality_manifest.json")
     print(f"  Review:      books/review/ (退回审查的书)")
     if not with_llm:
         print(f"\n  Tip: --with-llm 启用 LLM 增强分析 (评分更精准,需约 10min)")

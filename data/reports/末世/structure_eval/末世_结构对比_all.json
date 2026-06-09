@@ -1,0 +1,108 @@
+{
+  "mode": "all",
+  "genre": "末世",
+  "generated": "2026-06-10T00:37:04.082282",
+  "total_gaps": 12,
+  "large_gaps": 3,
+  "medium_gaps": 2,
+  "avg_score": 78.5,
+  "verdict": "基本合格, 部分维度需要调整",
+  "results": [
+    {
+      "dim": "冲突类型覆盖",
+      "author": "涉及: 打脸, 牺牲, 突破, 羁绊",
+      "elite": "精品Top3: 打脸, 突破, 羁绊",
+      "score": 100,
+      "gap": "small",
+      "suggestion": "冲突类型全覆盖, 世界规则健全"
+    },
+    {
+      "dim": "势力丰富度",
+      "author": "检测到约4个势力/阵营",
+      "elite": "精品均值约4个(基于3种冲突类型估算)",
+      "score": 100,
+      "gap": "small",
+      "suggestion": "势力数量合理"
+    },
+    {
+      "dim": "弧线类型对齐",
+      "author": "主要弧线: 上升弧",
+      "elite": "精品主流: 下降弧(14本)",
+      "score": 70,
+      "gap": "medium",
+      "suggestion": "建议考虑下降弧为主弧线(精品14本采用)"
+    },
+    {
+      "dim": "开篇钩子密度",
+      "author": "声明: 2.50",
+      "elite": "精品基准: 2.67",
+      "score": 93,
+      "gap": "small",
+      "suggestion": "钩子密度达标"
+    },
+    {
+      "dim": "总章数",
+      "author": "计划300章",
+      "elite": "精品均值1291章",
+      "score": 40,
+      "gap": "large",
+      "suggestion": "章数(偏少), 精品均值1291章"
+    },
+    {
+      "dim": "黄金三章-钩子",
+      "author": "钩子密度: 2.5",
+      "elite": "精品均值: 1.773",
+      "score": 100,
+      "gap": "small",
+      "suggestion": "开篇钩子密度达标"
+    },
+    {
+      "dim": "中期冲突峰值",
+      "author": "冲突密度: 1.5",
+      "elite": "精品均值: 1.053",
+      "score": 100,
+      "gap": "small",
+      "suggestion": "中期冲突达标"
+    },
+    {
+      "dim": "节奏规划",
+      "author": "节奏类型: 前慢后快",
+      "elite": "精品节奏: conflict递增, 80%达峰值1.053",
+      "score": 70,
+      "gap": "medium",
+      "suggestion": "建议在进度80%处设置冲突峰值(参照精品数据)"
+    },
+    {
+      "dim": "角色弧线多样性",
+      "author": "涉及弧线: 上升弧",
+      "elite": "精品分布: 下降弧(14本), 上升弧(12本), O型弧(4本)",
+      "score": 33,
+      "gap": "large",
+      "suggestion": "建议增加多种弧线类型(上升/下降/O型)丰富角色层次"
+    },
+    {
+      "dim": "情感摆动幅度",
+      "author": "V摆动: 0.08",
+      "elite": "精品均值: 0.037",
+      "score": 100,
+      "gap": "small",
+      "suggestion": "情感摆动达标, 角色旅程有张力"
+    },
+    {
+      "dim": "羁绊角色占比",
+      "author": "羁绊提及率: 14.3%",
+      "elite": "精品羁绊爽点: 约39.6%",
+      "score": 36,
+      "gap": "large",
+      "suggestion": "建议增加羁绊角色(精品39.6%), 末世中守护/并肩是重要爽点源"
+    },
+    {
+      "dim": "角色类型覆盖",
+      "author": "检测到: 主角, 对手, 盟友, 导师",
+      "elite": "精品标配: 主角+对手+导师+盟友",
+      "score": 100,
+      "gap": "small",
+      "suggestion": "核心角色类型齐全"
+    }
+  ]
+}

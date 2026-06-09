@@ -19,9 +19,14 @@ from pathlib import Path
 from datetime import datetime
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-RHYTHM_DIR = PROJECT_ROOT / "data" / "processed" / "rhythm"
-OUTPUT_DIR = PROJECT_ROOT / "outputs" / "reports"
-MANUAL_DIR = OUTPUT_DIR / "writing_manuals"
+
+
+def _rhythm_dir(genre):
+    return PROJECT_ROOT / "data" / "processed" / genre / "rhythm"
+
+
+def _manual_dir(genre):
+    return PROJECT_ROOT / "data" / "reports" / genre / "writing_manuals"
 
 
 # ── ① 每章写作指令: 模板NLG + 阈值触发 ──
@@ -272,8 +277,12 @@ def main():
         if arg == "--book" and i < len(sys.argv) - 1:
             book_filter = sys.argv[i + 1]
 
-    # Find rhythm CSVs
-    csv_files = sorted(RHYTHM_DIR.glob("*.csv"))
+    # Find rhythm CSVs — search all genre subdirs
+    csv_files = []
+    for gdir in (PROJECT_ROOT / "data" / "processed").iterdir():
+        rdir = gdir / "rhythm"
+        if rdir.is_dir():
+            csv_files.extend(sorted(rdir.glob("*.csv")))
     if book_filter:
         csv_files = [f for f in csv_files if book_filter in f.stem]
 
@@ -281,7 +290,10 @@ def main():
         print("[WARN] No rhythm CSV files found.")
         return
 
-    MANUAL_DIR.mkdir(parents=True, exist_ok=True)
+    # Use first CSV's genre for manual dir
+    genre = csv_files[0].parent.parent.name
+    mdir = _manual_dir(genre)
+    mdir.mkdir(parents=True, exist_ok=True)
 
     for csv_path in csv_files:
         book_name = csv_path.stem.replace("rhythm_", "")
@@ -301,7 +313,7 @@ def main():
 
         # ① Chapter instructions
         inst_lines, issue_count = generate_chapter_instructions(results, book_name)
-        inst_path = MANUAL_DIR / f"{book_name}_逐章指令.md"
+        inst_path = mdir / f"{book_name}_逐章指令.md"
         inst_path.write_text("\n".join(inst_lines), encoding='utf-8')
         print(f"  [OK] 逐章指令: {inst_path.name} ({issue_count} issues)")
 
@@ -320,18 +332,18 @@ def main():
             }
 
         attr_lines = generate_attribution(book_name, book_stats, pool_stats, 65, "签约可期")
-        attr_path = MANUAL_DIR / f"{book_name}_评分归因.md"
+        attr_path = mdir / f"{book_name}_评分归因.md"
         attr_path.write_text("\n".join(attr_lines), encoding='utf-8')
         print(f"  [OK] 评分归因: {attr_path.name}")
 
         # ③ Writing manual
         summary = {"total_chaps": len(results), "total_words": sum(r['wc'] for r in results)}
         manual_lines = generate_writing_manual(book_name, inst_lines, attr_lines, summary)
-        manual_path = MANUAL_DIR / f"{book_name}_写书指导手册.md"
+        manual_path = mdir / f"{book_name}_写书指导手册.md"
         manual_path.write_text("\n".join(manual_lines), encoding='utf-8')
         print(f"  [OK] 指导手册: {manual_path.name}")
 
-    print(f"\n[DONE] Manuals in {MANUAL_DIR}")
+    print(f"\n[DONE] Manuals in {mdir}")
 
 
 if __name__ == "__main__":

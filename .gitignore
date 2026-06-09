@@ -35,6 +35,9 @@ D:/DaMoXing/
 # 🔧 IDE
 .vscode/
 .idea/
+.codebuddy/
+.trae/
+.qoder/
 
 # 📊 Notebooks 临时输出
 notebooks/*.ipynb_checkpoints/

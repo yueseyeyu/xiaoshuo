@@ -24,7 +24,11 @@ except ImportError:
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 NOVELS_DIR = PROJECT_ROOT / "data" / "raw" / "novels"
-RHYTHM_DIR = PROJECT_ROOT / "data" / "processed" / "rhythm"
+
+
+def _rhythm_dir(genre):
+    """Genre-aware rhythm CSV output dir: data/processed/{genre}/rhythm/"""
+    return PROJECT_ROOT / "data" / "processed" / genre / "rhythm"
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
 
@@ -102,8 +106,17 @@ CONFLICT_SOCIAL = re.compile(
     r"凭什么你|谁同意的|谁允许|规矩|规定|制度|"
     r"领头|首领|领袖|话语权|说了算|一票否决"
 )
+# v5: 悬疑/恐怖/信息不对称冲突 (v4 遗漏: 《从红月开始》等心理恐怖类偏低)
+CONFLICT_SUSPENSE = re.compile(
+    r"诡异|恐怖|异常|不详|扭曲|怪异|反常|离奇|奇怪|毛骨悚然|"
+    r"秘密|真相|隐瞒|谎言|背后|暗中|偷偷|悄悄|窥视|监视|"
+    r"阴森|黑暗[中的]|深[处渊底]|未知|不可名状|不可描述|"
+    r"消失|失踪|死去|复活|变异|扭曲|融化|腐[烂杇]|"
+    r"不对劲|有[问]题|有问题|哪里不对|感觉不对|直觉|"
+    r"危[险机]|威胁|逼近|降临|笼罩|弥漫|渗透|蔓延"
+)
 
-# ── 合并冲突正则 (v4: 战斗 + 心理 + 道德 + 环境 + 社会) ──
+# ── 合并冲突正则 (v5: 战斗 + 心理 + 道德 + 环境 + 社会 + 悬疑) ──
 CONFLICT_KW_ALL = [
     re.compile(
         r"你敢|休想|去死|找死|不可能！|我不信|凭什么|战斗|杀|轰|爆|碎|血|伤|敌|战|斗|"
@@ -115,6 +128,7 @@ CONFLICT_KW_ALL = [
     CONFLICT_MORAL,
     CONFLICT_ENVIRONMENT,
     CONFLICT_SOCIAL,
+    CONFLICT_SUSPENSE,
 ]
 
 # Dialogue: Chinese quotes + Western quotes + role:format
@@ -518,18 +532,71 @@ def _write_chapter_instructions(name, results, csv_path):
         print("  [SKIP] writing_instructions unavailable")
         return
     lines, issue_count = generate_chapter_instructions(results, name)
-    out_dir = PROJECT_ROOT / "outputs" / "reports" / "writing_manuals"
+    genre = csv_path.parent.parent.name
+    out_dir = PROJECT_ROOT / "data" / "reports" / genre / "writing_manuals"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{name}_逐章指令.md"
     out_path.write_text("\n".join(lines), encoding="utf-8")
     print(f"  [OK] 逐章指令: {out_path.name} ({issue_count} issues)")
 
 
+def _load_cached_summary(csv_path, name):
+    """Reconstruct summary dict from existing rhythm CSV (cache hit path).
+    Avoids full regex re-analysis when CSV is newer than source txt."""
+    rows = []
+    try:
+        with open(csv_path, 'r', encoding='utf-8-sig') as f:
+            for r in csv.DictReader(f):
+                rows.append(r)
+    except Exception:
+        return None
+    if not rows:
+        return None
+    total = len(rows)
+    total_wc = sum(int(r.get("wc", 0)) for r in rows)
+    p_density = sum(1 for r in rows if r.get("pleasure_type", "none") != "none") / max(total, 1)
+    c_rate = sum(1 for r in rows if r.get("conflict", "")) / max(total, 1)
+    avg_int = sum(float(r.get("pleasure_intensity", 0)) for r in rows) / max(total, 1)
+    avg_hk = sum(float(r.get("hook_density", 0)) for r in rows) / max(total, 1)
+    sub_dist = {}
+    for r in rows:
+        s = r.get("dominant_sub", "none")
+        sub_dist[s] = sub_dist.get(s, 0) + 1
+    return {
+        "name": name, "total_chaps": total, "total_words": total_wc,
+        "avg_wc": total_wc // max(total, 1),
+        "pleasure_density": round(p_density, 2),
+        "conflict_rate": round(c_rate, 2),
+        "avg_intensity": round(avg_int, 1),
+        "avg_hook": round(avg_hk, 1),
+        "sub_dist": {k: v for k, v in sorted(sub_dist.items(), key=lambda x: -x[1])},
+        "llm_correlation": None,
+    }
+
+
 def analyze_book(filepath):
-    """Full analysis. Rule-based + LLM verify 5 key chapters. Saves CSV immediately."""
+    """Full analysis. Rule-based + LLM verify 5 key chapters. Saves CSV immediately.
+    v6: CSV cache — skip re-analysis if CSV exists and is newer than txt."""
     name = Path(filepath).stem
     print(f"\n[BOOK] {name}")
     t0 = time.time()
+
+    # ── CSV Cache Check ──
+    genre = Path(filepath).parent.name
+    csv_path = _rhythm_dir(genre) / f"rhythm_{name}.csv"
+    if csv_path.exists():
+        txt_mtime = Path(filepath).stat().st_mtime
+        csv_mtime = csv_path.stat().st_mtime
+        if csv_mtime > txt_mtime:
+            cached = _load_cached_summary(csv_path, name)
+            if cached:
+                dt = time.time() - t0
+                print(f"  [CACHE] CSV up-to-date, skip ({dt:.1f}s)")
+                print(f"  P-density={cached['pleasure_density']:.2f}  "
+                      f"Conflict={cached['conflict_rate']:.2f}  "
+                      f"Intensity={cached['avg_intensity']:.1f}  "
+                      f"Hook={cached['avg_hook']:.1f}/k")
+                return cached
 
     chapters = extract_chapters(filepath)
     total = len(chapters)
@@ -639,7 +706,9 @@ def analyze_book(filepath):
         print("  [SKIP] No LLM server, pure rule-based")
 
     # ── Save CSV immediately ──
-    csv_path = RHYTHM_DIR / f"rhythm_{name}.csv"
+    genre = Path(filepath).parent.name
+    csv_path = _rhythm_dir(genre) / f"rhythm_{name}.csv"
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
     fields = ["ch_num","wc","para_count","avg_para_len","dialogue_ratio",
               "excl_density","pos_density","neg_density","conflict_density","hook_density",
               "slap_count","level_count","crush_count","comeback_count","hidden_count",

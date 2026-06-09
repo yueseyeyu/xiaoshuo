@@ -1,14 +1,20 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-comparison_engine.py v2 — 双文对比引擎 (Phase ⑥)
-===================================================
-输入: 作者版章节文本 + 本地LLM版 + CodeBuddy版 (三版)
-输出: 多维度对比 + 差异亮点报告
+comparison_engine.py v3 — 双文对比 + 精品对标签约评估引擎
+============================================================
+对比模式 (--compare, 默认):
+  输入: 作者版章节文本 + 本地LLM版 + CodeBuddy版 (三版)
+  输出: 多维度对比 + 差异亮点报告
 
-对比源: ①作者手写版 ②本地Qwen3.5-9B生成版 ③CodeBuddy生成版
+签约评估模式 (--evaluate):
+  输入: 新人作者章节文本
+  输出: 精品基准百分位对标 + 签约概率估计 + AI对照版对比 + 改进优先级
+
+数据源: data/processed/{genre}/rhythm/*.csv (30本精品书节奏基准)
 精度: 复用 rhythm_analyzer 全量指标 (非简版正则)
 """
+import csv
 import json
 import statistics
 import sys
@@ -19,7 +25,7 @@ import yaml
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-OUTPUT_DIR = PROJECT_ROOT / "outputs" / "reports" / "comparisons"
+OUTPUT_DIR = PROJECT_ROOT / "data" / "reports"
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
 
@@ -36,11 +42,265 @@ def _get_llama_base():
 LLAMA_BASE = _get_llama_base()
 
 
+# ── Benchmark percentiles (from 30 elite rhythm CSVs) ──
+
+# Dimensions to evaluate (mapped to CSV column names)
+BENCHMARK_DIMS = {
+    "hook_density":       {"label": "钩子密度",   "weight": 1.0,  "direction": 1},   # higher=better
+    "conflict_density":   {"label": "冲突密度",   "weight": 1.0,  "direction": 1},
+    "pleasure_intensity": {"label": "爽点强度",   "weight": 1.0,  "direction": 1},
+    "dialogue_ratio":     {"label": "对话比",     "weight": 0.5,  "direction": 0},   # 0=middle is best
+    "readability":        {"label": "可读性",     "weight": 0.5,  "direction": 0},   # 0=middle is best
+    "avg_sentence_len":   {"label": "句均字长",   "weight": 0.5,  "direction": 0},   # 0=middle is best
+}
+
+# Percentile thresholds for scoring
+# Score: 0=below P10, 25=above P75, capped
+PCT_SCORE_MAP = [
+    # (pct_threshold, score_out_of_25)
+    (10,  0),   # below P10 → 0
+    (25,  6.25),  # P10-P25 → 25%
+    (50,  12.5),  # P25-P50 → 50%
+    (75,  18.75), # P50-P75 → 75%
+    (90,  22.5),  # P75-P90 → 90%
+    (100, 25.0),  # above P90 → 100% (cap)
+]
+
+
+def compute_benchmark_percentiles(genre="末世"):
+    """Load all rhythm CSVs for genre, compute per-book averages, return percentiles.
+
+    Returns: {dim_name: {"p10": ..., "p25": ..., "p50": ..., "p75": ..., "p90": ..., "mean": ..., "std": ...}}
+    """
+    rhythm_dir = PROJECT_ROOT / "data" / "processed" / genre / "rhythm"
+    if not rhythm_dir.exists():
+        return None
+
+    csv_files = sorted(rhythm_dir.glob("rhythm_*.csv"))
+    if not csv_files:
+        return None
+
+    # Collect per-book averages for each dimension
+    book_avgs = {dim: [] for dim in BENCHMARK_DIMS}
+
+    for csv_path in csv_files:
+        try:
+            with open(csv_path, 'r', encoding='utf-8-sig') as f:
+                rows = list(csv.DictReader(f))
+            if len(rows) < 5:
+                continue
+            for dim in BENCHMARK_DIMS:
+                vals = []
+                for r in rows:
+                    try:
+                        vals.append(float(r.get(dim, 0)))
+                    except (ValueError, TypeError):
+                        vals.append(0.0)
+                if vals:
+                    book_avgs[dim].append(statistics.mean(vals))
+        except Exception:
+            continue
+
+    if not any(book_avgs.values()):
+        return None
+
+    def _pct(sorted_vals, p):
+        """Compute p-th percentile from sorted list."""
+        if not sorted_vals:
+            return 0
+        n = len(sorted_vals)
+        k = (n - 1) * p / 100
+        f = int(k)
+        c = f + 1 if f + 1 < n else f
+        d = k - f
+        return sorted_vals[f] + d * (sorted_vals[c] - sorted_vals[f])
+
+    result = {}
+    for dim, vals in book_avgs.items():
+        if len(vals) < 3:
+            continue
+        s = sorted(vals)
+        result[dim] = {
+            "p10":  round(_pct(s, 10), 4),
+            "p25":  round(_pct(s, 25), 4),
+            "p50":  round(_pct(s, 50), 4),
+            "p75":  round(_pct(s, 75), 4),
+            "p90":  round(_pct(s, 90), 4),
+            "mean": round(statistics.mean(vals), 4),
+            "std":  round(statistics.stdev(vals), 4) if len(vals) > 1 else 0,
+            "n":    len(vals),
+        }
+    return result
+
+
+def _score_dimension(value, pct_data, direction=1):
+    """Score a single dimension (0-25) based on percentile position.
+
+    direction=1: higher is better (hook, conflict, pleasure)
+    direction=0: middle is best (dialogue_ratio, readability, avg_sentence_len)
+    """
+    p10, p25, p50, p75, p90 = pct_data["p10"], pct_data["p25"], pct_data["p50"], pct_data["p75"], pct_data["p90"]
+
+    if direction == 1:  # higher = better
+        if value <= p10:
+            score = 0
+        elif value <= p25:
+            score = 6.25 * (value - p10) / max(p25 - p10, 0.001) if p25 > p10 else 6.25
+        elif value <= p50:
+            score = 6.25 + 6.25 * (value - p25) / max(p50 - p25, 0.001)
+        elif value <= p75:
+            score = 12.5 + 6.25 * (value - p50) / max(p75 - p50, 0.001)
+        elif value <= p90:
+            score = 18.75 + 3.75 * (value - p75) / max(p90 - p75, 0.001)
+        else:
+            score = 25.0  # cap at P90+
+    else:  # middle = best: score by distance from median
+        median = p50
+        iqr = p75 - p25 if p75 > p25 else abs(p75) * 0.2 + 0.1
+        dist = abs(value - median) / max(iqr, 0.001)
+        if dist <= 0.5:    # within IQR center
+            score = 25.0
+        elif dist <= 1.0:  # within IQR
+            score = 18.75
+        elif dist <= 2.0:  # within 2x IQR
+            score = 12.5
+        elif dist <= 3.0:  # beyond 2x IQR
+            score = 6.25
+        else:
+            score = 0  # far outlier
+    return round(min(score, 25.0), 2)
+
+
+def _percentile_rank(value, pct_data, direction=1):
+    """Return human-readable percentile rank: 'P75+' / 'P50-P75' / etc."""
+    p10, p25, p50, p75, p90 = pct_data["p10"], pct_data["p25"], pct_data["p50"], pct_data["p75"], pct_data["p90"]
+    if direction == 1:
+        if value >= p90: return "P90+ (顶尖)"
+        if value >= p75: return "P75-P90 (优秀)"
+        if value >= p50: return "P50-P75 (良好)"
+        if value >= p25: return "P25-P50 (达标)"
+        if value >= p10: return "P10-P25 (偏低)"
+        return "<P10 (远低于精品)"
+    else:
+        median = p50
+        iqr = p75 - p25 if p75 > p25 else abs(p75) * 0.2 + 0.1
+        dist = abs(value - median) / max(iqr, 0.001)
+        if dist <= 0.5: return "精品区间 (核心)"
+        if dist <= 1.0: return "精品区间"
+        if dist <= 2.0: return "接近精品"
+        return "偏离精品"
+
+
+def estimate_signing_probability(author_metrics, percentiles):
+    """Estimate signing probability based on percentile position across dimensions.
+
+    Returns: {probability: float, dimension_scores: [...], overall_label: str, advice: [...]}
+    """
+    if not percentiles:
+        return None
+
+    dim_results = []
+    total_weighted_score = 0
+    total_weight = 0
+    weak_dims = []
+
+    for dim_name, dim_info in BENCHMARK_DIMS.items():
+        if dim_name not in percentiles:
+            continue
+        value = author_metrics.get(dim_name, 0)
+        pct_data = percentiles[dim_name]
+        direction = dim_info["direction"]
+        weight = dim_info["weight"]
+
+        score = _score_dimension(value, pct_data, direction)
+        rank = _percentile_rank(value, pct_data, direction)
+        gap = round(value - pct_data["p50"], 4)
+
+        dim_results.append({
+            "dim": dim_name,
+            "label": dim_info["label"],
+            "value": round(value, 4),
+            "benchmark_p50": pct_data["p50"],
+            "gap_vs_p50": gap,
+            "percentile_rank": rank,
+            "score": score,  # out of 25
+            "weight": weight,
+        })
+
+        total_weighted_score += score * weight
+        total_weight += weight
+
+        # Flag weak dimensions (below P25)
+        if direction == 1 and value < pct_data["p25"]:
+            weak_dims.append({
+                "dim": dim_name,
+                "label": dim_info["label"],
+                "value": round(value, 4),
+                "p25_threshold": pct_data["p25"],
+                "gap": round(pct_data["p25"] - value, 4),
+            })
+
+    # Normalize to 0-100
+    if total_weight > 0:
+        raw = total_weighted_score / total_weight  # 0-25
+        probability = round(raw / 25 * 100, 1)  # 0-100%
+    else:
+        probability = 0
+
+    # Label
+    if probability >= 75:
+        label = "✅ 接近精品水平，签约可期"
+    elif probability >= 50:
+        label = "📈 达标水平，需打磨弱项"
+    elif probability >= 25:
+        label = "⚠️ 部分达标，差距明显"
+    else:
+        label = "❌ 差距较大，建议系统性学习精品节奏"
+
+    # Priority advice (sort weak dims by gap size)
+    advice = []
+    weak_dims.sort(key=lambda x: x["gap"], reverse=True)
+    advice_templates = {
+        "hook_density": "章末必须留钩子（悬念/反转/情绪炸弹），这是读者翻页的核心动力",
+        "conflict_density": "每章至少1个冲突节点，没有矛盾读者会弃书",
+        "pleasure_intensity": "增加爽点密度（打脸/突破/碾压），网文的核心驱动力",
+        "dialogue_ratio": "调整对话比例到精品区间（0.2-0.4），过多变流水账，过少太沉闷",
+        "readability": "优化句子长度和结构，可读性偏离精品中位数",
+        "avg_sentence_len": "调整句均字数到精品区间（15-25字），影响阅读节奏",
+    }
+    for wd in weak_dims[:3]:  # top 3 weakest
+        template = advice_templates.get(wd["dim"], "参考精品书该维度的写法")
+        advice.append({
+            "priority": len(advice) + 1,
+            "dim": wd["label"],
+            "gap": wd["gap"],
+            "suggestion": template,
+        })
+
+    return {
+        "probability": probability,
+        "label": label,
+        "dimension_scores": dim_results,
+        "weak_dimensions": weak_dims,
+        "advice": advice,
+        "benchmark_n": percentiles.get("hook_density", {}).get("n", 0),
+    }
+
+
 # ── Rich rhythm scan (30+ metrics, same patterns as rhythm_analyzer) ──
 
 def _rich_scan(text):
-    """Full rhythm scan matching rhythm_analyzer's metrics."""
+    """Full rhythm scan matching rhythm_analyzer's metrics.
+
+    v3: Aligned normalization with rhythm_analyzer:
+      - hook_density: per 1000 chars (matches CSV column)
+      - conflict_density: per 100 chars (matches CSV column)
+      - pleasure_intensity: composite score 0-10 (matches CSV column)
+      - dialogue_ratio: total dialogue chars / total chars
+      - readability: AlphaReadabilityChinese formula
+    """
     chinese = len(re.findall(r'[\u4e00-\u9fff]', text))
+    wc = max(chinese, 1)
     total_chars = max(len(text.replace('\n', '').replace(' ', '')), 1)
     sentences = max(len(re.findall(r'[。！？…\n]', text)), 1)
 
@@ -73,15 +333,56 @@ def _rich_scan(text):
         "sacrifice": len(re.findall(r'牺牲自己|舍身|赴死|以命|拼尽|最后一', text)),
     }
 
-    # Dialogue
-    dialogue_chars = len(re.findall(r'["""][^""""]*["""]', text))
-    dialogue_ratio = dialogue_chars / max(chinese, 1)
+    # ── Positive/negative/excl densities (per 100 chars, matching rhythm_analyzer) ──
+    pos_kw = re.findall(r'好|强|厉害|痛快|爽|舒服|赞|惊|震|叹|佩|牛|棒|绝|妙|胜', text)
+    neg_kw = re.findall(r'恐惧|愤怒|绝望|挣扎|崩溃|怀疑|内疚|悲|痛|苦|恨|忧|愁|惨|伤|死|亡|危|难', text)
+    excl_count = len(re.findall(r'[！!]', text))
+    pos_density = len(pos_kw) / wc * 100
+    neg_density = len(neg_kw) / wc * 100
+    excl_density = excl_count / wc * 100
+
+    # ── Dialogue (count chars within dialogue, matching rhythm_analyzer) ──
+    dialogue_matches = re.findall(r'[“""][^”""]*[”""]', text)
+    dialogue_chars = sum(len(m) for m in dialogue_matches)
+    dialogue_ratio = dialogue_chars / max(wc, 1)
+
+    # ── Normalization aligned with rhythm_analyzer ──
+    # hook_density: per 1000 chars
+    kchar = max(wc / 1000, 1)
+    total_hooks = sum(hooks.values())
+    hook_density = total_hooks / kchar
+
+    # conflict_density: per 100 chars
+    total_conflicts = sum(conflicts.values())
+    conflict_density = total_conflicts / wc * 100
+
+    # pleasure_intensity: composite score 0-10 (Platt scaling approx)
+    total_pleasures = sum(pleasures.values())
+    pleasure_kw_density = total_pleasures / wc * 100  # per 100 chars
+    physio_count = len(re.findall(r'心跳|呼吸|血[液压]|肌肉|骨骼|瞳孔|冷汗|颤抖|颤栗|寒毛|鸡皮|毛孔', text))
+    pleasure_raw = (
+        pos_density * 2.0 +
+        conflict_density * 1.5 +
+        excl_density * 0.5 +
+        hook_density * 0.5 +
+        neg_density * 0.2 +
+        physio_count * 2.0 / max(wc / 100, 1)
+    ) * 0.7
+    pleasure_intensity = round(max(0, min(10, pleasure_raw)), 1)
+
+    # ── Readability (AlphaReadabilityChinese) ──
+    split_sentences = re.split(r'[。！？!?]', text)
+    sentence_lengths = [len(s.strip()) for s in split_sentences if s.strip()]
+    avg_sentence_len = sum(sentence_lengths) / max(len(sentence_lengths), 1)
+    pure_text = text.replace("\n", "").replace(" ", "")
+    unique_chars = len(set(pure_text))
+    vocab_diversity = unique_chars / max(len(pure_text), 1)
+    readability_score = round(
+        min(1.0, (avg_sentence_len / 80) * 0.5 + (1 - vocab_diversity * 10) * 0.3 +
+         (abs(avg_sentence_len - 35) / 50) * 0.2), 3)
 
     # Per-1000-word normalization (cross-length fair comparison)
     kword = max(chinese / 1000, 1)
-    total_hooks = sum(hooks.values())
-    total_conflicts = sum(conflicts.values())
-    total_pleasures = sum(pleasures.values())
 
     # Segment analysis (3 equal parts → structural comparison)
     n = len(text)
@@ -90,32 +391,35 @@ def _rich_scan(text):
     seg_metrics = []
     for seg in segments:
         seg_ch = len(re.findall(r'[\u4e00-\u9fff]', seg))
+        seg_wc = max(seg_ch, 1)
         seg_sent = max(len(re.findall(r'[。！？…\n]', seg)), 1)
         seg_h = sum(len(re.findall(p, seg)) for p in [r'悬念|究竟|到底|反转|竟然|秘密|真相'])
         seg_c = sum(len(re.findall(p, seg)) for p in [r'战斗|杀|对抗|冲突|危机|危险'])
         seg_p = sum(len(re.findall(p, seg)) for p in [r'打脸|突破|碾压|觉醒|领悟|翻盘'])
         seg_metrics.append({
             "chars": seg_ch,
-            "hook_density": round(seg_h / seg_sent, 3),
-            "conflict_density": round(seg_c / seg_sent, 3),
-            "pleasure_density": round(seg_p / seg_sent, 3),
+            "hook_density": round(seg_h / max(seg_wc / 1000, 1), 3),
+            "conflict_density": round(seg_c / seg_wc * 100, 3),
+            "pleasure_density": round(seg_p / max(seg_wc / 1000, 1), 3),
         })
 
     return {
         "chars": chinese,
         "sentences": sentences,
-        "hook_density": round(total_hooks / max(sentences, 1), 3),
-        "hook_density_kw": round(total_hooks / kword, 1),  # per 1000 words
-        "hooks_detail": {k: round(v / max(sentences, 1), 3) for k, v in hooks.items()},
-        "conflict_density": round(total_conflicts / max(sentences, 1), 3),
+        "hook_density": round(hook_density, 2),
+        "hook_density_kw": round(total_hooks / kword, 1),
+        "hooks_detail": {k: round(v / kchar, 3) for k, v in hooks.items()},
+        "conflict_density": round(conflict_density, 2),
         "conflict_density_kw": round(total_conflicts / kword, 1),
-        "conflicts_detail": {k: round(v / max(sentences, 1), 3) for k, v in conflicts.items()},
-        "pleasure_density": round(total_pleasures / max(sentences, 1), 3),
+        "conflicts_detail": {k: round(v / wc * 100, 3) for k, v in conflicts.items()},
+        "pleasure_density": round(total_pleasures / kchar, 3),
+        "pleasure_intensity": pleasure_intensity,
         "pleasure_density_kw": round(total_pleasures / kword, 1),
-        "pleasures_detail": {k: round(v / max(sentences, 1), 3) for k, v in pleasures.items()},
+        "pleasures_detail": {k: round(v / kchar, 3) for k, v in pleasures.items()},
         "dialogue_ratio": round(dialogue_ratio, 3),
-        "avg_sentence_len": round(chinese / max(sentences, 1)),
-        "segments": seg_metrics,  # structural comparison
+        "avg_sentence_len": round(avg_sentence_len, 1),
+        "readability": readability_score,
+        "segments": seg_metrics,
     }
 
 
@@ -392,54 +696,271 @@ def generate_codebuddy_version(genre, ch_num, author_text=""):
     )
 
 
+# ── New author evaluation entry point ──
+
+def evaluate_author_chapter(text, genre="末世", chapter_num=1, with_llm=True):
+    """Full evaluation pipeline for a new author's chapter.
+
+    Steps:
+      1. Rhythm scan (30+ metrics)
+      2. Benchmark percentile comparison (30 elite books)
+      3. Signing probability estimation
+      4. (Optional) LLM generates same chapter for contrast
+
+    Returns: dict with all evaluation results.
+    """
+    print(f"\n{'='*60}")
+    print(f"  新人稿件签约评估 | genre={genre} | ch={chapter_num}")
+    print(f"{'='*60}")
+
+    # Step 1: Scan author's chapter
+    print("  [Step 1] 节奏扫描...")
+    author_metrics = _rich_scan(text)
+    ch = max(len(re.findall(r'[\u4e00-\u9fff]', text)), 1)
+    print(f"  [OK] {ch}字 | hook={author_metrics['hook_density']:.3f} "
+          f"conflict={author_metrics['conflict_density']:.3f} "
+          f"pleasure={author_metrics['pleasure_density']:.3f}")
+
+    # Step 2: Load benchmark
+    print("  [Step 2] 加载精品基准...")
+    percentiles = compute_benchmark_percentiles(genre)
+    n_books = percentiles.get("hook_density", {}).get("n", 0) if percentiles else 0
+    print(f"  [OK] {n_books}本精品书百分位基准")
+
+    # Step 3: Signing probability
+    print("  [Step 3] 签约概率估计...")
+    signing = estimate_signing_probability(author_metrics, percentiles)
+    if signing:
+        print(f"  [OK] 概率={signing['probability']}% | {signing['label']}")
+        for a in signing.get("advice", []):
+            print(f"  [{a['priority']}] {a['dim']}: {a['suggestion']}")
+    else:
+        print("  [SKIP] 基准数据不可用")
+
+    # Step 4: LLM contrast (optional)
+    llm_result = None
+    if with_llm:
+        print("  [Step 4] 生成AI对照版...")
+        llm_text = generate_llm_version(genre, chapter_num, text[:2000])
+        if llm_text:
+            llm_metrics = _rich_scan(llm_text)
+            print(f"  [OK] LLM版{len(llm_text)}字 | hook={llm_metrics['hook_density']:.3f}")
+            # Compare
+            versions = {"author": text, "ai_contrast": llm_text}
+            comparison = compare_versions(versions, chapter_num)
+            llm_result = {"text": llm_text, "metrics": llm_metrics, "comparison": comparison}
+        else:
+            print("  [SKIP] LLM不可用")
+
+    result = {
+        "chapter": chapter_num,
+        "genre": genre,
+        "author_metrics": author_metrics,
+        "signing_probability": signing,
+        "llm_contrast": llm_result,
+    }
+    return result
+
+
+def generate_evaluation_report(result, output_base):
+    """Generate MD + JSON report for signing evaluation."""
+    r = result
+    ch = r["chapter"]
+    signing = r.get("signing_probability")
+    author_m = r["author_metrics"]
+
+    # JSON
+    json_path = output_base.parent / f"{output_base.stem}.json"
+    # Remove LLM text from JSON to keep it small
+    json_data = {k: v for k, v in r.items() if k != "llm_contrast"}
+    if r.get("llm_contrast"):
+        json_data["llm_contrast"] = {
+            "metrics": r["llm_contrast"]["metrics"],
+            "comparison": r["llm_contrast"]["comparison"],
+        }
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.write_text(json.dumps(json_data, ensure_ascii=False, indent=2), encoding='utf-8')
+
+    # MD report
+    lines = [
+        f"# 第{ch}章 签约评估报告",
+        f"\n> 题材: {r['genre']} | 字数: {author_m.get('chars', '?')} | 精品基准: {signing['benchmark_n'] if signing else '?'}本",
+    ]
+
+    # Signing probability section
+    if signing:
+        lines += [
+            "\n---\n",
+            "\n## 签约概率估计\n",
+            f"**{signing['label']}** (概率: {signing['probability']}%)",
+            f"\n> 基于{signing['benchmark_n']}本已签约精品的多维百分位对标。",
+            "\n## 维度对标\n",
+            "| 维度 | 你的值 | 精品中位数 | 差距 | 百分位 | 得分 |",
+            "|------|--------|------------|------|--------|------|",
+        ]
+        for ds in signing["dimension_scores"]:
+            gap_sign = "+" if ds["gap_vs_p50"] >= 0 else ""
+            lines.append(
+                f"| {ds['label']} | {ds['value']:.4f} | {ds['benchmark_p50']:.4f} "
+                f"| {gap_sign}{ds['gap_vs_p50']:.4f} | {ds['percentile_rank']} | {ds['score']:.1f}/25 |"
+            )
+
+        if signing.get("advice"):
+            lines.append("\n## 改进优先级\n")
+            for a in signing["advice"]:
+                lines.append(f"{a['priority']}. **{a['dim']}** (差距: {a['gap']:.4f}): {a['suggestion']}")
+
+    # LLM contrast section
+    llm = r.get("llm_contrast")
+    if llm:
+        lines += [
+            "\n## AI对照版对比\n",
+            "| 指标 | 你的版本 | AI对照版 | 差距 |",
+            "|------|----------|----------|------|",
+        ]
+        for key in ["hook_density", "conflict_density", "pleasure_density", "dialogue_ratio"]:
+            a_val = author_m.get(key, 0)
+            l_val = llm["metrics"].get(key, 0)
+            delta = l_val - a_val
+            sign = "+" if delta >= 0 else ""
+            lines.append(f"| {key} | {a_val:.3f} | {l_val:.3f} | {sign}{delta:.3f} |")
+
+        # Segment comparison
+        if "segments" in author_m and "segments" in llm["metrics"]:
+            lines.append("\n### 节奏分段对比（开篇→中段→结尾）\n")
+            for label, segs in [("你", author_m["segments"]), ("AI", llm["metrics"]["segments"])]:
+                parts = " → ".join(
+                    f"h{s['hook_density']:.2f}/c{s['conflict_density']:.2f}/p{s['pleasure_density']:.2f}"
+                    for s in segs
+                )
+                lines.append(f"- **{label}**: {parts}")
+
+        # Suggestions from comparison
+        comp = llm.get("comparison", {})
+        for s_list in comp.get("suggestions", {}).values():
+            if s_list:
+                lines.append("\n### 对比建议\n")
+                for s in s_list:
+                    lines.append(f"- {s}")
+                break
+
+    lines.append(f"\n---\n> 生成时间: {time.strftime('%Y-%m-%d %H:%M')}")
+
+    md_path = output_base.parent / f"{output_base.stem}.md"
+    md_path.parent.mkdir(parents=True, exist_ok=True)
+    md_path.write_text("\n".join(lines), encoding='utf-8')
+
+    print(f"\n  [OK] JSON: {json_path}")
+    print(f"  [OK] MD:   {md_path}")
+    return {"json": json_path, "md": md_path}
+
+
 # ── CLI ──
 
 def main():
-    if "--help" in sys.argv or len(sys.argv) < 2:
+    args = sys.argv[1:]
+
+    if "--help" in args or not args:
+        print("comparison_engine v3 — 双文对比 + 精品对标签约评估")
+        print()
         print("用法:")
-        print("  python analysis/comparison_engine.py <作者版.txt> [AI版.txt] [章节号]")
-        print("  只有作者版时: 自动生成本地LLM版 + CodeBuddy版进行三版对比")
+        print("  --compare <作者版.txt> [AI版.txt] [章节号]   双文对比(默认模式)")
+        print("  --evaluate <作者版.txt> [--genre 末世] [--ch 1] [--no-llm]  签约评估")
+        print("  --benchmark [--genre 末世]                   查看精品基准百分位")
         return
 
-    auth_path = Path(sys.argv[1])
+    mode = "compare"
+    if args[0] == "--evaluate":
+        mode = "evaluate"
+        args = args[1:]
+    elif args[0] == "--compare":
+        mode = "compare"
+        args = args[1:]
+    elif args[0] == "--benchmark":
+        mode = "benchmark"
+        args = args[1:]
+
+    # Parse common args
+    genre = "末世"
+    ch_num = 1
+    no_llm = False
+    file_path = None
+    ai_file = None
+
+    i = 0
+    while i < len(args):
+        if args[i] == "--genre" and i + 1 < len(args):
+            genre = args[i + 1]; i += 2
+        elif args[i] == "--ch" and i + 1 < len(args):
+            ch_num = int(args[i + 1]); i += 2
+        elif args[i] == "--no-llm":
+            no_llm = True; i += 1
+        elif file_path is None:
+            file_path = args[i]; i += 1
+        elif ai_file is None:
+            ai_file = args[i]; i += 1
+        else:
+            try:
+                ch_num = int(args[i])
+            except ValueError:
+                pass
+            i += 1
+
+    if mode == "benchmark":
+        pct = compute_benchmark_percentiles(genre)
+        if not pct:
+            print(f"[FAIL] 无法加载{genre}精品基准")
+            return
+        print(f"\n  {genre}精品基准 ({pct.get('hook_density', {}).get('n', '?')}本)")
+        print(f"  {'维度':<20} {'P10':>8} {'P25':>8} {'P50':>8} {'P75':>8} {'P90':>8}")
+        print(f"  {'-'*60}")
+        for dim, info in BENCHMARK_DIMS.items():
+            if dim in pct:
+                p = pct[dim]
+                print(f"  {info['label']:<18} {p['p10']:>8.4f} {p['p25']:>8.4f} "
+                      f"{p['p50']:>8.4f} {p['p75']:>8.4f} {p['p90']:>8.4f}")
+        return
+
+    if not file_path:
+        print("[FAIL] 请提供作者章节文件路径")
+        return
+
+    auth_path = Path(file_path)
     if not auth_path.exists():
         print(f"[FAIL] 文件不存在: {auth_path}")
         return
 
     text_author = auth_path.read_text(encoding='utf-8', errors='replace')
-    ch_num = int(sys.argv[3]) if len(sys.argv) > 3 else 1
-    genre = "末世"
 
-    versions = {"author": text_author}
-
-    # If explicit AI file provided
-    if len(sys.argv) >= 3 and Path(sys.argv[2]).exists():
-        ai_path = Path(sys.argv[2])
-        text_ai = ai_path.read_text(encoding='utf-8', errors='replace')
-        versions["local_llm"] = text_ai
-
-        # Also add CodeBuddy version
-        cb_version = generate_codebuddy_version(genre, ch_num, text_author)
-        versions["codebuddy_guide"] = cb_version[:5000]  # Truncate for metric comparison
+    if mode == "evaluate":
+        # New author signing evaluation
+        result = evaluate_author_chapter(text_author, genre, ch_num, with_llm=not no_llm)
+        output_base = OUTPUT_DIR / genre / "evaluations" / f"ch{ch_num}_evaluation"
+        generate_evaluation_report(result, output_base)
 
     else:
-        # Auto-generate both
-        print("[COMPARE] 自动生成双版对比...")
-        print(f"  ① 尝试本地LLM生成...")
-        llm_text = generate_llm_version(genre, ch_num, text_author[:2000])
-        if llm_text:
-            versions["local_llm"] = llm_text
-            print(f"  [OK] LLM版: {len(llm_text)}字")
+        # Original comparison mode
+        versions = {"author": text_author}
+        if ai_file and Path(ai_file).exists():
+            text_ai = Path(ai_file).read_text(encoding='utf-8', errors='replace')
+            versions["local_llm"] = text_ai
+            cb_version = generate_codebuddy_version(genre, ch_num, text_author)
+            versions["codebuddy_guide"] = cb_version[:5000]
         else:
-            print("  [SKIP] LLM不可用,仅CodeBuddy版")
+            print("[COMPARE] 自动生成双版对比...")
+            print(f"  ① 尝试本地LLM生成...")
+            llm_text = generate_llm_version(genre, ch_num, text_author[:2000])
+            if llm_text:
+                versions["local_llm"] = llm_text
+                print(f"  [OK] LLM版: {len(llm_text)}字")
+            else:
+                print("  [SKIP] LLM不可用,仅CodeBuddy版")
+            print(f"  ② CodeBuddy生成参考指引...")
+            versions["codebuddy_guide"] = generate_codebuddy_version(genre, ch_num, text_author)
 
-        print(f"  ② CodeBuddy生成参考指引...")
-        versions["codebuddy_guide"] = generate_codebuddy_version(genre, ch_num, text_author)
-
-    # Compare all versions
-    result = compare_versions(versions, ch_num)
-    output_base = OUTPUT_DIR / f"ch{ch_num}_comparison"
-    generate_report(result, output_base)
+        result = compare_versions(versions, ch_num)
+        output_base = OUTPUT_DIR / genre / "comparisons" / f"ch{ch_num}_comparison"
+        generate_report(result, output_base)
 
 
 if __name__ == "__main__":

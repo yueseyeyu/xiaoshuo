@@ -1,10 +1,15 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-quality_gate.py v2 — 双层品质关卡 + QUARANTINE软降级
+quality_gate.py v3 — 双层品质关卡 + QUARANTINE软降级
 =====================================================
 位置: 分析管线 Step 2 (rhythm_analyzer 之后, genre_synthesizer 之前)
-改进: v1→v2
+改进: v2→v3
+  - P0: commercial_score 从 JSON 读取 (rhythm_benchmark.md → borda_ranking.json)
+  - P0: Borda 匹配用模糊匹配 (书名前8字) 替代精确 stem 匹配
+  - P1: config 模块级缓存, 消除重复加载
+  - P1: commercial_scores 持久化到 JSON, 供后续管线复用
+  v2:
   - Gate A(前置): 形式完整性检查 → FAIL(明显废书,直接移出)
   - Gate B(后置): 节奏+商业实质检查 → QUARANTINE(可能是慢热,标记不移书)
   - 已知精品名单保护: 永不 FAIL, 最差 QUARANTINE
@@ -27,15 +32,31 @@ from datetime import datetime
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 NOVELS_DIR = PROJECT_ROOT / "data" / "raw" / "novels"
-RHYTHM_DIR = PROJECT_ROOT / "data" / "processed" / "rhythm"
-LLM_DIR = PROJECT_ROOT / "data" / "processed" / "llm_scores"
 BOOKS_REVIEW = PROJECT_ROOT / "books" / "review"
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
-MANIFEST_PATH = PROJECT_ROOT / "data" / "processed" / "quality_manifest.json"
 INDEX_PATH = PROJECT_ROOT / "data" / "raw" / "novel_index.json"
 
 
+def _rhythm_dir(genre):
+    return PROJECT_ROOT / "data" / "processed" / genre / "rhythm"
+
+
+def _llm_dir(genre):
+    return PROJECT_ROOT / "data" / "processed" / genre / "llm_scores"
+
+
+def _manifest_path(genre):
+    return PROJECT_ROOT / "data" / "processed" / genre / "quality_manifest.json"
+
+
+# ── Module-level config cache (avoid re-reading config.yaml per book) ──
+_gate_config_cache = None
+
+
 def _load_gate_config():
+    global _gate_config_cache
+    if _gate_config_cache is not None:
+        return _gate_config_cache
     defaults = {
         "min_rhythm_chapters": 10, "max_zero_hook_streak": 5,
         "min_commercial_score": 30, "auto_demote": True,
@@ -60,29 +81,39 @@ def _load_gate_config():
             if not result["author_protected_books"]:
                 bf = cfg.get("analysis", {}).get("book_filter", {})
                 result["author_protected_books"] = bf.get("author_protected_books", [])
+            _gate_config_cache = result
             return result
     except Exception:
         pass
+    _gate_config_cache = defaults
     return defaults
 
 
-def _load_known_quality():
-    """Return set of known quality book names."""
-    cfg = _load_gate_config()
-    return set(cfg.get("known_quality_list", []))
+def _fuzzy_match(name_a, name_b, min_len=6):
+    """Fuzzy book name match: check if either name's prefix is contained in the other.
+    Handles cases like '《地球游戏场》（校对版全本）' vs '《地球游戏场》（校对版全本）作者：吉风冰'."""
+    a, b = name_a.strip(), name_b.strip()
+    prefix = max(min_len, min(len(a), len(b), 8))
+    return a[:prefix] in b or b[:prefix] in a
 
 
-def _load_author_protected():
-    """Return set of author-protected book names (HITL override: skip all auto FAIL/QUARANTINE)."""
-    cfg = _load_gate_config()
-    return set(cfg.get("author_protected_books", []))
-
-
-def _find_rhythm_csv(book_stem):
-    candidates = list(RHYTHM_DIR.glob(f"*{book_stem[:10]}*.csv"))
-    if not candidates:
-        candidates = list(RHYTHM_DIR.glob(f"rhythm_*{book_stem[:8]}*.csv"))
-    return candidates[0] if candidates else None
+def _find_rhythm_csv(book_stem, genre=None):
+    search_dirs = []
+    if genre:
+        search_dirs.append(_rhythm_dir(genre))
+    else:
+        # Search all genre subdirs
+        for gdir in (PROJECT_ROOT / "data" / "processed").iterdir():
+            rdir = gdir / "rhythm"
+            if rdir.is_dir():
+                search_dirs.append(rdir)
+    for rdir in search_dirs:
+        candidates = list(rdir.glob(f"*{book_stem[:10]}*.csv"))
+        if not candidates:
+            candidates = list(rdir.glob(f"rhythm_*{book_stem[:8]}*.csv"))
+        if candidates:
+            return candidates[0]
+    return None
 
 
 def _extract_book_stem(txt_path):
@@ -144,30 +175,79 @@ def _is_author_protected(book_name, protected_set):
     return False
 
 
+# ── Commercial scores cache (loaded once from JSON, not MD parsing) ──
+_commercial_scores_cache = None
+
+
+def _load_commercial_scores():
+    """Load commercial scores from borda_ranking.json + rhythm_benchmark.md data.
+    Returns dict: {book_name_prefix: score}. Cached at module level.
+    v3: Replaces fragile MD glob parsing with direct JSON read."""
+    global _commercial_scores_cache
+    if _commercial_scores_cache is not None:
+        return _commercial_scores_cache
+
+    scores = {}
+
+    # Source 1: borda_ranking.json — has consensus_rank (1=best), convert to 0-100 score
+    reports_dir = PROJECT_ROOT / "data" / "reports"
+    for borda_file in reports_dir.glob("*/synthesis/*_borda_ranking.json"):
+        try:
+            with open(borda_file, 'r', encoding='utf-8') as f:
+                ranking = json.load(f)
+            n_books = len(ranking)
+            for entry in ranking:
+                name = entry.get("book_name", "")
+                rank = entry.get("consensus_rank", n_books)
+                # Convert rank to 0-100 score: rank 1 → 100, rank N → 0
+                score = round(max(0, min(100, (1 - (rank - 1) / max(n_books - 1, 1)) * 100)))
+                scores[name] = score
+        except Exception:
+            continue
+
+    # Source 2: rhythm_benchmark.md — has explicit 签约分数 (more accurate)
+    for bench_file in reports_dir.glob("*/synthesis/rhythm_benchmark.md"):
+        try:
+            content = bench_file.read_text(encoding='utf-8', errors='replace')
+            for line in content.split('\n'):
+                if '签约' in line and '分' in line:
+                    # Pattern: "- 书名: 签约XX分"
+                    parts = line.split('签约')
+                    if len(parts) == 2:
+                        book_name = parts[0].strip().lstrip('- ').strip()
+                        score_str = parts[1].split('分')[0].strip()
+                        try:
+                            scores[book_name] = int(score_str)
+                        except ValueError:
+                            continue
+        except Exception:
+            continue
+
+    # Source 3: commercial_scores.json — most authoritative (direct from genre_synthesizer)
+    processed_dir = PROJECT_ROOT / "data" / "processed"
+    for cs_file in processed_dir.glob("*/commercial_scores.json"):
+        try:
+            with open(cs_file, 'r', encoding='utf-8') as f:
+                cs_data = json.load(f)
+            for name, data in cs_data.items():
+                if isinstance(data, dict) and "overall" in data:
+                    scores[name] = int(data["overall"])
+        except Exception:
+            continue
+
+    _commercial_scores_cache = scores
+    return scores
+
+
 def _read_commercial_score_progressive(book_stem, gate_cfg):
-    """Progressive pool: try intra-genre first, fallback to Z-score proxy."""
-    # First try synthesis reports (same-genre) — check both output paths
-    reports_dirs = [
-        PROJECT_ROOT / "outputs" / "reports",
-        PROJECT_ROOT / "analysis" / "outputs" / "reports",
-    ]
-    for reports_dir in reports_dirs:
-        for md in reports_dir.glob("**/*.md"):
-            try:
-                content = md.read_text(encoding='utf-8', errors='replace')
-                for line in content.split('\n'):
-                    if book_stem[:6] in line and '|' in line:
-                        parts = [p.strip() for p in line.split('|')]
-                        # Take the LAST number (商业分 is the last column, not the first # column)
-                        for p in reversed(parts):
-                            try:
-                                score = int(p)
-                                if 0 <= score <= 100:
-                                    return score, "intra_genre"
-                            except ValueError:
-                                continue
-            except Exception:
-                continue
+    """v3: Read commercial score from JSON cache (borda + benchmark), fallback to rhythm proxy.
+    No more MD glob parsing — O(1) lookup instead of O(n_files * n_lines)."""
+    scores = _load_commercial_scores()
+
+    # Try fuzzy match against cached scores
+    for cached_name, score in scores.items():
+        if _fuzzy_match(book_stem, cached_name):
+            return score, "intra_genre"
 
     # Fallback: proxy from rhythm stats (data-driven normalization)
     stats = _read_rhythm_stats(book_stem)
@@ -177,7 +257,7 @@ def _read_commercial_score_progressive(book_stem, gate_cfg):
         p = min(100, max(0, stats["avg_pleasure"] / 3.0 * 100))
         c = min(100, max(0, (stats["avg_conflict"] - 0.2) / 0.8 * 100))
         proxy = int((h + p + c) / 3)
-        return proxy, "cross_genre_proxy"
+        return proxy, "rhythm_proxy"
 
     return None, None
 
@@ -187,9 +267,10 @@ def evaluate_book(txt_path, gate_cfg, gate_type="both"):
     Returns (verdict: PASS/QUARANTINE/FAIL, details)."""
     stem = _extract_book_stem(txt_path)
     details = {"file": txt_path.name, "stem": stem, "checks": {}, "verdict": "PASS"}
-    known = _load_known_quality()
+    # v3: use cached config instead of re-loading per book
+    known = set(gate_cfg.get("known_quality_list", []))
     is_known = _is_known_quality(txt_path.name, known)
-    protected = _load_author_protected()
+    protected = set(gate_cfg.get("author_protected_books", []))
     is_protected = _is_author_protected(txt_path.name, protected)
 
     if is_known:
@@ -316,11 +397,11 @@ def run_gate(dry_run=False, verbose=False, gate_type="both", genre=None):
     quarantine_days = gate_cfg.get("quarantine_days", 7)
 
     print("=" * 60)
-    print(f"  Quality Gate v2 | gate={gate_type} | {'DRY-RUN' if dry_run else 'LIVE'}")
+    print(f"  Quality Gate v3 | gate={gate_type} | {'DRY-RUN' if dry_run else 'LIVE'}")
     print(f"  Gate A: ch>={gate_cfg['min_rhythm_chapters']}")
     print(f"  Gate B: zero_hook<={gate_cfg['max_zero_hook_streak']}, score>={gate_cfg['min_commercial_score']}")
     print(f"  QUARANTINE: {quarantine_days}天无人工干预→自动FAIL")
-    protected_count = len(_load_author_protected())
+    protected_count = len(set(gate_cfg.get("author_protected_books", [])))
     if protected_count:
         print(f"  [OVERRIDE] {protected_count} 本书受作者豁免保护 (跳过所有自动关卡)")
     if genre:
@@ -334,15 +415,16 @@ def run_gate(dry_run=False, verbose=False, gate_type="both", genre=None):
         txt_files = sorted(NOVELS_DIR.glob("**/*.txt"))  # genre subdirs only, no random .txt
     if not txt_files:
         print("[WARN] data/raw/novels/: 无书籍")
+        MANIFEST_PATH = _manifest_path(genre or "末世")
         MANIFEST_PATH.parent.mkdir(parents=True, exist_ok=True)
         MANIFEST_PATH.write_text(json.dumps(
             {"approved": [], "quarantined": [], "failed": [],
-             "timestamp": datetime.now().isoformat(), "gate_version": "v2"},
+             "timestamp": datetime.now().isoformat(), "gate_version": "v3"},
             ensure_ascii=False, indent=2), encoding='utf-8')
         return
 
     approved, quarantined, failed = [], [], []
-    known = _load_known_quality()
+    known = set(gate_cfg.get("known_quality_list", []))
 
     for i, txt in enumerate(txt_files):
         name = txt.name[:50]
@@ -370,9 +452,10 @@ def run_gate(dry_run=False, verbose=False, gate_type="both", genre=None):
                 print(f"  [FAIL] {name}: {details.get('reason','?')}")
 
     # Load Borda ranking for multi-dimensional consensus
+    # v3: use fuzzy matching instead of exact stem match
     borda_map = {}
     try:
-        borda_dir = PROJECT_ROOT / "outputs" / "reports"
+        borda_dir = PROJECT_ROOT / "data" / "reports"
         for bf in borda_dir.glob("*/synthesis/*_borda_ranking.json"):
             with open(bf, 'r', encoding='utf-8') as f:
                 for entry in json.load(f):
@@ -380,15 +463,23 @@ def run_gate(dry_run=False, verbose=False, gate_type="both", genre=None):
     except Exception:
         pass
 
-    # Write manifest v2
+    def _find_borda(stem):
+        """v3: fuzzy match borda ranking by book name prefix."""
+        for borda_name, entry in borda_map.items():
+            if _fuzzy_match(stem, borda_name):
+                return entry
+        return {}
+
+    # Write manifest v3
+    MANIFEST_PATH = _manifest_path(genre or "末世")
     MANIFEST_PATH.parent.mkdir(parents=True, exist_ok=True)
     manifest = {
-    "approved": [{"file": a["file"], "stem": a["stem"],
+        "approved": [{"file": a["file"], "stem": a["stem"],
                    "avg_hook": a.get("rhythm", {}).get("avg_hook", 0),
                    "avg_pleasure": a.get("rhythm", {}).get("avg_pleasure", 0),
                    "commercial_score": a.get("commercial", {}).get("score"),
-                   "borda_consensus_rank": borda_map.get(a["stem"], {}).get("consensus_rank"),
-                   "borda_dims": borda_map.get(a["stem"], {}).get("dim_ranks", {}),
+                   "borda_consensus_rank": _find_borda(a["stem"]).get("consensus_rank"),
+                   "borda_dims": _find_borda(a["stem"]).get("dim_ranks", {}),
                    "author_protected": a.get("author_protected", False)}
                   for a in approved],
         "quarantined": [{"file": q["file"], "stem": q.get("stem", ""),
@@ -398,7 +489,7 @@ def run_gate(dry_run=False, verbose=False, gate_type="both", genre=None):
         "failed": [{"file": b["file"], "reason": b.get("reason", "?")}
                     for b in failed],
         "timestamp": datetime.now().isoformat(),
-        "gate_version": "v2",
+        "gate_version": "v3",
         "quarantine_days": quarantine_days,
         "author_protected_count": sum(1 for a in approved if a.get("author_protected")),
         "sample_size": len(approved),
@@ -434,11 +525,12 @@ def run_gate(dry_run=False, verbose=False, gate_type="both", genre=None):
     return manifest
 
 
-def get_approved_books():
-    if not MANIFEST_PATH.exists():
+def get_approved_books(genre="末世"):
+    mp = _manifest_path(genre)
+    if not mp.exists():
         return []
     try:
-        with open(MANIFEST_PATH, 'r', encoding='utf-8') as f:
+        with open(mp, 'r', encoding='utf-8') as f:
             manifest = json.load(f)
         return [a["stem"] for a in manifest.get("approved", [])]
     except Exception:

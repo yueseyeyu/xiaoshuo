@@ -12,8 +12,8 @@ v1→v2 改进:
   - P1-5: 置信度声明 + 相关/因果标注
   - QUARANTINE 感知: quarantined 书籍纳入分析做边缘案例参考
 
-输出: analysis/outputs/reports/creative_guidance/{genre}_创作指导.md
-      analysis/outputs/reports/creative_guidance/{genre}_创作指导.json
+输出: data/reports/{genre}/creative_guidance/{genre}_创作指导.md
+      data/reports/{genre}/creative_guidance/{genre}_创作指导.json
 
 用法: python analysis/creative_bridge.py [--genre 末世]
 """
@@ -29,11 +29,20 @@ from collections import Counter
 from datetime import datetime
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-RHYTHM_DIR = PROJECT_ROOT / "data" / "processed" / "rhythm"
 INDEX_PATH = PROJECT_ROOT / "data" / "raw" / "novel_index.json"
-MANIFEST_PATH = PROJECT_ROOT / "data" / "processed" / "quality_manifest.json"
-OUTPUT_DIR = PROJECT_ROOT / "outputs" / "reports" / "creative_guidance"
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
+
+
+def _rhythm_dir(genre):
+    return PROJECT_ROOT / "data" / "processed" / genre / "rhythm"
+
+
+def _manifest_path(genre):
+    return PROJECT_ROOT / "data" / "processed" / genre / "quality_manifest.json"
+
+
+def _output_dir(genre):
+    return PROJECT_ROOT / "data" / "reports" / genre / "creative_guidance"
 
 
 def _load_config():
@@ -41,8 +50,8 @@ def _load_config():
         if CONFIG_PATH.exists():
             with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
                 return yaml.safe_load(f) or {}
-    except Exception:
-        pass
+    except (yaml.YAMLError, IOError) as e:
+        print(f"[WARN] 配置加载失败: {e}")
     return {}
 
 
@@ -68,16 +77,21 @@ def _build_csv_map(genre="末世"):
     return mapping
 
 
-def _load_manifest():
-    if not MANIFEST_PATH.exists():
+def _load_manifest(genre="末世"):
+    mp = _manifest_path(genre)
+    if not mp.exists():
         return [], []
-    with open(MANIFEST_PATH, 'r', encoding='utf-8') as f:
-        m = json.load(f)
+    try:
+        with open(mp, 'r', encoding='utf-8') as f:
+            m = json.load(f)
+    except (json.JSONDecodeError, IOError) as e:
+        print(f"[WARN] quality_manifest.json 读取失败: {e}")
+        return [], []
     return m.get("approved", []), m.get("quarantined", [])
 
 
-def _load_rhythm_data(csv_name):
-    csv_path = RHYTHM_DIR / csv_name
+def _load_rhythm_data(csv_name, genre="末世"):
+    csv_path = _rhythm_dir(genre) / csv_name
     if not csv_path.exists():
         return None
     rows = []
@@ -110,8 +124,8 @@ def _load_rhythm_data(csv_name):
                     "sacrifice_count": int(r.get("sacrifice_count", 0)),
                     "physio_count": int(r.get("physio_count", 0)),
                 })
-    except Exception as e:
-        print(f"  [WARN] {csv_name}: {e}")
+    except (csv.Error, UnicodeDecodeError, ValueError) as e:
+        print(f"  [WARN] CSV读取失败 {csv_name}: {e}")
         return None
     return rows
 
@@ -148,13 +162,120 @@ def _pct_buckets(rows, n_buckets=10):
             for i in range(n_buckets)}
 
 
+def _format_value(val, indent=0):
+    """Convert Python dict/list to human-readable markdown string.
+
+    Avoids raw `[{'type': '羁绊', 'pct': 47}]` in output.
+    Nested dict-of-dict (e.g. pct_benchmarks) renders inline per key.
+    """
+    if val is None:
+        return "(无数据)"
+    if isinstance(val, dict):
+        if not val:
+            return "(empty)"
+        lines = []
+        for k, v in val.items():
+            if isinstance(v, dict):
+                # Nested dict: render sub-keys inline for compactness
+                inner = ", ".join(f"{ik}: {iv}" for ik, iv in v.items())
+                lines.append(f"- **{k}**: {inner}")
+            elif isinstance(v, list):
+                lines.append(f"- **{k}**: {_format_value(v, indent+1)}")
+            else:
+                lines.append(f"- **{k}**: {v}")
+        return "\n".join(lines)
+    elif isinstance(val, list):
+        if not val:
+            return "(empty)"
+        if val and isinstance(val[0], dict):
+            lines = []
+            for item in val:
+                parts = ", ".join(f"{k}: {v}" for k, v in item.items())
+                lines.append(f"- {parts}")
+            return "\n".join(lines)
+        else:
+            return ", ".join(str(v) for v in val)
+    else:
+        return str(val)
+
+
+def _filter_pct_benchmarks(benchmarks, keep_keys=None):
+    """Keep only key progress nodes from pct_benchmarks for readability."""
+    if keep_keys is None:
+        keep_keys = ["0%", "30%", "50%", "80%", "100%"]
+    if not isinstance(benchmarks, dict):
+        return benchmarks
+    result = {}
+    for k in keep_keys:
+        if k in benchmarks:
+            result[k] = benchmarks[k]
+    # If none matched (different key format), return first 5
+    if not result:
+        keys = list(benchmarks.keys())[:5]
+        result = {k: benchmarks[k] for k in keys}
+    return result
+
+
+# ── UX: Chinese field labels for human-readable report generation ──
+
+FIELD_LABELS = {
+    "sub_genre_distribution": "子类型分布",
+    "top_performing": "最佳对标书",
+    "top_books": "标杆书单",
+    "dominant_conflict_types": "主流冲突类型",
+    "arc_distribution": "弧线分布",
+    "opening_hook_benchmark": "开篇钩子基准",
+    "chapter_avg": "平均总章数",
+    "pct_benchmarks": "关键进度节点",
+    "arc_types": "弧线类型分布",
+    "emotional_range": "情感摆动范围",
+    "bond_ratio": "羁绊角色占比",
+    "hook_type_distribution": "钩子类型分布",
+    "pleasure_level_distribution": "爽点层级分布",
+    "slap_frequency": "打脸频率",
+    "zero_hook_limit": "零钩子红线",
+    "conflict_escalation": "冲突升级曲线",
+    "dialogue_ratio": "对话占比",
+    "readability": "可读性",
+    "chapter_variability": "章节变异度",
+    "plot_waves": "情节波次",
+    "turning_count": "转折点数量",
+    "peak_interval": "爽点间隔",
+    "kl_divergence": "KL散度(差异度)",
+    "low_freq_opportunities": "低频差异化机会",
+    "cliche_scan": "陈词滥调扫描",
+}
+
+# UX: pct_benchmarks nested key labels for Chinese output
+PCT_BENCHMARK_LABELS = {
+    "hook_mean": "钩子密度均值",
+    "conflict_mean": "冲突密度均值",
+    "pleasure_mean": "爽点强度均值",
+    "dialogue_mean": "对话占比均值",
+    "n_books": "样本数",
+}
+
+
+def _translate_pct_keys(benchmarks):
+    """Translate nested pct_benchmarks keys to Chinese."""
+    if not isinstance(benchmarks, dict):
+        return benchmarks
+    result = {}
+    for k, v in benchmarks.items():
+        if isinstance(v, dict):
+            result[k] = {PCT_BENCHMARK_LABELS.get(ik, ik): iv for ik, iv in v.items()}
+        else:
+            result[k] = v
+    return result
+
+
 # ── P1-1: rule_translator ──
 
 def _translate_to_rules(metric_name, value, pool_stats):
     """Translate metric→rule→action. Returns (rule, action, risk_level)."""
     rules = {
         "hook_density": lambda v, p: (
-            f"每章≥1个钩子, 每4章1个强钩子",
+            f"每章≥1个钩子, 每4章1个强钩子(平台建议:每300字1爽点/每500字1钩子)",
             f"钩子密度低于{p:.2f}→在章末增加悬念或反转",
             "high" if v < 0.15 else ("medium" if v < 0.25 else "low")
         ),
@@ -187,7 +308,7 @@ def _translate_to_rules(metric_name, value, pool_stats):
 # ── Main analysis ──
 
 def analyze_for_guidance(genre="末世"):
-    approved, quarantined = _load_manifest()
+    approved, quarantined = _load_manifest(genre)
     if not approved:
         print("[WARN] quality_manifest.json 无通过书籍")
         return None
@@ -222,14 +343,14 @@ def analyze_for_guidance(genre="末世"):
         csv_name = csv_map.get(stem)
         if not csv_name:
             # Fallback: try filename-based search as last resort
-            candidates = list(RHYTHM_DIR.glob(f"rhythm_*{stem[:10]}*.csv"))
+            candidates = list(_rhythm_dir(genre).glob(f"rhythm_*{stem[:10]}*.csv"))
             if candidates:
                 csv_name = candidates[0].name
 
         if not csv_name:
             print(f"  [SKIP] {stem[:20]}: 无CSV映射")
             continue
-        rows = _load_rhythm_data(csv_name)
+        rows = _load_rhythm_data(csv_name, genre)
         if not rows or len(rows) < 10:
             continue
 
@@ -331,7 +452,7 @@ def _build_worldbuilding(book_data, sub_types_pool, arc_summaries, confidence):
         "guidance": [
             f"核心冲突: {top_subs[0][0]}({_pct(sub_types_pool,top_subs[0][0],total_sub)}%)——世界观从此类冲突切入",
             f"爽点高频: {', '.join(f'{n}({_pct(sub_types_pool,n,total_sub)}%)' for n,c in top_subs[:3])}——世界规则应能催生这3类爽点",
-            f"弧线分布: {arc_dist}——选择主流弧型作主角轨迹",
+            f"弧线分布: {', '.join(f'{k}({v}本)' for k, v in arc_dist.items())}——选择主流弧型作主角轨迹",
             f"翻译规则: {rule} → {action}",
         ],
     }
@@ -398,8 +519,8 @@ def _build_chapter_outline(all_rows, total_ch_all, hook_types_pool, book_data, c
         "conflict_escalation": escalation,
         "disclaimer": "⚠ 钩子类型分布基于关键词正则(漏检率~30%),LLM标注可提升精度",
         "guidance": [
-            f"钩子分布: {hook_breakdown}——每章结尾必选一种",
-            f"爽点层级: {pl_breakdown}——large≥10%健康,中爽点每3-5章1个",
+            f"钩子分布: {', '.join(f'{k}({v}%)' for k, v in sorted(hook_breakdown.items(), key=lambda x: -x[1]))}——每章结尾必选一种",
+            f"爽点层级: {', '.join(f'{k}({v}%)' for k, v in sorted(pl_breakdown.items(), key=lambda x: -x[1]) if v > 0)}——large≥10%健康,中爽点每3-5章1个",
             f"打脸频率: 均值{avg_slap}次/章",
             f"红线: {rule} → {action}",
             "章模板(起承转爽):起500字→承800字→转300字→爽400字+钩子",
@@ -635,12 +756,15 @@ def generate_summary_md(guidance, output_path):
 
     # 2: Zero-hook redline
     co = g.get("chapter_outline", {})
-    if co.get("zero_hook_limit"):
-        lines.append(f"2. **节奏红线**: {co['zero_hook_limit']}")
+    zhl = co.get("zero_hook_limit", {})
+    if zhl:
+        lines.append(f"2. **节奏红线**: 连续≥{zhl.get('max_safe', '?')}章零钩子是红线 (精品最长{_format_value(zhl.get('avg_streak', '?'))})")
 
     # 3: Top conflict type
-    if wb.get("dominant_conflict_types"):
-        lines.append(f"3. **核心冲突**: {wb['dominant_conflict_types']}")
+    dct = wb.get("dominant_conflict_types")
+    if dct:
+        top_ct = dct[0] if dct else {}
+        lines.append(f"3. **核心冲突**: {top_ct.get('type','?')} ({top_ct.get('pct','?')}%)")
 
     # Quick reference table
     lines.append("\n## 各维度速查\n")
@@ -655,18 +779,22 @@ def generate_summary_md(guidance, output_path):
 
     # Hook types
     if co.get("hook_type_distribution"):
-        lines.append(f"| 常用钩子 | {co['hook_type_distribution']} |")
+        hk_dist = co['hook_type_distribution']
+        top_hooks = sorted(hk_dist.items(), key=lambda x: -x[1])[:3]
+        lines.append(f"| 常用钩子 | {', '.join(f'{k}({v}%)' for k, v in top_hooks)} |")
 
     # Dialogue
     ws = g.get("writing_style", {})
     if ws.get("dialogue_ratio"):
         d = ws["dialogue_ratio"]
-        lines.append(f"| 对话占比 | {d.get('mean',0):.0%} (精品范围{d.get('range','?')}) |")
+        d_mean = d.get('mean', 0)
+        lines.append(f"| 对话占比 | {d_mean:.0%} (精品范围{d.get('range','?')}) |")
 
     # Emotional range
     chg = g.get("character", {})
-    if chg.get("emotional_range"):
-        lines.append(f"| 情感摆动 | {chg['emotional_range']} |")
+    er = chg.get("emotional_range", {})
+    if er:
+        lines.append(f"| 情感摆动 | V_start={er.get('V_start_mean','?')}, V_end={er.get('V_end_mean','?')}, swing={er.get('V_swing','?')} |")
 
     # Genre hits
     gs = g.get("genre_selection", {})
@@ -704,6 +832,7 @@ def generate_md_report(guidance, output_path):
         f"# {g['genre']}类网文创作指导 v2",
         f"\n> 数据源: {g['book_count']}本精品书(置信度:{conf}) · {g['total_chapters']}章",
         f"> {g.get('disclaimer','')}",
+        f"> ⚠️ **AI声明**: 本指导由AI辅助统计分析生成，仅提供趋势参考和写作建议，不构成创作内容。正文需100%手写。",
         gate_warning,
         "\n---\n",
         "## 全部概览 — 8维渐进式披露\n",
@@ -751,7 +880,17 @@ def generate_md_report(guidance, output_path):
         lines.extend([f"\n---\n", f"## {title}\n", data.get("summary", "")])
         for f in fields:
             if f in data and data[f]:
-                lines.append(f"\n### {f}\n{data[f]}")
+                val = data[f]
+                # Skip raw "guidance" — rendered as "建议" below
+                if f == "guidance":
+                    continue
+                label = FIELD_LABELS.get(f, f)
+                if f == "pct_benchmarks":
+                    val = _filter_pct_benchmarks(val)
+                    val = _translate_pct_keys(val)
+                    lines.append(f"\n### 关键进度节点\n{_format_value(val)}")
+                else:
+                    lines.append(f"\n### {label}\n{_format_value(val)}")
         if data.get("guidance"):
             lines.append("\n#### 建议\n")
             for item in data["guidance"]:
@@ -776,10 +915,10 @@ def main():
         return
 
     # Output: JSON + 完整报告 + 人类可读摘要
-    base = OUTPUT_DIR / genre
-    generate_json_output(guidance, base.with_name(f"{genre}_创作指导.json"))
-    generate_md_report(guidance, base.with_name(f"{genre}_创作指导.md"))
-    generate_summary_md(guidance, base.with_name(f"{genre}_分析摘要.md"))
+    base = _output_dir(genre)
+    generate_json_output(guidance, base / f"{genre}_创作指导.json")
+    generate_md_report(guidance, base / f"{genre}_创作指导.md")
+    generate_summary_md(guidance, base / f"{genre}_分析摘要.md")
 
     print(f"\n[DONE] 创作指导(置信度:{guidance['sample_confidence']}):")
     readable_dims = [

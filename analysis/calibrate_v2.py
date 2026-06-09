@@ -265,7 +265,8 @@ def main():
         genre_bias[g] = {"bias": bias, "n": len(gdata)}
 
     # ── Save outputs ──
-    out_dir = PROJECT_ROOT / "analysis" / "outputs" / "calibration"
+    genre = "末世"  # default, matches load_novels
+    out_dir = PROJECT_ROOT / "data" / "reports" / genre / "calibration"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Feature importance CSV

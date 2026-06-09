@@ -27,7 +27,10 @@ from datetime import datetime
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 NOVELS_DIR = PROJECT_ROOT / "data" / "raw" / "novels"
-LLM_LABELS_DIR = PROJECT_ROOT / "data" / "processed" / "llm_labels"
+
+
+def _labels_dir(genre):
+    return PROJECT_ROOT / "data" / "processed" / genre / "llm_labels"
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
 
@@ -173,7 +176,8 @@ def _compare_labels(regex_result, llm_result, label_type):
 
 def run_labeling(book_name="all", sample_rate=0.1, dry_run=False, genre=None):
     """Main labeling pipeline."""
-    LLM_LABELS_DIR.mkdir(parents=True, exist_ok=True)
+    _g = genre or "末世"
+    _labels_dir(_g).mkdir(parents=True, exist_ok=True)
 
     # Find books
     if book_name == "all":
@@ -266,7 +270,7 @@ def run_labeling(book_name="all", sample_rate=0.1, dry_run=False, genre=None):
                   f"| regex_h={regex_hook} llm_h={llm_hook} | P_h={precision_h:.0%}")
 
         # Write per-book labels
-        label_csv = LLM_LABELS_DIR / f"{name}_labels.csv"
+        label_csv = _labels_dir(txt.parent.name) / f"{name}_labels.csv"
         with open(label_csv, 'w', newline='', encoding='utf-8-sig') as f:
             w = csv.writer(f)
             w.writerow(["ch_num"] + [f"regex_{k}" for k in PLEASURE_REGEX]
@@ -323,7 +327,7 @@ def run_labeling(book_name="all", sample_rate=0.1, dry_run=False, genre=None):
     else:
         report["recommendation"] = f"正则表现良好(F1={global_f1:.2f})，可信任当前标注结果"
 
-    report_path = LLM_LABELS_DIR / "calib_report.json"
+    report_path = _labels_dir(_g) / "calib_report.json"
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
 
     # P0-3: write annotation_reliability.json for downstream consumption
@@ -335,7 +339,7 @@ def run_labeling(book_name="all", sample_rate=0.1, dry_run=False, genre=None):
         "sample_chapters": total_llm_calls,
         "timestamp": datetime.now().isoformat(),
     }
-    rel_path = PROJECT_ROOT / "data" / "processed" / "annotation_reliability.json"
+    rel_path = PROJECT_ROOT / "data" / "processed" / _g / "annotation_reliability.json"
     rel_path.write_text(json.dumps(reliability, ensure_ascii=False, indent=2), encoding='utf-8')
 
     print(f"\n{'='*60}")

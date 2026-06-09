@@ -1,0 +1,145 @@
+{
+  "chapter": 1,
+  "genre": "末世",
+  "author_metrics": {
+    "chars": 2918,
+    "sentences": 484,
+    "hook_density": 5.83,
+    "hook_density_kw": 5.8,
+    "hooks_detail": {
+      "cliffhanger": 1.371,
+      "reversal": 0.0,
+      "emotion_bomb": 1.714,
+      "info_drop": 2.742
+    },
+    "conflict_density": 0.21,
+    "conflict_density_kw": 2.1,
+    "conflicts_detail": {
+      "combat": 0.103,
+      "psychological": 0.034,
+      "moral": 0.069,
+      "environmental": 0.0,
+      "social": 0.0
+    },
+    "pleasure_density": 0.343,
+    "pleasure_intensity": 2.9,
+    "pleasure_density_kw": 0.3,
+    "pleasures_detail": {
+      "face_slap": 0.0,
+      "breakthrough": 0.0,
+      "overwhelm": 0.0,
+      "comeback": 0.0,
+      "hidden_master": 0.0,
+      "bond": 0.0,
+      "cognition": 0.0,
+      "sacrifice": 0.343
+    },
+    "dialogue_ratio": 0.315,
+    "avg_sentence_len": 27.6,
+    "readability": -0.136,
+    "segments": [
+      {
+        "chars": 988,
+        "hook_density": 1.0,
+        "conflict_density": 0.0,
+        "pleasure_density": 0.0
+      },
+      {
+        "chars": 959,
+        "hook_density": 2.0,
+        "conflict_density": 0.0,
+        "pleasure_density": 0.0
+      },
+      {
+        "chars": 971,
+        "hook_density": 1.0,
+        "conflict_density": 0.0,
+        "pleasure_density": 0.0
+      }
+    ]
+  },
+  "signing_probability": {
+    "probability": 75.3,
+    "label": "✅ 接近精品水平，签约可期",
+    "dimension_scores": [
+      {
+        "dim": "hook_density",
+        "label": "钩子密度",
+        "value": 5.83,
+        "benchmark_p50": 1.5356,
+        "gap_vs_p50": 4.2944,
+        "percentile_rank": "P90+ (顶尖)",
+        "score": 25.0,
+        "weight": 1.0
+      },
+      {
+        "dim": "conflict_density",
+        "label": "冲突密度",
+        "value": 0.21,
+        "benchmark_p50": 0.9955,
+        "gap_vs_p50": -0.7855,
+        "percentile_rank": "<P10 (远低于精品)",
+        "score": 0,
+        "weight": 1.0
+      },
+      {
+        "dim": "pleasure_intensity",
+        "label": "爽点强度",
+        "value": 2.9,
+        "benchmark_p50": 1.934,
+        "gap_vs_p50": 0.966,
+        "percentile_rank": "P75-P90 (优秀)",
+        "score": 22.18,
+        "weight": 1.0
+      },
+      {
+        "dim": "dialogue_ratio",
+        "label": "对话比",
+        "value": 0.315,
+        "benchmark_p50": 0.2525,
+        "gap_vs_p50": 0.0625,
+        "percentile_rank": "精品区间 (核心)",
+        "score": 25.0,
+        "weight": 0.5
+      },
+      {
+        "dim": "readability",
+        "label": "可读性",
+        "value": -0.136,
+        "benchmark_p50": -0.1008,
+        "gap_vs_p50": -0.0352,
+        "percentile_rank": "精品区间 (核心)",
+        "score": 25.0,
+        "weight": 0.5
+      },
+      {
+        "dim": "avg_sentence_len",
+        "label": "句均字长",
+        "value": 27.6,
+        "benchmark_p50": 33.823,
+        "gap_vs_p50": -6.223,
+        "percentile_rank": "精品区间 (核心)",
+        "score": 25.0,
+        "weight": 0.5
+      }
+    ],
+    "weak_dimensions": [
+      {
+        "dim": "conflict_density",
+        "label": "冲突密度",
+        "value": 0.21,
+        "p25_threshold": 0.853,
+        "gap": 0.643
+      }
+    ],
+    "advice": [
+      {
+        "priority": 1,
+        "dim": "冲突密度",
+        "gap": 0.643,
+        "suggestion": "每章至少1个冲突节点，没有矛盾读者会弃书"
+      }
+    ],
+    "benchmark_n": 30
+  }
+}

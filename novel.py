@@ -145,21 +145,16 @@ DIRECTORIES = [
     "tests/golden_test_set/prompts",
     "tests/golden_test_set/expected",
 
-    # 数据分析层 — rhythm/llm_scores/calibration/analysis
+    # 数据分析层 — 按题材组织
     "data/raw/novels",              # 精品小说TXT (book_processor 入库)
-    "data/processed/rhythm",        # rhythm_analyzer 逐章节奏CSV
-    "data/processed/llm_scores",    # llm_batch_score LLM批量打分CSV
-    "data/processed",               # quality_gate manifest + 中间产物
+    "data/processed",               # 处理后数据 (按题材子目录)
+    "data/reports",                 # 分析报告 (按题材子目录)
 
     # 书籍入口
     "books/in",                     # 原始下载 (手动放入)
     "books/review",                 # 退回审查 (quality_gate 不达标)
 
-    # 分析层 — 报告输出
-    "analysis/outputs/reports",     # genre_synthesizer 题材技法总纲
-    "analysis/outputs/calibration", # calibrate_v2 校准报告+曲线
-
-    # 分析层 — 报告输出
+    # 分析层 — 报告输出已统一到 data/reports/
     "review/jury_reports",          # S3 评审报告
     "review/beat_reports",          # M5a 节拍分析
     "review/drift_reports",         # M5b 风格漂移
@@ -646,7 +641,7 @@ def cmd_analyze(args) -> None:
     import subprocess
     from pathlib import Path
 
-    scripts = [str(Path(__file__).parent / "analysis" / "analyze_all.py")]
+    scripts = [sys.executable, str(Path(__file__).parent / "analysis" / "analyze_all.py")]
     scripts += ["--genre", args.genre]
     if args.with_llm:
         scripts.append("--with-llm")
@@ -728,7 +723,7 @@ def cmd_test(args) -> None:
             failed += 1
 
     # 语法检查
-    print(f"\n[novel.py] 语法 ... ", end="")
+    print(f"\n[novel.py] syntax ... ", end="")
     r = subprocess.run([python, "-m", "py_compile", "novel.py"], capture_output=True, text=True)
     if r.returncode == 0:
         print("[OK]")
@@ -737,9 +732,689 @@ def cmd_test(args) -> None:
         print(f"[FAIL]")
         failed += 1
 
+    # 新模块语法检查
+    new_modules = [
+        "agents\\session_manager.py",
+        "agents\\character_designer.py",
+        "agents\\chapter_decisions.py",
+    ]
+    for mod in new_modules:
+        name = mod.split("\\")[-1]
+        print(f"[{name}] syntax ... ", end="")
+        r = subprocess.run([python, "-m", "py_compile", mod], capture_output=True, text=True)
+        if r.returncode == 0:
+            print("[OK]")
+            passed += 1
+        else:
+            print(f"[FAIL]")
+            failed += 1
+
     print(f"\n{'=' * 60}")
     print(f"  结果: {passed} 通过 / {failed} 失败")
     print(f"{'=' * 60}")
+
+
+# ============================================================================
+# 命令: session -- 交互式写作会话 REPL
+# ============================================================================
+
+def cmd_session(args) -> None:
+    """
+    交互式写作会话 -- 将分散的模块串联为完整工作流。
+
+    这是系统的"主入口"。作者在 REPL 中完成 S0->S4 全流程。
+    每条命令对应一个已有模块, session 只是胶水层。
+    """
+    sys.path.insert(0, str(PROJECT_ROOT / "agents"))
+    from session_manager import SessionManager, STAGE_LABELS, STAGE_COMMANDS
+
+    sm = SessionManager()
+
+    # 启动参数
+    book = getattr(args, "book", "") or ""
+    genre = getattr(args, "genre", "") or ""
+    chapter = getattr(args, "chapter", 0) or 0
+
+    sm.start(book=book, genre=genre)
+    if chapter:
+        sm.set_chapter(chapter)
+
+    # REPL 循环
+    print("=" * 60)
+    print("  Writing Session -- Interactive Mode")
+    print("  Type 'help' for commands, 'quit' to exit")
+    print("=" * 60)
+
+    _print_session_status(sm)
+
+    while True:
+        cmds = sm.get_available_commands()
+        hint = ", ".join(cmds)
+        try:
+            line = input(f"\n  session ({sm.current_stage})> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n  Session ended.")
+            break
+
+        if not line:
+            continue
+
+        parts = line.split(maxsplit=1)
+        cmd = parts[0].lower()
+        arg = parts[1] if len(parts) > 1 else ""
+
+        if cmd in ("quit", "exit", "q"):
+            print("  Session ended.")
+            break
+
+        elif cmd == "help":
+            _print_session_help(sm)
+
+        elif cmd == "status":
+            _print_session_status(sm)
+
+        elif cmd == "worldbuild":
+            _session_worldbuild(sm)
+
+        elif cmd == "outline":
+            _session_outline(sm)
+
+        elif cmd == "characters":
+            _session_characters(sm)
+
+        elif cmd == "s1":
+            _session_s1(sm)
+
+        elif cmd == "write":
+            _session_write(sm, arg)
+
+        elif cmd == "review":
+            _session_review(sm)
+
+        elif cmd == "decisions":
+            _session_decisions(sm)
+
+        elif cmd == "next":
+            sm.advance_stage("next")
+            print(f"  [OK] Advanced to [{sm.current_stage}] {STAGE_LABELS.get(sm.current_stage, '')}")
+            _print_session_status(sm)
+
+        elif cmd == "rewrite":
+            sm.advance_stage("rewrite")
+            print(f"  [OK] Back to [S2d] Revision")
+            _print_session_status(sm)
+
+        elif cmd == "goto":
+            if arg:
+                sm.advance_stage(arg.upper())
+                print(f"  [OK] Now at [{sm.current_stage}]")
+                _print_session_status(sm)
+            else:
+                print("  Usage: goto S1  (valid: INIT/S0/S1/S2a/S2b/S2c/S2d/S3/S4/PUBLISH)")
+
+        elif cmd == "chapter":
+            try:
+                ch = int(arg)
+                sm.set_chapter(ch)
+                print(f"  [OK] Switched to chapter {ch}")
+                _print_session_status(sm)
+            except ValueError:
+                print("  Usage: chapter 5")
+
+        else:
+            print(f"  Unknown command: {cmd}. Type 'help' for commands.")
+
+
+def _print_session_status(sm) -> None:
+    """打印会话状态。"""
+    for line in sm.get_status_lines():
+        print(line)
+    cmds = sm.get_available_commands()
+    print(f"  Commands: {', '.join(cmds)}")
+
+
+def _print_session_help(sm) -> None:
+    """打印会话帮助。"""
+    print()
+    print("  === Session Commands ===")
+    print("  status     -- Show current status")
+    print("  worldbuild -- S0: World building (5 stages)")
+    print("  outline    -- S0: Outline generation")
+    print("  characters -- S0: Character design (4 dimensions)")
+    print("  s1         -- S1: Creative guidance (multi-temperature)")
+    print("  write      -- S2a: Submit chapter text (write or paste)")
+    print("  review     -- S3: AI review panel")
+    print("  decisions  -- Collect chapter decisions (style data)")
+    print("  next       -- Advance to next stage")
+    print("  rewrite    -- Go back to S2d (revision)")
+    print("  goto STAGE -- Jump to specific stage")
+    print("  chapter N  -- Switch to chapter N")
+    print("  quit       -- End session")
+    print()
+    cmds = sm.get_available_commands()
+    print(f"  Available now: {', '.join(cmds)}")
+
+
+def _session_worldbuild(sm) -> None:
+    """在会话中调用世界观构建。"""
+    sys.path.insert(0, str(PROJECT_ROOT / "agents"))
+    from model_orchestrator import get_orchestrator
+    from world_builder import SOCRATIC_SYSTEM_PROMPT, STAGE_TEMPLATES, WorldStage
+
+    orch = get_orchestrator()
+    stages = [
+        (WorldStage.TIME, "One: Time & Setting"),
+        (WorldStage.CONFLICT, "Two: Core Conflict"),
+        (WorldStage.SCENE, "Three: Scene Design"),
+        (WorldStage.RULES, "Four: Social Rules"),
+        (WorldStage.SPECIAL, "Five: Special Elements"),
+    ]
+
+    print("\n" + "=" * 60)
+    print("  S0 World Building -- 5-Stage Socratic Guide")
+    print("=" * 60)
+
+    all_answers = []
+    for wstage, title in stages:
+        tpl = STAGE_TEMPLATES[wstage]
+        print(f"\n  Stage: {title} [{tpl['goal']}]")
+        print(f"  AI: {tpl['core_question']}")
+        print(f"  (type 'q' to skip)")
+        answer = input("  You: ").strip()
+        if answer.lower() == "q":
+            all_answers.append(f"## {title}\n(skipped)\n")
+            continue
+
+        # Socratic follow-up
+        print("  AI: Thinking...")
+        msgs = [
+            {"role": "system", "content": SOCRATIC_SYSTEM_PROMPT},
+            {"role": "user", "content": (
+                f"Stage: {title} ({tpl['goal']})\n"
+                f"Core question: {tpl['core_question']}\n"
+                f"Author answer: {answer}\n\n"
+                f"Chase chain: {tpl['chase_chain'][0]}\n"
+                f"Ask ONE Socratic follow-up question."
+            )}
+        ]
+        result = orch.chat("main_model", msgs, max_tokens=120, temperature=0.7, timeout=60)
+        if "error" not in result:
+            follow_up = result["content"].strip()
+            print(f"  AI: {follow_up}")
+            fu_answer = input("  You: ").strip()
+            if fu_answer:
+                all_answers.append(f"## {title}\nQ: {tpl['core_question']}\nA: {answer}\nFollow: {follow_up}\nA: {fu_answer}\n")
+            else:
+                all_answers.append(f"## {title}\nQ: {tpl['core_question']}\nA: {answer}\n")
+        else:
+            all_answers.append(f"## {title}\nQ: {tpl['core_question']}\nA: {answer}\n")
+
+    world_path = PROJECT_ROOT / "assets" / "canon" / "world.md"
+    world_path.parent.mkdir(parents=True, exist_ok=True)
+    world_path.write_text("# World Setting\n\n" + "\n".join(all_answers), encoding="utf-8")
+    print(f"\n  [OK] World saved to assets/canon/world.md")
+    sm.advance_stage("S0")
+
+
+def _session_outline(sm) -> None:
+    """在会话中调用大纲生成。"""
+    sys.path.insert(0, str(PROJECT_ROOT / "agents"))
+    from model_orchestrator import get_orchestrator
+    from skill_loader import SkillLoader
+
+    orch = get_orchestrator()
+    loader = SkillLoader()
+
+    print("\n" + "=" * 60)
+    print("  S0 Outline Generation")
+    print("=" * 60)
+
+    world = sm.chapter_context().get("world", "")
+    prompt = loader.build("S1_creative", {
+        "chapter_num": 0,
+        "outline_section": "",
+        "characters_section": world[:500] if world else "(no world yet)",
+    })
+
+    print("  AI: Generating rough outline based on your world setting...")
+    msgs = [
+        {"role": "system", "content": prompt},
+        {"role": "user", "content": (
+            f"World summary: {world[:800] if world else '(not set)'}\n\n"
+            f"Generate a rough outline with:\n"
+            f"1. Overall arc (3 acts)\n"
+            f"2. Volume plan (5 volumes, 1 sentence each)\n"
+            f"3. First 10 chapter hooks (1 sentence each)\n"
+            f"Keep it concise, under 500 words."
+        )}
+    ]
+
+    result = orch.chat("S1_creative", msgs, max_tokens=1000, temperature=0.7, timeout=120)
+    if "error" not in result:
+        outline_text = result["content"]
+        print(f"\n{outline_text}")
+
+        outline_path = PROJECT_ROOT / "assets" / "outline" / "rough_outline.md"
+        outline_path.parent.mkdir(parents=True, exist_ok=True)
+        outline_path.write_text(f"# Rough Outline\n\n{outline_text}", encoding="utf-8")
+        print(f"\n  [OK] Outline saved to assets/outline/rough_outline.md")
+    else:
+        print(f"  [FAIL] {result['error']}")
+
+
+def _session_characters(sm) -> None:
+    """在会话中调用角色设计。"""
+    sys.path.insert(0, str(PROJECT_ROOT / "agents"))
+    from character_designer import run_character_design
+    run_character_design()
+
+
+def _session_s1(sm) -> None:
+    """在会话中调用 S1 创意引导。"""
+    sys.path.insert(0, str(PROJECT_ROOT / "agents"))
+    from skill_loader import SkillLoader
+    from model_orchestrator import get_orchestrator
+
+    loader = SkillLoader()
+    orch = get_orchestrator()
+    chapter = sm.current_chapter
+    ctx = sm.chapter_context()
+
+    prompt = loader.build("S1_creative", {
+        "chapter_num": chapter,
+        "outline_section": ctx.get("outline", "")[:500],
+        "characters_section": ctx.get("characters", "")[:500],
+    })
+
+    temperatures = [
+        (0.3, "Conservative -- follow existing clues"),
+        (0.7, "Balanced -- introduce new elements"),
+        (1.2, "Adventurous -- subvert expectations"),
+    ]
+
+    print(f"\n{'=' * 60}")
+    print(f"  S1 Creative Guidance -- Chapter {chapter}")
+    print(f"{'=' * 60}")
+
+    for i, (temp, label) in enumerate(temperatures):
+        dist = ["Near", "Mid", "Far"][i]
+        msgs = [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": f"[Temperature: {temp}]\n{label}\nDescribe narrative direction only, no story text."}
+        ]
+        print(f"\n  [Direction {dist}] {label} (T={temp})")
+        result = orch.chat("S1_creative", msgs, max_tokens=400, temperature=temp, timeout=120)
+        if "error" in result:
+            print(f"  [FAIL] {result['error']}")
+        else:
+            print(f"  {result['content']}")
+
+    print("\n  Tip: The 'Far' direction gives the most creative freedom.")
+
+
+def _session_write(sm, file_arg: str = "") -> None:
+    """在会话中提交章节文本。"""
+    chapter = sm.current_chapter
+
+    # 如果提供了文件路径, 直接读取
+    if file_arg:
+        fpath = Path(file_arg)
+        if not fpath.is_absolute():
+            fpath = PROJECT_ROOT / fpath
+        if fpath.exists():
+            text = fpath.read_text(encoding="utf-8")
+            path = sm.submit_chapter(chapter, text)
+            wc = len(text.replace("\n", "").replace(" ", ""))
+            print(f"  [OK] Chapter {chapter} loaded from {fpath.name} ({wc} chars)")
+            print(f"  Saved to: {path}")
+            return
+        else:
+            print(f"  [FAIL] File not found: {fpath}")
+            return
+
+    # 否则交互式输入
+    print(f"\n{'=' * 60}")
+    print(f"  Write Chapter {chapter}")
+    print(f"  Type your chapter text. End with a line containing only 'END'")
+    print(f"  Or type 'file path/to/file.md' to load from file")
+    print(f"{'=' * 60}")
+
+    lines = []
+    while True:
+        try:
+            line = input()
+        except EOFError:
+            break
+        if line.strip() == "END":
+            break
+        if line.strip().startswith("file "):
+            fpath = Path(line.strip()[5:])
+            if not fpath.is_absolute():
+                fpath = PROJECT_ROOT / fpath
+            if fpath.exists():
+                text = fpath.read_text(encoding="utf-8")
+                lines.append(text)
+                print(f"  [OK] Loaded {len(text)} chars from {fpath}")
+                break
+            else:
+                print(f"  [FAIL] File not found: {fpath}")
+                continue
+        lines.append(line)
+
+    text = "\n".join(lines)
+    if not text.strip():
+        print("  No text entered.")
+        return
+
+    path = sm.submit_chapter(chapter, text)
+    wc = len(text.replace("\n", "").replace(" ", ""))
+    print(f"\n  [OK] Chapter {chapter} saved ({wc} chars)")
+    print(f"  Path: {path}")
+
+
+def _session_review(sm) -> None:
+    """在会话中调用 AI 评审。"""
+    sys.path.insert(0, str(PROJECT_ROOT / "agents"))
+    from skill_loader import SkillLoader
+    from model_orchestrator import get_orchestrator
+
+    chapter = sm.current_chapter
+    ctx = sm.chapter_context()
+    text = ctx.get("chapter_text", "")
+
+    if not text:
+        print(f"  [FAIL] No text for chapter {chapter}.")
+        print(f"  Use 'write' command first to submit chapter text.")
+        return
+
+    wc = len(text.replace("\n", "").replace(" ", ""))
+    max_chars = 3000
+    if len(text) > max_chars:
+        text = text[:max_chars] + "\n\n[... truncated to 3000 chars ...]"
+
+    loader = SkillLoader()
+    orch = get_orchestrator()
+
+    prompt = loader.build("S3_logic_cop", {
+        "chapter_num": chapter,
+        "chapter_word_count": wc,
+        "characters_section": ctx.get("characters", "")[:500],
+    })
+
+    print(f"\n{'=' * 60}")
+    print(f"  S3 AI Review -- Chapter {chapter} ({wc} chars)")
+    print(f"{'=' * 60}")
+
+    msgs = [
+        {"role": "system", "content": prompt},
+        {"role": "user", "content": f"Please review:\n\n{text}\n\nOutput in JSON format."}
+    ]
+
+    print("  AI: Reviewing...")
+    result = orch.chat("S3_logic_cop", msgs, max_tokens=2048, temperature=0.3, timeout=180)
+    if "error" in result:
+        print(f"  [FAIL] {result['error']}")
+        print("  Make sure llama-server is running (scripts\\start_model.bat)")
+        return
+
+    print(f"\n{result['content']}")
+    print(f"\n  tokens: prompt={result['usage'].get('prompt_tokens', '?')}, "
+          f"completion={result['usage'].get('completion_tokens', '?')}")
+
+    # 保存评审报告
+    report_dir = PROJECT_ROOT / "review" / "jury_reports"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    report_path = report_dir / f"review_ch{chapter}.md"
+    report_path.write_text(
+        f"# Review: Chapter {chapter}\n\n"
+        f"Words: {wc}\n\n"
+        f"{result['content']}\n",
+        encoding="utf-8"
+    )
+    print(f"  [OK] Report saved to review/jury_reports/review_ch{chapter}.md")
+
+    # 更新 review_count
+    history = sm._state["session"].get("chapter_history", {})
+    key = str(chapter)
+    if key in history:
+        history[key]["review_count"] = history[key].get("review_count", 0) + 1
+        sm._save()
+
+
+def _session_decisions(sm) -> None:
+    """在会话中采集章节决策。"""
+    sys.path.insert(0, str(PROJECT_ROOT / "agents"))
+    from chapter_decisions import collect_decisions
+    collect_decisions(sm.current_chapter)
+
+
+# ============================================================================
+# 命令: write -- 提交章节文本 (独立命令, 不需要进入 session)
+# ============================================================================
+
+def cmd_write(args) -> None:
+    """
+    提交章节文本。可以: 1) 从文件加载 2) 交互式输入。
+    用法: python novel.py write --chapter 5 --file my_chapter.md
+    """
+    sys.path.insert(0, str(PROJECT_ROOT / "agents"))
+    from session_manager import SessionManager
+
+    sm = SessionManager()
+    chapter = args.chapter
+    sm.set_chapter(chapter)
+
+    file_path = getattr(args, "file", "") or ""
+    if file_path:
+        fpath = Path(file_path)
+        if not fpath.is_absolute():
+            fpath = PROJECT_ROOT / fpath
+        if fpath.exists():
+            text = fpath.read_text(encoding="utf-8")
+            path = sm.submit_chapter(chapter, text)
+            wc = len(text.replace("\n", "").replace(" ", ""))
+            print(f"[OK] Chapter {chapter} saved ({wc} chars): {path}")
+        else:
+            print(f"[FAIL] File not found: {fpath}")
+    else:
+        print(f"Enter chapter {chapter} text. End with 'END' on its own line:")
+        lines = []
+        while True:
+            try:
+                line = input()
+            except EOFError:
+                break
+            if line.strip() == "END":
+                break
+            lines.append(line)
+        text = "\n".join(lines)
+        if text.strip():
+            path = sm.submit_chapter(chapter, text)
+            wc = len(text.replace("\n", "").replace(" ", ""))
+            print(f"[OK] Chapter {chapter} saved ({wc} chars): {path}")
+        else:
+            print("No text entered.")
+
+
+# ============================================================================
+# 命令: decisions -- 章节决策采集 (独立命令)
+# ============================================================================
+
+def cmd_decisions(args) -> None:
+    """
+    采集章节决策数据 -- 风格涌现的原始数据源。
+    用法: python novel.py decisions --chapter 5
+    """
+    sys.path.insert(0, str(PROJECT_ROOT / "agents"))
+    from chapter_decisions import collect_decisions, get_style_summary
+
+    chapter = args.chapter
+    collect_decisions(chapter)
+
+    # 显示风格积累进度
+    summary = get_style_summary()
+    total = summary.get("total_chapters", 0)
+    status = summary.get("status", "unknown")
+    print(f"\n  Style data: {total} chapters collected ({status})")
+    if total >= 10:
+        print(f"  Skip rate: {summary.get('skip_rate', 0):.0%}")
+        cats = summary.get("top_categories", [])
+        if cats:
+            print(f"  Top categories: {', '.join(c['category'] for c in cats[:3])}")
+
+
+# ============================================================================
+# 命令: characters -- 角色设计 (独立命令)
+# ============================================================================
+
+def cmd_characters(args) -> None:
+    """
+    S0 角色设计 -- 4维度 Socratic 引导。
+    用法: python novel.py characters
+    """
+    sys.path.insert(0, str(PROJECT_ROOT / "agents"))
+    from character_designer import run_character_design
+    run_character_design()
+
+
+# ============================================================================
+# 命令: outline -- 大纲生成 (独立命令)
+# ============================================================================
+
+def cmd_outline(args) -> None:
+    """
+    S0 大纲生成 -- 基于世界观生成三层大纲。
+    用法: python novel.py outline
+    """
+    sys.path.insert(0, str(PROJECT_ROOT / "agents"))
+    from model_orchestrator import get_orchestrator
+    from skill_loader import SkillLoader
+
+    orch = get_orchestrator()
+    loader = SkillLoader()
+
+    # 加载世界观
+    world_path = PROJECT_ROOT / "assets" / "canon" / "world.md"
+    world = ""
+    if world_path.exists():
+        world = world_path.read_text(encoding="utf-8")
+
+    prompt = loader.build("S1_creative", {
+        "chapter_num": 0,
+        "outline_section": "",
+        "characters_section": world[:500] if world else "(no world setting yet, run worldbuild first)",
+    })
+
+    print("=" * 60)
+    print("  S0 Outline Generation")
+    print("=" * 60)
+    print("  AI: Generating rough outline...")
+
+    msgs = [
+        {"role": "system", "content": prompt},
+        {"role": "user", "content": (
+            f"World summary: {world[:800] if world else '(not set)'}\n\n"
+            f"Generate a rough outline:\n"
+            f"1. Overall arc (3 acts)\n"
+            f"2. Volume plan (5 volumes)\n"
+            f"3. First 10 chapter hooks\n"
+            f"Keep under 500 words."
+        )}
+    ]
+
+    result = orch.chat("S1_creative", msgs, max_tokens=1000, temperature=0.7, timeout=120)
+    if "error" in result:
+        print(f"  [FAIL] {result['error']}")
+        return
+
+    print(f"\n{result['content']}")
+
+    outline_path = PROJECT_ROOT / "assets" / "outline" / "rough_outline.md"
+    outline_path.parent.mkdir(parents=True, exist_ok=True)
+    outline_path.write_text(f"# Rough Outline\n\n{result['content']}", encoding="utf-8")
+    print(f"\n  [OK] Saved to assets/outline/rough_outline.md")
+
+
+# ============================================================================
+# cmd_compare — 结构层对比引擎
+# ============================================================================
+
+def cmd_compare(args) -> None:
+    """对比新人作者的结构层(世界观/大纲/角色)与精品基准。"""
+    from analysis.structure_comparator import (
+        _load_guidance_json, _load_rhythm_pool,
+        compare_worldbuilding, compare_outline, compare_characters,
+        generate_report,
+    )
+
+    file_path = Path(args.file)
+    if not file_path.exists():
+        print(f"[FAIL] 文件不存在: {file_path}")
+        return
+    # Guard: reject oversized inputs (SSOT from config.yaml)
+    import yaml
+    cfg_path = PROJECT_ROOT / "config.yaml"
+    max_input = 5 * 1024 * 1024
+    if cfg_path.exists():
+        try:
+            with open(cfg_path, 'r', encoding='utf-8') as f:
+                cfg = yaml.safe_load(f)
+            max_input = cfg.get("structure_comparator", {}).get("max_input_bytes", max_input)
+        except (yaml.YAMLError, IOError):
+            pass
+    if file_path.stat().st_size > max_input:
+        print(f"[FAIL] 文件过大({file_path.stat().st_size}字节 > {max_input}), 请拆分为多个文件提交")
+        return
+    try:
+        text = file_path.read_text(encoding='utf-8')
+    except UnicodeDecodeError as e:
+        print(f"[FAIL] 文件编码错误(需UTF-8): {file_path} — {e}")
+        return
+    genre = args.genre
+    guidance = _load_guidance_json(genre)
+    rhythm_pool = _load_rhythm_pool(genre)
+
+    if not guidance:
+        print(f"[WARN] 未找到{genre}类创作指导JSON, 部分对比将降级")
+    if not rhythm_pool:
+        print(f"[WARN] 未找到{genre}类rhythm数据, 部分对比将降级")
+
+    modes_to_run = ["worldbuild", "outline", "characters"] if args.mode == "all" else [args.mode]
+
+    all_results = []
+    for mode in modes_to_run:
+        if mode == "worldbuild":
+            all_results.extend(compare_worldbuilding(text, guidance, rhythm_pool))
+        elif mode == "outline":
+            all_results.extend(compare_outline(text, guidance, rhythm_pool))
+        elif mode == "characters":
+            all_results.extend(compare_characters(text, guidance, rhythm_pool))
+
+    report = generate_report(args.mode, all_results, genre)
+    if not report:
+        print("[FAIL] 无可输出的对比结果")
+        return
+
+    # Output
+    out_dir = PROJECT_ROOT / "data" / "reports" / genre / "structure_eval"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_prefix = f"{genre}_结构对比_{args.mode}"
+    # Sanitize: strip path separators (same as structure_comparator.main())
+    safe_prefix = Path(out_prefix).name or out_prefix.replace("/", "_").replace("\\", "_")
+
+    json_path = out_dir / f"{safe_prefix}.json"
+    md_path = out_dir / f"{safe_prefix}.md"
+    json_path.write_text(json.dumps(report["json"], ensure_ascii=False, indent=2), encoding='utf-8')
+    md_path.write_text(report["md"], encoding='utf-8')
+    print(f"[OK] JSON: {json_path}")
+    print(f"[OK] MD: {md_path}")
+
+    print(f"\n{'='*50}")
+    print(f"  {genre}类 {args.mode} 对比评估")
+    print(f"  总分: {report['json']['avg_score']}/100")
+    print(f"  严重差距: {report['json']['large_gaps']} | 中等差距: {report['json']['medium_gaps']}")
+    print(f"  {report['json']['verdict']}")
+    print(f"{'='*50}")
 
 
 # ============================================================================
@@ -831,6 +1506,50 @@ def main() -> None:
     # test — 测试
     sub.add_parser("test", help="运行回归测试 & 黄金测试集")
 
+    # session — 交互式写作会话
+    p_session = sub.add_parser("session", help="交互式写作会话: S0->S4 完整工作流 REPL",
+        epilog="Example: python novel.py session\n"
+               "         python novel.py session --book 末日模拟器 --genre 末世")
+    p_session.add_argument("--book", type=str, default="",
+                           help="作品名称 (如 '末日模拟器')")
+    p_session.add_argument("--genre", type=str, default="",
+                           help="题材 (如 '末世'/'玄幻')")
+    p_session.add_argument("--chapter", type=int, default=0,
+                           help="起始章节号 (默认 1)")
+
+    # write — 提交章节文本
+    p_write = sub.add_parser("write", help="提交章节正文: 从文件加载或交互输入",
+        epilog="Example: python novel.py write --chapter 5 --file my_chapter.md")
+    p_write.add_argument("--chapter", type=int, required=True,
+                         help="章节号 (必填)")
+    p_write.add_argument("--file", type=str, default="",
+                         help="章节文件路径 (.md/.txt)")
+
+    # decisions — 章节决策采集
+    p_decisions = sub.add_parser("decisions", help="章节决策采集: 风格涌现的数据源",
+        epilog="Example: python novel.py decisions --chapter 5")
+    p_decisions.add_argument("--chapter", type=int, required=True,
+                             help="章节号 (必填)")
+
+    # characters — 角色设计
+    sub.add_parser("characters", help="S0 角色设计: 4维度 Socratic 引导")
+
+    # outline — 大纲生成
+    sub.add_parser("outline", help="S0 大纲生成: 基于世界观生成三层大纲")
+
+    # compare — 结构层对比
+    p_compare = sub.add_parser("compare", help="结构层对比: 新人世界观/大纲/角色 vs 精品基准",
+        epilog="Example: python novel.py compare --file my_world.md --mode worldbuild\n"
+               "         python novel.py compare --file my_outline.md --mode outline\n"
+               "         python novel.py compare --file my_all.md --mode all")
+    p_compare.add_argument("--file", type=str, required=True,
+                           help="作者内容文件路径 (.md/.txt)")
+    p_compare.add_argument("--mode", type=str, default="all",
+                           choices=["worldbuild", "outline", "characters", "all"],
+                           help="对比模式 (default: all)")
+    p_compare.add_argument("--genre", type=str, default="末世",
+                           help="题材基准 (default: 末世)")
+
     # ── 解析 & 路由 ──
     args = parser.parse_args()
 
@@ -851,6 +1570,12 @@ def main() -> None:
         "s4":         cmd_s4,
         "deep":       cmd_deep,
         "test":       cmd_test,
+        "session":    cmd_session,
+        "write":      cmd_write,
+        "decisions":  cmd_decisions,
+        "characters": cmd_characters,
+        "outline":    cmd_outline,
+        "compare":    cmd_compare,
     }
 
     # 执行目标命令

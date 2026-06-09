@@ -18,8 +18,10 @@ CHECKPOINT_DIR = PROJECT_ROOT / "data" / "checkpoints"
 # Step order (must match analyze_all.py pipeline)
 PIPELINE_STEPS = [
     "book_processor",
-    "rhythm_analyzer", 
+    "rhythm_analyzer",
+    "rhythm_auditor",
     "genre_synthesizer",
+    "score_auditor",
     "quality_gate",
     "creative_bridge",
     "writing_instructions",
