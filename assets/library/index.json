@@ -1,0 +1,71 @@
+{
+  "_description": "题材库索引 — genre组合 ↔ canon(世界观) ↔ references(参考小说) 三向映射",
+  "genres": {
+    "灵气复苏×洪荒": {
+      "file": "genres/灵气复苏×洪荒.md",
+      "world": "canon/world_灵气洪荒.md",
+      "skeleton": "canon/world_skeleton_灵气洪荒.json",
+      "references": ["斩神", "洪荒关系户"],
+      "status": "构思中",
+      "created": "2026-06-06"
+    },
+    "末日模拟器×杀戮世界": {
+      "file": "genres/末日模拟器×杀戮世界.md",
+      "world": "canon/world.md",
+      "status": "S0完成",
+      "created": "2026-06-06",
+      "completed": "2026-06-06"
+    }
+  },
+  "references": {
+    "斩神": {
+      "file": "references/斩神.md",
+      "rhythm_csv": "data/rhythm_《我在精神病院学斩神》作者：三九音域.csv",
+      "genre": "都市玄幻",
+      "chaps": 2025, "words": 4505510,
+      "p_density": 0.98, "conflict": 0.66, "intensity": 4.2
+    },
+    "洪荒关系户": {
+      "file": "references/洪荒关系户.md",
+      "rhythm_csv": "data/rhythm_《洪荒关系户》（校对版全本）作者：清风小道童.csv",
+      "genre": "洪荒流",
+      "chaps": 981, "words": 2288055,
+      "p_density": 1.00, "conflict": 0.53, "intensity": 6.1
+    },
+    "烂柯棋缘": {
+      "file": "references/烂柯棋缘.md",
+      "rhythm_csv": "data/rhythm_《烂柯棋缘》作者：真费事.csv",
+      "genre": "仙侠",
+      "chaps": 1031, "words": 3307438,
+      "p_density": 0.96, "conflict": 0.25, "intensity": 3.6
+    },
+    "镇妖博物馆": {
+      "file": "references/镇妖博物馆.md",
+      "rhythm_csv": "data/rhythm_《镇妖博物馆》（校对版全本）作者：阎ZK.csv",
+      "genre": "历史奇幻",
+      "chaps": 1342, "words": 5329880,
+      "p_density": 0.96, "conflict": 0.68, "intensity": 4.3
+    },
+    "长生不老": {
+      "file": "references/长生不老.md",
+      "rhythm_csv": "data/rhythm_《我真的长生不老》作者：初恋璀璨如夏花.csv",
+      "genre": "无敌文",
+      "chaps": 662, "words": 2064837,
+      "p_density": 0.95, "conflict": 0.11, "intensity": 3.6
+    },
+    "刘备去南阳": {
+      "file": "references/刘备去南阳.md",
+      "rhythm_csv": "data/rhythm_开局劝刘备去南阳.csv",
+      "genre": "历史穿越",
+      "chaps": 695, "words": 1604091,
+      "p_density": 0.97, "conflict": 0.34, "intensity": 5.1
+    },
+    "冰神斗罗": {
+      "file": "references/冰神斗罗.md",
+      "rhythm_csv": "data/rhythm_斗罗：我真不是冰神啊！.csv",
+      "genre": "同人文",
+      "chaps": 612, "words": 1731536,
+      "p_density": 0.96, "conflict": 0.75, "intensity": 4.2
+    }
+  }
+}

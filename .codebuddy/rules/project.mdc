@@ -1,0 +1,151 @@
+---
+description: 番茄小说AI创作系统 v7.4 — 行为约束
+alwaysApply: true
+enabled: true
+updatedAt: 2026-06-05T02:03:00.000Z
+provider: 
+---
+
+# 用户身份
+项目总负责人: 番茄小说作者。AI 是技术总负责（系统架构师 + NLP工程师 + Python后端）。
+
+# 进度 → 见 .codebuddy/rules/status.mdc（每次进展后更新）
+
+# 项目速查
+
+- 根目录: d:\Code\xiaoshuo\ · 参考: DESIGN.md · 模型库: D:\DaMoXing\
+- 环境: conda llm-shared (D:\miniconda3\envs\llm-shared) · 硬件: RTX 5060 8GB
+- 关键决策: MTP已排除(Dense -42%) · 正文100%手写 · Qwen3.5-9B单模型(4.41/5) · R1备份 · P0完成
+- 模型端口: 主模型:8000 · WebNovel专家:8001 · 逻辑警察候选:8002
+
+# 工具 & 模块
+
+- `scripts/start_model.bat` — 启动 Qwen3.5-9B (native模板, enable_thinking=false, :8000)
+- `scripts/lint.bat` — 代码质量检查 (py_compile + import + 自检，仅 stdlib)
+- `scripts/check_encoding.py` — 🆕 检测 novels/ 下 txt 文件编码
+- `scripts/check_encoding.py` — 🆕 检测 novels/ 下 txt 文件编码
+- `scripts/convert_encoding.py` — 🆕 GBK→UTF-8 批量转码
+- `d:/Code/NovelDownloader/` — canyang2008/NovelDownloader小说下载工具 (手动URL批量下载)
+- `books/` — 🆕 书籍入口: in/(原始下载) review/(非精品待审) → 品质过滤 → data/raw/novels/
+- `analysis/` — 🆕 小说数据分析管线 (入库→节奏→评分→关卡→报告)
+  - `analysis/book_processor.py` — 书籍入库: 编码检测→转码→类型检测→基础过滤 (阈值来自config.yaml)
+  - `analysis/rhythm_analyzer.py` — 节奏分析: Macro/Meso/Micro三级指标 (LLM端口来自config.yaml)
+  - `analysis/genre_synthesizer.py` — 商业评分: 拆书三件套+VAD情感弧+留存预估 (等级线来自config.yaml)
+  - `analysis/llm_batch_score.py` — LLM量规批量打分
+  - `analysis/calibrate_v2.py` — LLM独立校准 v2 (Pearson r + Platt Scaling)
+  - `analysis/calibrate_rules.py` — 规则校准
+  - `analysis/quality_gate.py` — 🆕 分析后品质关卡: 商业分+节奏指标→不达标退回books/review/
+  - `analysis/analyze_all.py` — 一键全量: book_processor→llm_labeler→rhythm→llm_batch→genre→gate→creative_bridge (--with-llm)
+  - `analysis/intent_translator.py` — 🆕 意图→指令: 9种创作意图→结构化建议
+  - `analysis/ai_reference.py` — 🆕 AI版本生成器: 本地LLM生成同章节AI版供对比
+  - `analysis/creative_bridge.py` — 分析→创作桥接: 精品数据→8维渐进式创作指导(JSON+MD+摘要)
+  - `analysis/comparison_engine.py` — 🆕 双文对比引擎: 三版对比+分段节奏+/千字归一化 (Phase ⑥)
+  - `analysis/writing_instructions.py` — 🆕 P0 三步"体检→处方"升级: 逐章指令+评分归因+写书指导手册
+  - `analysis/deep_diagnosis.py` — 🆕 二阶段分层深拆: adaptive_keyframe()+Top3 LLM+Bottom3规则→对比诊断 (Phase ⑦b)
+- `.codebuddy/skills/project-reviewer/` — 审视 (Level 1-3) · `.codebuddy/skills/exhaustive-search/` — 穷举收敛 (Ralph Loop) · `.codebuddy/skills/clarify-first/` — 生成前问清 · `.codebuddy/skills/rough-outline-evolution/` — 粗纲进化 · `.codebuddy/skills/chapter-evolution/` — 细纲进化 · `.codebuddy/skills/loop-evolution/` — 通用进化（🆕 含执行纪律8条）· `.codebuddy/skills/skill-evolution/` — Skill自身进化 · `.codebuddy/skills/marvis-review-handler/` — Marvis审查处理 (验证→搜索→修复→回执→归档5步闭环, v5)
+- 模型 server: `D:\miniconda3\envs\llm-shared\Library\bin\llama-server.exe`
+- `agents/model_orchestrator.py` — 单模型路由 + 降级 + <think>清理
+- `agents/skill_loader.py` — AI_PROTOCOL.md 静态前缀 + 7种task动态拼接（S1/S2b/S3逻辑/编辑/质检/S4/M5a）
+- `agents/state_machine.py` — S0→S4+++ 10阶段状态机（转移表/熔断/重试限制/S2b解锁/每日LLM计数）
+- `agents/world_builder.py` — S0 冲突驱动世界观构建 (5阶段+19条Socratic追问+爽点映射, P0后启用)
+- `agents/cross_review.py` — 交叉评审: Qwen3.5主审 + DeepSeek-R1补充标注 (LLM-PeerReview方法)
+- `agents/outline_builder.py` — S0b 大纲生成: 总纲/卷纲/章纲三层结构 + 5种模板 (网文俱乐部标准)
+- `assets/` — 创作资产: library/(题材库) canon/(设定) chapters/(章节) outline/(大纲) voice/(声音)
+- `analysis/` — 数据分析管线: 入库→节奏→评分→报告 (含 outputs/ 子目录)
+- `data/raw/` — 输入数据 (novels TXT + novel_index.json, 不可修改)
+- `data/processed/` — 处理中间产物 (rhythm CSV + llm_scores CSV)
+- `notebooks/` — 🆕 探索性分析 (Jupyter/IPython)
+- 新模块必须注册到本文件"工具 & 模块"段
+
+# 约束（编号便于引用，违反必须修正）
+
+## 禁止
+1. 禁止 print() 用 Unicode — Windows GBK 崩溃，用 [OK] [FAIL] 替代
+2. 禁止修改文件前不 read_file — 文件可能已被用户改动
+3. 禁止生成超过30字连续小说正文
+4. 禁止硬编码阈值/路径/端口/模型key列表 — 放 config.yaml，代码必须动态遍历配置
+5. 禁止修改 AI_PROTOCOL.md / canon/ 设定文件 — 需用户确认
+6. 禁止创建一次性临时脚本 — 纳入 scripts/ 或 agents/ 或 novel.py
+7. 禁止冗长输出/解释背景 — 默认用户读过 DESIGN.md，直接给答案
+8. 禁止用字符串拼接路径 — 用 pathlib.Path()
+9. 禁止模式切换函数中先赋值再打印 — 必须先保存 old_value（防 print bug）
+10. 禁止提交未使用的 import 语句
+11. 禁止 `import` 放在函数内部 — 所有 import 必须放文件顶部
+12. 禁止函数直接修改入参 dict/list — 用 `result = dict(input)` 浅拷贝后操作
+
+## Skill 触发强制 — ⚠️ 最高优先级（先于所有其他规则）
+
+27. **每次接收到用户消息后，第一件事：扫描消息中是否包含 Skill 触发词。**
+28. 触发词映射表（匹配即强制 `use_skill`，不可凭记忆模仿）：
+
+| 触发词 | Skill | 用途 |
+|------|------|------|
+| 审视/review/优化/检查代码 | `project-reviewer` | 代码质量分级审查 |
+| 穷举搜索/穷举搜搜/exhaustive search | `exhaustive-search` | 代码全量穷举收敛 |
+| 生成前/澄清/confirm/clarify | `clarify-first` | 模糊指令暂停确认 |
+| 进化粗纲/大纲审视/进化粗钢/进化大纲 | `rough-outline-evolution` | 粗纲7角色批量交互进化 |
+| 进化细纲/章纲进化/章节进化/进化细钢 | `chapter-evolution` | 细纲8角色全自动进化 |
+| 穷举进化/loop进化/进化协议/审视进化/通用进化/穷举优化 | `loop-evolution` | 通用穷举进化(任意设计文档/配置) |
+| 进化skill/skill进化/进化SKILL/SKILL进化/skill审视/skill审查/优化skill | `skill-evolution` | Skill文件质量进化(8角色Skill专项审查) |
+
+29. **即使触发词嵌入在复合指令中间(如"审视当前skill，穷举搜索可以进化吗")，也必须加载匹配的所有 Skill。**
+30. 多个触发词 → 依次加载所有匹配的 Skill。Skill 加载顺序: project-reviewer → exhaustive-search → clarify-first → rough-outline-evolution → chapter-evolution → loop-evolution → skill-evolution。
+31. **教训**: 2026-06-06，"穷举搜索可以继续进化吗"未触发 exhaustive-search，导致凭记忆分析、协议缺失。根源：Skill 的触发提醒在 Skill 自己的 SKILL.md 中，但 SKILL.md 只在 Skill 加载后才生效 —— 形成循环依赖。必须在 project.mdc 中前置检测。
+32. **防偷懒规则同步**: exhaustive-search、loop-evolution、rough-outline-evolution、chapter-evolution、skill-evolution 各自维护一份防偷懒规则（`use_skill` 不支持跨文件继承）。修改任一 Skill 的防偷懒规则段时，必须同步检查其他四个 Skill 的对应段并补齐缺失项。
+33. **穷举搜索/进化的终止条件**: **必须跑满 12 轮，不可提前收敛。** 即使连续多轮零发现，也必须逐轮完整执行至 R12。不输出 `[Round N]` 格式 = 该轮未执行。禁止跳过轮次、禁止合并轮次、禁止一轮输出多轮结果。
+
+## 单一事实源（SSOT）— 防配置漂移
+13. 任何数值/路径/阈值 — 只在 config.yaml 定义一次，代码必须从 config 读取
+14. 修改 config.yaml 后 — 检查所有读取该配置的 .py 文件是否需要同步
+15. 新增待办项 — 只在一处记录（DESIGN.md §12 或 status.mdc），不分散到多个文件
+16. 使用 subprocess — 禁止 PIPE 模式用于无消费者的进程，用 DEVNULL 替代（防死锁）
+
+## 同步（每次改动后）
+17. 新增目录 → 同步 novel.py DIRECTORIES + 写 README.md + 注册 project.mdc
+18. 新增模块 → 注册 project.mdc 工具&模块段
+19. 里程碑完成 → 更新 status.mdc 阶段描述 + 下一步
+20. LLM注入文件（AI_PROTOCOL.md）的开发者注释 → 用 HTML `<!-- -->` 包裹
+21. 修改 Python 文件 OR config.yaml → 运行 `scripts\lint.bat`（py_compile + import + 自检）
+22. 修改 config.yaml 数值 → 在实际硬件上实测验证（如 n_ctx 必须确认不 OOM）
+
+## 编辑安全（防 replace_in_file 参数错误）— ⚠️ 最高优先级 ⚠️
+23. replace_in_file 前 → **强制**先用 read_file 确认当前文件内容（无论你认为是否已读过）
+24. 编辑失败 → 立即 read_file 重读，不要盲重试（old_str 已过时）
+25. 相邻编辑(<20行) → 合并为一次调用；不相邻 → 分次但每次都先读
+26. **每次对话的首次编辑前必须 read_file** — 文件可能在上一轮对话中被用户或系统修改
+
+## 变更后强制审查 — ⚠️ 最高优先级（同 Skill 触发） 🆕
+
+34. **本组规则优先级 = Skill触发规则**。违反后果同 Skill 遗漏：代码质量无法保证。
+35. **每次 `write_to_file` 或 `replace_in_file` 调用后，在本轮对话结束前，必须执行并输出**：
+    - `python -m py_compile <改动的所有.py>`
+    - 5项自检（import顶部/无未用/无硬编码/不入参/ASCII print）
+    - 若 compile 失败 → 立刻修复 → 重编译 → 直到通过
+36. **多个文件连续修改 → 最后一次修改后统一跑**。不得跳过、不得"上次跑过了就不跑了"。
+37. 新增模块/改架构 → 额外跑 `python novel.py test` (5/5)。
+38. 修改 config.yaml → 遍历所有读取该 key 的 .py 确认兼容。
+39. **防偷懒**: 本对话如有代码变更但未输出 `[Level 1] compile:✅` → 视为未完成，后续审计算无效。
+
+# 教训溯源（规则9-15的来源）
+
+| 规则 | 来源 | 日期 |
+|:---:|------|:---:|
+| 9 | model_orchestrator set_mode() 打印新旧值永远相同 | 2026-06-05 |
+| 10 | model_orchestrator 中 import os 未使用 | 2026-06-05 |
+| 11 | skill_loader 中 import re 放在函数内部 | 2026-06-05 |
+| 12 | skill_loader._default_context() 修改入参 dict | 2026-06-05 |
+| 13 | config n_ctx=32768 但实测只能用 4096 | 2026-06-05 |
+| 14 | subprocess.PIPE 无消费者 → 管道满导致子进程死锁 | 2026-06-05 |
+| 15 | config.circuit_breaker 定义了但 state_machine 硬编码另一份值 | 2026-06-05 |
+| 16 | LLAMA_SERVER 路径硬编码，应读 config | 2026-06-05 |
+| 17 | P0-0 已完成但 novel.py status 仍显示为待办 | 2026-06-05 |
+| 18 | --chat-template chatml 覆盖 Qwen3.5 原生模板 → thinking 不可关 | 2026-06-05 |
+| 19 | DeepSeek-R1 max_tokens=300 导致推理链截断 → 0/5 误判 | 2026-06-05 |
+| 20 | 自我评分偏差: 模型给自己打分不可信 → 需交叉评审 | 2026-06-05 |
+| 21 | 每次写完代码跳过自审 → bug残留, 需用户手动要求审视4轮才干净 | 2026-06-05 |
+| 22 | 生成前不确认细节 → 假设偏差导致返工 (arxiv 2603.26233: -37%返工) | 2026-06-05 |
+| 23 | Skill 未用 use_skill 加载 → 凭记忆模仿, 协议不完整 | 2026-06-05 |
+| 24 | 穷举搜索不输出[Round N]计数 → 一轮即停, 从未收敛 | 2026-06-05 |
+| 25 | replace_in_file 前不读文件 → old_str 过时 → 编辑失败 | 2026-06-05 |
+| 26 | 修复: 规则23-25 强制读后编辑 + 失败重读 | 2026-06-05 |
+| 27 | "穷举搜索可以继续进化吗"未触发 exhaustive-search Skill → 凭记忆分析协议缺失 | 2026-06-06 |

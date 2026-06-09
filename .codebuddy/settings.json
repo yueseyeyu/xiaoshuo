@@ -1,0 +1,50 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(conda:*)",
+      "Bash(pip:*)",
+      "Bash(git:*)",
+      "Read(//novels/**)",
+      "Read(//data/**)",
+      "Read(//analysis/**)",
+      "Read(//agents/**)",
+      "Read(//outputs/**)",
+      "Read(//assets/**)",
+      "Read(//books/**)",
+      "Edit(//analysis/**)",
+      "Edit(//agents/**)",
+      "Edit(//scripts/**)",
+      "Edit(//config.yaml)",
+      "Edit(//CODEBUDDY.md)",
+      "Edit(//.codebuddy/**)"
+    ],
+    "deny": [
+      "Bash(rm:*)",
+      "Bash(del:*)",
+      "Bash(format:*)",
+      "Edit(//data/raw/**)",
+      "Edit(//.git/**)",
+      "Edit(//.codebuddy/skills/**)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -m py_compile ${FILE_PATH}"
+          }
+        ]
+      }
+    ]
+  },
+  "env": {
+    "PROJECT_ROOT": "D:/Code/xiaoshuo",
+    "CONDA_ENV": "llm-shared",
+    "MODEL_PATH": "D:/DaMoXing",
+    "PYTHONIOENCODING": "utf-8"
+  }
+}

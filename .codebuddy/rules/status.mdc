@@ -1,0 +1,98 @@
+# 项目状态 v7.4 — 2026-06-08 22:26
+
+## 项目定位
+**近期**: 全题材——任一题材精品书足够 → 量化指导新人写出高质量爆款
+**终局**: 精品库持续蒸馏 → AI 拥有独立风格 → 写出不被识别为AI的原创小说
+
+七阶段管线: ①→②→③→④→⑤→⑥ 全部实现 ✅ · ⑦蒸馏 路线图就绪
+
+## 当前进度
+| 阶段 | 模块 | 状态 |
+|:---:|------|:---:|
+| ① 入库 | book_processor (detect_genre_multi + 零成本检查 + confidence门控 + TITLE_RULES扩充) | ✅ |
+| ② 拆书 | rhythm_analyzer (+分章验证 + 爽点去噪 + 逐章写作指令) | ✅ |
+| ③ 评分 | genre_synthesizer (Bayesian Stacking + BT排名 + DACA分歧对齐 + WebNovelBench 8维 + percentile纯排名) | ✅ |
+| ④ 整合 | creative_bridge (8维 + KL反套路 + 题材过滤) | ✅ |
+| ⑤ 指导 | agents/ + writing_instructions (逐章指令+评分归因+写书指导手册) | ✅ |
+| ⑥ 对比 | comparison_engine + ai_reference | ✅ |
+| ⑦ 蒸馏 | LoRA + TanXS架构 (待扩书30+) | 🔮 |
+| ⑦b 🆕 | 三层拆书深度架构 (L1库级30本+L2 Bootstrap选书+L3 Top/Bottom 6本全章) | ⏳ |
+
+## 数据资产
+| 类型 | 数量 |
+|------|:---:|
+| 末世精品 | 17本 (+2本废土恐慌) |
+| 其他题材 | 16本 (+10本新增) |
+| 总计 | 33本 |
+| 分析模块 | 20个 .py |
+| 单元测试 | 13个 |
+| 题材类型 | 13种 (末世/科幻/玄幻/仙侠/无限流/历史/都市/悬疑/武侠/洪荒/游戏/奇幻/未知) |
+
+## 🆕 新建模块 (本轮 2026-06-08)
+| 文件 | 用途 |
+|------|------|
+| `analysis/writing_instructions.py` | P0三步"体检→处方": 逐章指令+评分归因+写书指导手册 (323行) |
+| `analysis/checkpoint.py` | 管线检查点快照: 断点续传, 6步自动存档 (103行) |
+
+## 🆕 P0修复 (本轮, 存量模块)
+| 文件 | 改动 |
+|------|------|
+| `book_processor.py` | +detect_genre_multi() +MIN_CONFIDENCE门控 +3项零成本检查 +TITLE_RULES扩充20条 +降权跨题材词 +统一routing |
+| `rhythm_analyzer.py` | +分章裸数字上下文验证 +slap_noise标记 +_write_chapter_instructions桥接 |
+| `quality_gate.py` | +author_protected_books豁免机制 +审计日志 |
+| `genre_synthesizer.py` | +付费转化钩子维度 +留存力LLM→规则代理 |
+| `creative_bridge.py` | +CLICHE_PATTERNS 8条陈词滥调正则 +_scan_cliches() |
+| `analyze_all.py` | +checkpoint集成 +--with-llm纳入llm_labeler/llm_batch_score |
+| `novel.py` | +cmd_intent +intent子命令注册 +version v7.3 |
+
+## 质量指标
+| 指标 | 状态 |
+|------|:---:|
+| Marvis审查 | 全部清零 ✅ (20份报告/回执闭环) |
+| py_compile | 全模块 ✅ |
+| novel.py test | 7/7 ✅ |
+| 单元测试 | 13/13 ✅ |
+| 归档闭环 | 15/21 ✅ (6个历史提案无回执) |
+
+## CLI 命令
+```bash
+novel.py analyze --genre 末世              # 5步分析
+novel.py analyze --genre 末世 --with-llm    # 7步含LLM
+novel.py analyze --all                      # 全题材
+novel.py intent --text "这章太拖了"          # 意图→建议
+python analysis/writing_instructions.py     # 生成逐章指令+归因+手册
+python analysis/checkpoint.py --status      # 检查点状态
+```
+
+## Skill 更新
+- `marvis-review-handler` v4 — 5步全锁: 每步必须输出[Step N done]
+- `marvis-review-handler` 归档规范 — 闭环文件夹: review.md + reply.md 同目录
+
+## 🆕 架构优化 (2026-06-08)
+| 项目 | 改动 |
+|------|------|
+| 版本号统一 | 4文件 v7.3→v7.4: CODEBUDDY.md/README.md/project.mdc/status.mdc |
+| config.yaml去重 | known_quality_list 删除6本重复条目（无功能影响） |
+| docs/瘦身 | marvis_system_prompt.md→.codebuddy/rules/ · 新对话启动指令.md→prompts/pending/ · 删除冗余README.md副本 |
+| README精简 | 292→115行，去重数据流/设计决策/技术栈（归DESIGN.md/CODEBUDDY.md） |
+| CODEBUDDY分工 | 移除共享基础设施硬件/conda路径（归记忆面板），仅保留模型端口和路由 |
+| notebooks/创建 | 🆕 notebooks/ 探索分析目录 + 注册 novel.py/project.mdc/README |
+| SKILL.md→AI_PROTOCOL.md | 重命名消除撞名 + 同步7文件 | ✅ 已执行 |
+
+**方案审视结论**: 穷举搜索方案整体 7/10，调研扎实但严重滞后于当前状态。Phase 1 全部已执行；Phase 2/3 多数不适用单开发者 Windows 项目。(不执行项: state.json移动 / .env.example / prompts重组 / Makefile / src-layout)
+
+## 待办
+- P1: 扩末世书到30+本 (蒸馏前置)
+- P2: ⑦ 风格蒸馏 Qwen3.5-9B LoRA (TanXS参考)
+- P2: DESIGN §2.4 显存预算整节重算
+- P2: rhythm_analyzer 情感曲线 + 段落级扫描
+- P2: cross-module synthesizer 跨模块整合
+
+## 未验证清单
+| 项目 | 用途 | 价值 | 验证行动 |
+|------|------|:---:|------|
+| **letta** (ex-MemGPT) | 记忆块系统承载角色/世界观/伏笔 | ⭐⭐⭐⭐⭐ | P1: CLI测试 |
+| **deer-flow** (ByteDance) | 多Agent并行调度 | ⭐⭐⭐ | P2 |
+| **prompt-optimizer** | 优化 skill_loader prompt | ⭐⭐ | P3 |
+| **agents SDK** | 多Agent设计模式参考 | ⭐⭐ | 参考 |
+| **claude-flow** | 不适用本地模型 | ⭐ | 跳过 |

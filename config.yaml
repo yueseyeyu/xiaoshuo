@@ -1,0 +1,395 @@
+# ============================================================================
+# config.yaml — 番茄小说 AI 辅助创作系统 v7.3
+#
+# ── 文件定位 ──
+# 系统唯一配置文件。所有模块的运行时行为由本文件控制。
+
+# ============================================================
+# 作者偏好 — 全局注入所有 LLM 调用
+# ============================================================
+author:
+  name: "番茄小说作者"
+  genres: ["末世", "科幻"]
+  avoid_genres: []
+  style_notes: "智斗生存流 + 人外羁绊 + 代价驱动进化 · 月=灾变时代第一个妖，天赋凌驾万物之上"
+  current_book: "《末日模拟器》- 5卷300章"
+# 采用"渐进式启用"策略：P0 阶段启用的模块默认 true，P1/P2 默认 false。
+# 关联文档: DESIGN.md §5.2
+#
+# ── 路径约定 ──
+# 所有模型路径使用绝对路径，指向共享模型库 D:/DaMoXing/
+# 所有相对路径相对于项目根目录 d:/Code/xiaoshuo/
+#
+# ── 修改规则 ──
+# · 修改后无需重启系统，各模块在下次调用时重新读取
+# · 修改 AI_PROTOCOL.md 后需删除 memory/system_prompt_cache.bin 以触发缓存重建
+# · enabled: false 的模块对应的 .py 文件可以不存在（懒加载）
+# ============================================================================
+
+# ============================================================
+# S0: 模型编排 — 控制哪些模型加载、如何路由
+# 模块: model_orchestrator.py
+# 决策依据: DESIGN.md §2.3 & §2.4 显存预算
+# ============================================================
+model_orchestration:
+
+  # single_model = 仅加载主模型（P0-2已确定Qwen3.5为最优单模型方案）
+  mode: "single_model"
+
+  # llama-server.exe 路径（共享环境，所有模型共用）
+  llama_server_exe: "D:/miniconda3/envs/llm-shared/Library/bin/llama-server.exe"
+
+  models:
+    # ── 主模型: S3 评审 + S4 检测 + 概念归纳 ──
+    main_model:
+      name: "Qwen3.5-9B-Instruct"
+      gguf: "D:/DaMoXing/Qwen3.5-9B-Q4_K_M.gguf"
+      quant: "Q4_K_M"                    # 实测 5.68GB；备选 IQ4_XS 5.17GB
+      port: 8000                         # llama.cpp server 端口
+      n_ctx: 4096                        # 上下文窗口。实测 8GB 下 32K 需额外优化 KV 压缩
+      n_gpu_layers: 35                   # 全部 35 层 offload 到 GPU
+      chat_format: "chatml"              # Qwen 系列用 ChatML 格式
+      estimated_vram: "6.2GB"            # 模型 5.68 + KV Cache ~0.5GB
+
+    # ── 网文专家: S1 创意引导 + S2b 参考版 + 节拍分析 ──
+    # 基于 Qwen3-4B + TanXS 中文网文 LoRA 微调
+    # P0-1 实验验证是否满足 S1 创意质量要求
+    # ── 以下模型 v7.3 未启用，保留配置供未来扩展 ──
+    webnovel_expert:
+      name: "Qwen3-4B-Instruct + WebNovel LoRA"
+      gguf: "D:/DaMoXing/Qwen3-4B-Q4_K_M.gguf"
+      port: 8001
+      n_ctx: 16384                       # 创意任务无需超大上下文
+      n_gpu_layers: 24                   # 4B 模型全部 GPU offload
+      chat_format: "chatml"
+      estimated_vram: "2.8GB"            # 模型 2.5 + KV Cache ~0.3GB
+      enabled: false                     # P0-1 实验后决定是否启用
+
+    # ── 逻辑警察候选: 推理链蒸馏模型，因果分析强 ──
+    # P0-2 用 ConStory-Bench 因果子集测试 F1 是否 > Qwen3.5-9B 10%+
+    logic_cop_candidate:
+      name: "DeepSeek-R1-Distill-Qwen-7B"
+      gguf: "D:/DaMoXing/DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf"
+      port: 8002
+      estimated_vram: "4.3GB"            # 仅 P0-2 评估用，不常驻
+      role: "logic_cop_only"
+      enabled: false                     # P0-2: Qwen3.5单模型方案, R1仅作备份
+
+  # ── 任务→模型 路由表 ──
+  # model_orchestrator.py 根据 task_type 自动选择目标模型
+  routing_table:
+    S1_creative: "main_model"           # 创意引导→Qwen3.5-9B (thinking=ON 模式)
+    S2b_reference: "main_model"         # AI参考版→Qwen3.5-9B
+    S3_logic_cop: "main_model"          # 逻辑警察→Qwen3.5-9B (thinking=OFF)
+    S4_style_check: "main_model"        # 风格检测→Qwen3.5-9B (thinking=OFF)
+    S3_editor: "main_model"              # 网文编辑→主模型
+    S3_qc: "main_model"                  # 语言质检→主模型
+    S4_detection: "main_model"           # 风格检测→主模型
+    M5a_beat: "main_model"                # 节拍分析→Qwen3.5-9B
+    M5b_drift: "main_model"              # 漂移分析→Qwen3.5-9B
+
+  fallback: "single_model"               # 双模型任一崩溃→自动降级
+
+# ============================================================
+# S0: A/B 测试框架 — 标准化模型对比实验
+# 模块: model_ab_test.py
+# 决策依据: DESIGN.md §2.3.4
+# ============================================================
+ab_test:
+  # 5 个创意 prompt × 3 轮 × 候选模型 = 评分对比
+  creative_prompts: ["scene_desc", "dialogue", "action_seq", "psychology", "lore_setup"]
+  logic_prompts: ["causal_logic", "timeline_contra"]
+  rounds: 3                             # 每个 prompt 重复次数（消除采样方差）
+  metrics: ["yules_k", "ai_fingerprint_density", "action_constraint_pass_rate", "tokens_per_sec", "logic_f1"]
+
+# ============================================================
+# S0: AI_PROTOCOL.md 协议注入
+# 模块: skill_loader.py
+# 决策依据: DESIGN.md §7.1 — 静态前缀与动态内容分离，确保 Prefix Cache 命中
+# ============================================================
+skill:
+  path: "AI_PROTOCOL.md"                       # 协议文件位置
+  static_prefix_only: true               # 强制 System Prompt 不含动态变量
+
+# ============================================================
+# L3: 嵌入 & 检索 — 向量库 + 精排
+# 模块: novel_graph.py / narrative_index.py
+# 决策依据: BGE-M3 8192 token 上下文 + 100+ 语言；ReRanker 精度 +15-30%
+# ============================================================
+embedding:
+  model: "BAAI/bge-m3"                   # 主嵌入模型（稠密+稀疏混合）
+  reranker:
+    model: "BAAI/bge-reranker-v2-m3"     # Cross-Encoder 精排模型
+    top_k: 3                             # top-20 → top-3 精排
+    cpu_fallback: true                   # 显存不足时 CPU 运行（+50-100ms 延迟）
+    max_length: 512                      # ReRanker 最大输入长度
+
+# ============================================================
+# S0: Prefix Caching — System Prompt KV Cache 磁盘持久化
+# 模块: llama.cpp 内置功能
+# 决策依据: 首 Token 延迟减少 ~40%
+# ============================================================
+prefix_caching:
+  enabled: true
+  cache_file: "memory/system_prompt_cache.bin"
+  static_prefix_only: true               # AI_PROTOCOL.md 不含变量 → 缓存 100% 命中
+  hit_rate_monitoring: true              # 监控缓存是否静默失效
+  hit_rate_alert_threshold: 0.90         # <90% → 检查 AI_PROTOCOL.md 是否有动态变量
+
+# ============================================================
+# L3b: SVO 三元组抽取 — 句子级情节因果追踪
+# 模块: novel_graph.py
+# 灵感: STORYTELLER (ACL 2025 Findings)
+# ============================================================
+svo_extraction:
+  auto_extract: false                    # P1 启用；每章 S2a 后自动抽取
+  llm_temperature: 0.1                   # 低温度确保抽取一致性
+  max_svos_per_chapter: 50               # 事件密集章节的截断上限
+
+# ============================================================
+# L4: 语义记忆层 — 概念归纳（在事实记忆之上）
+# 模块: semantic_memory.py
+# 灵感: AriGraph (2024)
+# ============================================================
+semantic_memory:
+  enabled: false                         # P1 启用
+  update_interval_chapters: 1            # 每章完成后更新概念图
+  concept_confidence_threshold: 0.3      # 低于此值=候选概念，需人工确认
+  max_concepts: 200                      # 防止概念图无限膨胀
+  gold_set_path: "tests/golden_test_set/ground_truth/concepts.json"
+
+# ============================================================
+# L1: 叙事结构索引检索
+# 模块: narrative_index.py
+# 决策依据: "找历史所有'假胜利'节拍的写法" → 叙事功能过滤 + 语义精排
+# ============================================================
+narrative_index:
+  enabled: false                         # P1 启用
+  index_dimensions: ["beat", "emotional_arc", "pleasure_pattern", "narrative_function"]
+  retrieve_top_k: 3
+
+# ============================================================
+# L9: 叙事节拍分析器 + 节奏曲线
+# 模块: beat_analyzer.py / rhythm_curve.py / pleasure_density.py
+# 决策依据: 4 套叙事理论按类型自动匹配；节奏曲线 P1 启用
+# ============================================================
+beat_analyzer:
+  auto_analyze_every_n_chapters: 10      # 每 10 章自动生成节拍报告
+  frameworks:
+    - "save_the_cat"                     # 升级流、传统长篇
+    - "heros_journey"                    # 玄幻、异世界
+    - "kishotenketsu"                    # 中式章回体、都市情感
+    - "webnovel_golden"                  # 系统流、签到流
+  auto_match_by_genre: true              # 根据小说类型自动匹配框架
+  rhythm_curve: false                    # P1 启用四阶段张力模型
+  rhythm_model: "four_phase"             # buildup→delay→peak→afterglow
+
+# ============================================================
+# L9: 风格漂移监控 + 风格噪声注入
+# 模块: style_drift_monitor.py / style_noise_injector.py
+# 决策依据: MASH (ACL 2026) — 反其道行之，在人类文本中强化作者指纹
+# ============================================================
+style_drift:
+  monitor_window: 10                     # 滑动窗口：对比最近 10 章
+  warning_threshold: 0.3                 # 漂移幅度 >0.3 → WARNING
+  style_noise_injection: false           # P2 启用；density*1.1 微调标点/罕见词
+  noise_intensity: "adaptive"            # 根据漂移程度动态调整注入强度
+
+# ============================================================
+# S2b: 污染链切断 — 防止 AI 建议限定作者认知框架
+# 决策依据: DESIGN.md §6.2 — 3方向随机 + 模糊化 + 认知距离
+# ============================================================
+s2b:
+  show_raw_text: false                   # 绝对不展示 AI 生成的原文
+  show_structural_analysis: true         # 仅展示结构化分析
+  direction_count: 3                     # 给出 3 个不同方向的建议
+  fuzzification_level: "medium"          # low|medium|high — 模糊化程度
+  cognitive_distance_bias: 0.7           # 偏向推荐最远认知距离的方向（概率 70%）
+  unlock_min_segments: 3                 # 手写 ≥3 段后才能解锁 S2b
+  unlock_min_chars: 500                  # 手写 ≥500 字后才能解锁 S2b
+
+# ============================================================
+# L5: S4+++ 七层检测引擎
+# 模块: s4_plus_plus.py
+# 决策依据: DESIGN.md §4.5 — 加权判定 + 七层互补
+# 提示: Layer 7 (N-gram PPL) 权重最高 (×3)，源自 IEEE 2024 论文
+# ============================================================
+detection:
+  layers:
+    l1_ppl:
+      enabled: true
+      safe_threshold: 50                 # PPL > 50 = 人类风格
+      warn_threshold: 40                 # 40-50 = 警告区间
+    l2_burstiness:
+      enabled: true
+      safe_threshold: 0.6                # stdev(句长)/mean(句长) > 0.6
+    l3_ai_word_cooccurrence:
+      enabled: true
+      window_size: 100                   # 100词滑动窗口
+      max_ai_words: 2                    # 窗口内AI指纹词 ≤ 2
+    l4_sentence_length_variation:
+      enabled: true
+      warning_threshold: 0.20            # v1→v2 句长变异系数下降>20% = 警告
+    l5_syntax_variation:
+      enabled: true
+      safe_threshold: 0.30               # 句法模式重复率 < 30%
+      fatal_threshold: 0.40              # > 40% = 致命
+    l6_semantic_continuity:
+      enabled: true
+      safe_threshold: 0.7                # 相邻句语义连贯度 > 0.7
+    l7_ngram_ppl:
+      enabled: true
+      fatal_threshold_ratio: 0.6         # N-gram PPL < 基线均值×0.6 = 过于可预测
+
+  # 加权判定：Layer 7(N-gram PPL) 区分信号最强，权重最高
+  weights: {l7: 3, l2: 2, l3: 2, l1: 1}
+
+  # 作者声音基线：12维核心指纹（P0 降维，5章样本稳定）
+  voice_baseline:
+    dimensions: 12
+    min_chapters: 5                      # 最少 5 章手写样本 → 建立基线
+    similarity_threshold: 0.7            # 相似度 < 0.7 = 风格突变
+    drift_warning: 0.3                   # 漂移幅度 > 0.3 = 风格漂移告警
+
+# ============================================================
+# L8: 安全 & 合规
+# 模块: action_constraint.py / mash_pipeline.py / behavior_camouflage.py
+# ============================================================
+safety:
+  action_constraint:
+    enabled: true                        # 代码级硬拦截，双重保障
+    max_direct_quote_chars: 30           # AI 输出连续文字 >30 字符 → 截断
+    check_paragraph_boundary: true       # 检测是否有完整的"段落感"
+
+  mash_pipeline:
+    enabled: false                       # P2: SFT→DPO→推理精炼四阶段
+
+  adversarial_paraphrasing:
+    enabled: false                       # P1: ICLR 2025 免训练对抗改写快速原型
+
+  behavior_camouflage:
+    word_count_jitter: [-200, 300]       # 发布时字数随机浮动（仅保留此项）
+
+  realtime_linting:
+    enabled: false                       # P2: Obsidian/VS Code 实时检测插件
+    plugin_type: "obsidian"
+    check_layers: [2, 3]                 # L2 突发性 + L3 AI词共现
+
+# ============================================================
+# L10: 评估体系
+# 模块: pan2026_evaluator.py / model_ab_test.py / regression_suite.py
+# ============================================================
+golden_test_set:
+  path: "tests/golden_test_set/"
+  auto_run_on_change: false             # P1: 代码修改后自动跑回归测试
+
+pan2026:
+  enabled: false                         # P1: PAN 2026 外部基准集成
+  tasks: ["voight_kampff", "multi_author_style"]
+
+langfuse:
+  enabled: false                         # P1: LLM 调用可观测性追踪
+  self_hosted: true                      # Docker 自托管，零外部依赖
+  port: 3000
+
+# ============================================================
+# 系统熔断 — 防止异常循环消耗
+# 模块: state_machine.py / model_orchestrator.py
+# ============================================================
+circuit_breaker:
+  max_s3_retries_per_chapter: 2          # 同一章 S3 退回 S2d 重写最多 2 次
+  max_daily_llm_calls: 50                # 每日 LLM 调用上限（防止 prompt 循环 bug）
+  vram_pressure_threshold: 0.90          # 显存使用率 >90% → 降级/告警
+
+# ============================================================
+# 分析管线 — 书籍品质过滤 & 节奏/商业分析阈值
+# 模块: book_processor.py / quality_gate.py / rhythm_analyzer.py / genre_synthesizer.py
+# ============================================================
+analysis:
+  # ── 入库基础过滤 (book_processor.py) ──
+  book_filter:
+    min_size_kb: 200                     # 最小文件大小 (KB)，低于此值 → books/review/
+    min_chapters: 5                      # 开头10000字内最少章节数
+    min_chinese_density: 0.40            # 中文字符最低密度 (<0.4 → 可能是乱码/非正文)
+    known_quality_list:                  # 精品书单 (作者人工确认 + Marvis正文验证)
+      - "末日拼图游戏"
+      - "我在末世有套房"
+      - "全球进化"
+      - "异兽迷城"
+      - "第九特区"
+      - "世界末日从考试不及格开始"
+      - "十日终焉"
+      - "废土崛起"
+      - "从红月开始"
+      - "黑暗文明"
+      - "狩魔手记"
+      - "恐慌沸腾"
+      - "末日蟑螂"
+      - "限制级末日症候"
+      - "灾厄纪元"
+      - "黑暗血时代"
+      - "末世大回炉"
+      # P0: 本次审计新增精品
+      - "地球游戏场"
+      - "重卡战车在末世"
+      - "末世超级商人"
+      - "我的女友是丧尸"
+      - "末世召唤狂潮"
+      - "黑暗王者"
+      - "神秘尽头"
+      - "超级神基因"
+      - "末世：从加点开始无限进化"
+    # 已知精品的预设 genre（跳过关键词自动检测，防误分类）
+    known_genre_map:
+      "异兽迷城": "末世"
+      "世界末日从考试不及格开始": "末世"
+      # P0: Marvis审查补充
+      "十日终焉": "无限流"
+      "超级神基因": "科幻"
+      "狩魔手记": "末世"
+      "恐慌沸腾": "末世"
+      "黑暗文明": "末世"
+      "末日蟑螂": "末世"
+      "限制级末日症候": "末世"
+      # P0: 9本新书审计 (Marvis正文验证)
+      "从红月开始": "末世"
+      "灾厄纪元": "末世"
+      "黑暗末日": "末世"
+      "末世大回炉": "末世"
+      "我的末世领地": "末世"
+      "穹顶之上": "科幻"
+      # P0: 最终9本审计 (Marvis正文验证)
+      "深渊之主": "奇幻"
+      "地球游戏场": "末世"
+      "全球变异，从灾厄降临开始": "末世"
+      "我的女友是丧尸": "末世"
+      "末世之深渊召唤师": "末世"
+      "末世召唤狂潮": "末世"
+      "末世魔神游戏": "末世"
+      "重卡战车在末世": "末世"
+      "末世超级商人": "末世"
+      "黑暗王者": "末世"
+      "神秘尽头": "末世"
+      "蹉跎": "末世"
+    # 🆕 作者豁免列表: 这些书跳过所有自动 FAIL/QUARANTINE
+    # 工具的角色是辅助筛选，不是自动裁判；作者有权保护自己的参考书
+    author_protected_books: []
+
+  # ── 分析后品质关卡 v2 (quality_gate.py) ──
+  quality_gate:
+    min_rhythm_chapters: 10              # Gate A: 最少章节数 (<10→FAIL)
+    max_zero_hook_streak: 5              # Gate B: 零钩子上限 (>5→QUARANTINE)
+    min_commercial_score: 0              # Gate B: 商业评分下限 (P0: 0=percentile纯排名,不用绝对阈值)
+    auto_demote: true                    # FAIL 自动移回 books/review/
+    quarantine_days: 7                   # QUARANTINE 天数(无人工→自动FAIL)
+    # known_quality_list: 从 book_filter 继承, 已知精品永不 FAIL
+    # author_protected_books: 从 book_filter 继承, 作者豁免永不 FAIL/QUARANTINE
+
+  # ── 商业评分等级线 (genre_synthesizer.py) ──
+  commercial_grades:
+    high: 70                             # ≥70: 高概率签约
+    medium: 50                           # ≥50: 签约可期
+    low: 30                              # ≥30: 需优化 (<30: 风险偏高)
+
+  # ── LLM 端口 (rhythm_analyzer.py llm_verify) ──
+  llm_port: 8000                        # 从 model_orchestration.models.main_model.port 同步

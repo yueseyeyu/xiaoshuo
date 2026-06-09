@@ -1,0 +1,13 @@
+# 自动化规则：监听 Marvis 审查报告
+
+## 触发条件
+prompts/pending/ 下出现新 .md 文件（非 20260607_0004.md 和 20260608_round2.md）
+
+## 动作
+1. 扫描 `prompts/pending/` 下所有非 `_plotpilot` 开头的 .md 文件
+2. 读取最新文件，识别问题（🔴/🟡 标记）
+3. 对比 `prompts/replies/` 中已修复项，跳过已修
+4. 按 🔴→🟡 优先级修复所有问题
+5. 编译 + `python novel.py test` + 单元测试验证
+6. 写入回执到 `prompts/replies/YYYYMMDD_{report_id}_fixed.md`
+7. 更新 `status.mdc`

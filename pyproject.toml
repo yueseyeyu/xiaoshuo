@@ -1,0 +1,25 @@
+[project]
+name = "xiaoshuo"
+version = "7.4"
+description = "番茄小说AI辅助创作系统 — 数据驱动的网文创作指导·三层拆书深度架构"
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml>=6.0",
+    "scipy>=1.12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.1",
+]
+llm = [
+    "llmlingua>=0.3",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501"]
