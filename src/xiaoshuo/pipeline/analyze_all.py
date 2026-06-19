@@ -44,15 +44,16 @@ except ImportError:
 # P3: Stage key -> (stage_num, total, display_name)
 # Total is the number of major stages shown in the frontend progress bar.
 STAGE_INFO = {
-    "book_processor": (1, 8, "入库处理"),
-    "rhythm_analyzer": (2, 8, "拆书节奏分析"),
-    "llm_batch_score": (3, 8, "LLM批量评分"),
-    "genre_synthesizer": (3, 8, "题材评分合成"),
-    "quality_gate": (4, 8, "品质关卡"),
-    "creative_bridge": (5, 8, "创作桥接"),
-    "recursive_summarize": (6, 8, "递归摘要"),
-    "cross_book_synthesis": (7, 8, "跨书合成"),
-    "writing_instructions": (8, 8, "写作指令"),
+    "book_processor": (1, 9, "入库处理"),
+    "rhythm_analyzer": (2, 9, "拆书节奏分析"),
+    "llm_batch_score": (3, 9, "LLM批量评分"),
+    "genre_synthesizer": (3, 9, "题材评分合成"),
+    "quality_gate": (4, 9, "品质关卡"),
+    "creative_bridge": (5, 9, "创作桥接"),
+    "recursive_summarize": (6, 9, "递归摘要"),
+    "cross_book_synthesis": (7, 9, "跨书合成"),
+    "technique_store": (8, 9, "技法卡片"),
+    "writing_instructions": (9, 9, "写作指令"),
 }
 
 
@@ -171,6 +172,28 @@ def _run_parallel_group(steps):
     return all_ok
 
 
+def _run_technique_store(genre):
+    """Run technique card extraction (in-process, no subprocess)."""
+    try:
+        from xiaoshuo.pipeline.technique_store import process_genre
+        ckpt_key = "technique_store"
+        stage_num, total, name = STAGE_INFO.get(ckpt_key, (9, 9, "技法卡片"))
+        write_stage(stage=ckpt_key, stage_num=stage_num, total=total, percent=0,
+                    current_task=f"提取{genre}技法卡片")
+        count = process_genre(genre)
+        if CHECKPOINT_AVAILABLE:
+            mark_done(ckpt_key)
+        msg = f"技法卡片提取完成: {count} 条"
+        print(f"[OK] {msg}")
+        logger.info(msg)
+        return True
+    except Exception as e:
+        msg = f"技法卡片提取失败: {e}"
+        print(f"[FAIL] {msg}")
+        logger.exception("technique_store failed")
+        return False
+
+
 def _run_parallel(genre_arg, books_arg, skip_gate, skip_bridge, with_llm):
     """v7: 并发管线执行。
 
@@ -251,6 +274,10 @@ def _run_parallel(genre_arg, books_arg, skip_gate, skip_bridge, with_llm):
     # Stage 8: cross_book_synthesis
     run_optional("Stage 8/9: Cross-Book Synthesis", "cross_book_synthesis.py",
                  genre_arg if genre_arg else None)
+
+    # Stage 9: technique_store (auto-extract technique cards from synthesis)
+    gen = genre_arg[1] if genre_arg else "末世"
+    _run_technique_store(gen)
 
     # Stage 9: writing_instructions
     wi_args = books_arg if books_arg else []

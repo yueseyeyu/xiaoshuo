@@ -58,6 +58,7 @@ TASK_TEMPLATES: dict[str, str] = {
 {outline_section}
 {characters_section}
 {previous_svos_section}
+{technique_section}
 
 ## 你的任务
 生成 3 个互不相同的剧情发展方向（温度参数由系统控制）。
@@ -71,6 +72,7 @@ TASK_TEMPLATES: dict[str, str] = {
 - 第 {chapter_num} 章（作者已手写 {handwritten_words} 字，可提供模糊方向）
 {characters_section}
 {outline_section}
+{technique_section}
 
 ## 你的任务
 作者卡文，需要方向性启发。给出 3 个模糊的叙事方向（不是完整段落），
@@ -251,6 +253,9 @@ class SkillLoader:
             "previous_svos_section": "",
             "active_framework": "save_the_cat",
             "cognitive_distance_bias": 0.7,
+            "genre": "末世",
+            "total_chapters": 300,
+            "technique_section": "",
         }
         for key, default in defaults.items():
             if key not in result:
@@ -263,6 +268,24 @@ class SkillLoader:
             result["characters_section"] = f"- 出场角色:\n{result['characters_section']}"
         if result["previous_svos_section"]:
             result["previous_svos_section"] = f"- 近期关键事件:\n{result['previous_svos_section']}"
+
+        # 自动检索技法卡片
+        if not result.get("technique_section"):
+            try:
+                from xiaoshuo.pipeline.technique_store import retrieve_cards, format_cards_for_prompt
+                chapter_num = result.get("chapter_num", 1)
+                if isinstance(chapter_num, str):
+                    chapter_num = int(chapter_num) if chapter_num.isdigit() else 1
+                ctx = {
+                    "chapter_num": chapter_num,
+                    "total_chapters": result.get("total_chapters", 300),
+                    "keywords": result.get("keywords", []),
+                }
+                cards = retrieve_cards(result.get("genre", "末世"), ctx, top_k=3)
+                if cards:
+                    result["technique_section"] = format_cards_for_prompt(cards)
+            except Exception:
+                pass  # 技法检索失败不阻塞 prompt 构建
 
         return result
 
