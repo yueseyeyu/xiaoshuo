@@ -501,13 +501,16 @@ def _kill_process_tree(pid):
 
 
 def stop_analysis():
-    """停止拆书子进程及其所有子进程。返回 (ok, message)。"""
-    global analyze_process
+    """停止拆书子进程及其所有子进程，同时释放 LLM 模型服务。返回 (ok, message)。"""
+    global analyze_process, _llm_ready, _startup_state
     with analyze_lock:
         if analyze_process is None or analyze_process.poll() is not None:
             analyze_process = None
-            # Clean up stale pipeline state file even if no process is running
             clear_stage()
+            # Also clean up LLM server even if no analysis running
+            _cleanup_llm_process()
+            _llm_ready = False
+            _startup_state = {"status": "idle", "message": "", "progress": 0, "error": ""}
             return False, "没有运行中的拆书流程"
 
         pid = analyze_process.pid
@@ -515,7 +518,11 @@ def stop_analysis():
             _kill_process_tree(pid)
             logging.info("拆书流程已停止: pid=%s", pid)
             clear_stage()
-            return True, f"已停止拆书流程 (PID {pid})"
+            # Stop LLM server to free VRAM
+            _cleanup_llm_process()
+            _llm_ready = False
+            _startup_state = {"status": "idle", "message": "", "progress": 0, "error": ""}
+            return True, f"已停止拆书流程 (PID {pid})，LLM 服务已释放"
         except Exception as e:
             return False, f"停止失败: {e}"
         finally:
