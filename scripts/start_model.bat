@@ -22,7 +22,10 @@ D:\miniconda3\envs\llm-shared\Library\bin\llama-server.exe ^
     --cache-type-k q8_0 --cache-type-v q8_0 ^
     --cache-prompt ^
     --parallel 2 ^
-    --ubatch-size 512 --batch-size 1024
+    --ubatch-size 512 --batch-size 1024 ^
+    --threads 10 ^
+    --mlock ^
+    --defrag-thold 0.9
 
 echo.
 echo [STOP] server closed

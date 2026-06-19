@@ -3,6 +3,18 @@
 > **文档版本**: v7.5
 > **实际代码**: analysis/ 7步管线 + agents/ 9模块 + novel.py 15命令
 > **关联文档**: [AI_PROTOCOL.md](AI_PROTOCOL.md) | [config.yaml](config.yaml)
+> **v7.5 审视修复**: 2026-06-19 — 13项架构优化落地（P0安全/P1并行+拆分+重构/P2基础设施）
+
+---
+
+## 实现状态说明
+
+| 标签 | 含义 |
+|------|------|
+| ✅ | 已实现，代码可用 |
+| ⚠️ | 部分实现，骨架存在但功能不完整 |
+| ❌ | 设计阶段，无对应代码 |
+| 📋 | 规划中，待排期 |
 
 ---
 
@@ -10,19 +22,31 @@
 
 本文档是系统设计的主索引。各模块的详细设计已拆分为独立文档：
 
-| # | 文档 | 内容 |
-|---|------|------|
-| 1 | [1. 设计哲学与目标](docs/design/01-philosophy.md) | 设计哲学、目标、约束矩阵、术语定义 |
-| 2 | [2. 系统总览 + 3. 分层架构](docs/design/02-architecture-overview.md) | 系统定位、技术栈、模型选型、十层分层架构 |
-| 3 | [4. 模块设计 (上半: 工作流引擎/知识图谱/检测引擎)](docs/design/03-modules-core.md) | 工作流引擎(M1)、知识图谱(M2)、语义记忆(M2b)、检测引擎(S4+++) |
-| 4 | [4. 模块设计 (下半: 交互/节拍/漂移/编排/文件系统)](docs/design/04-modules-aux.md) | 交互接口(M5)、节拍分析(M5a)、风格漂移(M5b)、模型编排(M5d)、文件系统(M6) |
-| 5 | [5. 数据设计 + 6. 工作流设计](docs/design/05-data-config.md) | NovelGraph表结构、config.yaml配置、state.json状态 |
-| 6 | [7. 接口与通信设计](docs/design/06-interface-protocol.md) | AI协议注入、Prefix Caching、LLM通信协议 |
-| 7 | [8. 安全与合规设计](docs/design/07-security-compliance.md) | 六层防御体系、MASH对抗流水线、平台合规红线 |
-| 8 | [9. 评估体系与质量保障](docs/design/08-evaluation-testing.md) | 黄金测试集、模块评估指标、PAN 2026、A/B测试 |
-| 9 | [10. 部署 + 11. 风险 + 12. 演进路线图](docs/design/09-deploy-roadmap.md) | 部署方案、技术风险、流程风险、演进路线图(P0-P3) |
-| 10 | [附录 + 架构重构说明](docs/design/10-appendix.md) | 设计决策记录、关键文件清单、版本历史、审视方法论 |
-| 11 | [15. 完整创作愿景与实现路径](docs/design/11-vision.md) | 十阶段创作辅助闭环、各阶段现状、风格涌现、蒸馏进化 |
+| # | 文档 | 内容 | 实现状态 |
+|---|------|------|:---:|
+| 1 | [1. 设计哲学与目标](docs/design/01-philosophy.md) | 设计哲学、目标、约束矩阵、术语定义 | ✅ |
+| 2 | [2. 系统总览 + 3. 分层架构](docs/design/02-architecture-overview.md) | 系统定位、技术栈、模型选型、十层分层架构 | ⚠️ |
+| 3 | [4. 模块设计 (上半: 工作流引擎/知识图谱/检测引擎)](docs/design/03-modules-core.md) | 工作流引擎(M1)、知识图谱(M2)、语义记忆(M2b)、检测引擎(S4+++) | ⚠️ |
+| 4 | [4. 模块设计 (下半: 交互/节拍/漂移/编排/文件系统)](docs/design/04-modules-aux.md) | 交互接口(M5)、节拍分析(M5a)、风格漂移(M5b)、模型编排(M5d)、文件系统(M6) | ⚠️ |
+| 5 | [5. 数据设计 + 6. 工作流设计](docs/design/05-data-config.md) | NovelGraph表结构、config.yaml配置、state.json状态 | ⚠️ |
+| 6 | [7. 接口与通信设计](docs/design/06-interface-protocol.md) | AI协议注入、Prefix Caching、LLM通信协议 | ✅ |
+| 7 | [8. 安全与合规设计](docs/design/07-security-compliance.md) | 六层防御体系、MASH对抗流水线、平台合规红线 | ⚠️ |
+| 8 | [9. 评估体系与质量保障](docs/design/08-evaluation-testing.md) | 黄金测试集、模块评估指标、PAN 2026、A/B测试 | ⚠️ |
+| 9 | [10. 部署 + 11. 风险 + 12. 演进路线图](docs/design/09-deploy-roadmap.md) | 部署方案、技术风险、流程风险、演进路线图(P0-P3) | ⚠️ |
+| 10 | [附录 + 架构重构说明](docs/design/10-appendix.md) | 设计决策记录、关键文件清单、版本历史、审视方法论 | ✅ |
+| 11 | [15. 完整创作愿景与实现路径](docs/design/11-vision.md) | 十阶段创作辅助闭环、各阶段现状、风格涌现、蒸馏进化 | ⚠️ |
+
+### v7.5 基础设施新增
+
+| 模块 | 路径 | 用途 |
+|------|------|------|
+| 日志系统 | `src/xiaoshuo/infra/logging_config.py` | 统一结构化日志（控制台 INFO + 文件 DEBUG 轮转 7 天） |
+| 配置管理器 | `src/xiaoshuo/infra/config_manager.py` | 全局 config 单例缓存，替代各模块独立加载 |
+| 性能监控 | `src/xiaoshuo/infra/performance.py` | @timed 装饰器 + PipelineTimer 阶段计时 |
+| 数据校验 | `src/xiaoshuo/infra/schemas.py` | state.json/novel_index.json 格式校验 |
+| 评分拆分 | `src/xiaoshuo/pipeline/scoring/` | genre_synthesizer 拆分为 6 子模块 |
+| 冒烟测试 | `tests/smoke_test.py` | 集成冒烟测试（无 LLM 依赖） |
+| 并行管线 | `analyze_all.py --parallel` | 阶段并行执行（~40% 加速） |
 
 ---
 

@@ -1,0 +1,164 @@
+============================================================
+  末世30本·从零全量LLM管线 运行日志
+============================================================
+Timestamp: 2026-06-08 08:34:55
+Model: Qwen3.5-9B-Q4_K_M | --reasoning off | --flash-attn on | KV q8_0 | parallel 4 | cont-batching
+Fixes applied: novel_index rebuilt(30本) | pool-empty-fallback | creative_bridge genre-filter | --genre prop to all steps
+
+--- INPUT ---
+末世/: 30 books | novel_index: 30 registered
+  《世界末日从考试不及格开始》作者：小猫要成仙.txt (6595KB)
+  《从红月开始》（校对版全本）作者：黑山老鬼.txt (9671KB)
+  《全球进化》（精校版全本）作者：咬狗.txt (3248KB)
+  《地球游戏场》（校对版全本）作者：吉风冰.txt (8260KB)
+  《废土崛起》（校对版全本）作者：通吃道人.txt (13650KB)
+  《异兽迷城》（校对版全本）.txt (8752KB)
+  《恐慌沸腾》【爱上阅读_www.isyd.net】.txt (14479KB)
+  《我 的 末 世 领 地》（校对版）.txt (7918KB)
+  《我在末世有套房》（校对版全本）作者：晨星LL.txt (12760KB)
+  《我的女友是丧尸》（校对版全本）作者：黑暗荔枝.txt (11487KB)
+  《末世之深渊召唤师》（校对版全本）作者：凉心未暖.txt (12380KB)
+  《末世召唤狂潮》（校对版全本）作者：黑心的大白.txt (12094KB)
+  《末世大回炉》（校对版全本）作者：二十二刀流.txt (12518KB)
+  《末世魔神游戏》（校对版全本）作者：石闻.txt (19467KB)
+  《末日拼图游戏》（校对版全本）作者：更从心.txt (9136KB)
+  《末日蟑螂》作者：伟岸蟑螂.txt (12711KB)
+  《灾厄纪元》（校对版全本）作者：妖的境界.txt (12796KB)
+  《神秘尽头》-+黑山老鬼.txt (3764KB)
+  《第九特区》.txt (19246KB)
+  《蹉跎》（校对版全本）作者：随风飘摇.txt (4205KB)
+  《重卡战车在末世》（校对版全本）作者：白雨涵.txt (6635KB)
+  《黑暗末日》（校对版全本）作者：我妻虚彩.txt (5278KB)
+  《黑暗王者》（校对版全本）作者：古羲.txt (10303KB)
+  全球变异，从灾厄降临开始.txt (10918KB)
+  我在末世种个田.txt (16943KB)
+  末世超级商人.txt (5972KB)
+  狩魔手记_烟雨江南.txt (4363KB)
+  限制级末日症候.txt (32150KB)
+  黑暗文明_古羲.txt (8691KB)
+  黑暗血时代.txt (11254KB)
+
+--- STEP 2: LLM LABELER (regex校准) ---
+Books sampled: 27
+Reliability: pleasure_f1=0.102, hook_f1=0.358, conflict_f1=0.454, global_f1=0.329, samples=38
+
+--- STEP 3: RHYTHM ANALYSIS ---
+Total rhythm CSVs: 30
+  rhythm_《世界末日从考试不及格开始》作者：小猫要成仙.csv                   909ch  hook=1.98
+  rhythm_《从红月开始》（校对版全本）作者：黑山老鬼.csv                    897ch  hook=2.56
+  rhythm_《全球进化》（精校版全本）作者：咬狗.csv                       437ch  hook=1.40
+  rhythm_《地球游戏场》（校对版全本）作者：吉风冰.csv                     788ch  hook=1.74
+  rhythm_《废土崛起》（校对版全本）作者：通吃道人.csv                    1929ch  hook=1.25
+  rhythm_《异兽迷城》（校对版全本）.csv                           1285ch  hook=1.13
+  rhythm_《恐慌沸腾》【爱上阅读_www.isyd.net】.csv               1488ch  hook=1.26
+  rhythm_《我 的 末 世 领 地》（校对版）.csv                       880ch  hook=1.28
+  rhythm_《我在末世有套房》（校对版全本）作者：晨星LL.csv                 1613ch  hook=1.55
+  rhythm_《我的女友是丧尸》（校对版全本）作者：黑暗荔枝.csv                 1361ch  hook=2.82
+  rhythm_《末世之深渊召唤师》（校对版全本）作者：凉心未暖.csv                1560ch  hook=2.62
+  rhythm_《末世召唤狂潮》（校对版全本）作者：黑心的大白.csv                 1666ch  hook=1.00
+  rhythm_《末世大回炉》（校对版全本）作者：二十二刀流.csv                  1937ch  hook=3.03
+  rhythm_《末世魔神游戏》（校对版全本）作者：石闻.csv                    1980ch  hook=1.52
+  rhythm_《末日拼图游戏》（校对版全本）作者：更从心.csv                    631ch  hook=1.49
+  rhythm_《末日蟑螂》作者：伟岸蟑螂.csv                           2404ch  hook=1.07
+  rhythm_《灾厄纪元》（校对版全本）作者：妖的境界.csv                    1348ch  hook=2.50
+  rhythm_《神秘尽头》-+黑山老鬼.csv                             292ch  hook=3.46
+  rhythm_《第九特区》.csv                                  2753ch  hook=0.95
+  rhythm_《蹉跎》（校对版全本）作者：随风飘摇.csv                       341ch  hook=0.84
+  rhythm_《重卡战车在末世》（校对版全本）作者：白雨涵.csv                   914ch  hook=0.94
+  rhythm_《黑暗末日》（校对版全本）作者：我妻虚彩.csv                     701ch  hook=1.96
+  rhythm_《黑暗王者》（校对版全本）作者：古羲.csv                      1279ch  hook=2.39
+  rhythm_全球变异，从灾厄降临开始.csv                            1500ch  hook=3.66
+  rhythm_我在末世种个田.csv                                 1716ch  hook=2.36
+  rhythm_末世超级商人.csv                                   509ch  hook=0.79
+  rhythm_狩魔手记_烟雨江南.csv                                568ch  hook=2.08
+  rhythm_限制级末日症候.csv                                 2271ch  hook=1.13
+  rhythm_黑暗文明_古羲.csv                                  926ch  hook=2.53
+  rhythm_黑暗血时代.csv                                   1855ch  hook=0.84
+Total chapters analyzed: 38738
+
+--- STEP 4: LLM BATCH SCORE ---
+Total LLM score CSVs: 0
+
+--- STEP 5: GENRE SYNTHESIZER ---
+Processed: 末世·30本
+Pool: fallback-to-full-genre (pool-empty isolation bypass)
+LOOCV: r=-0.214 (Pearson)
+
+--- STEP 6: QUALITY GATE ---
+PASS: 1
+QUARANTINE: 31
+FAIL: 18
+Confidence: low
+
+末世 PASS: 1 (全部30本中)
+  [OK] 黑暗血时代 hook=0.842
+
+末世 QUARANTINE: 29
+  [Q]  《世界末日从考试不及格开始》 score=? reason=[已知精品] 商业评分偏低(1<30), 软降级
+  [Q]  《从红月开始》（校对版全本） score=? reason=[已知精品] 商业评分偏低(2<30), 软降级
+  [Q]  《全球进化》 score=? reason=[已知精品] 商业评分偏低(3<30), 软降级
+  [Q]  《地球游戏场》（校对版全本） score=? reason=[已知精品] 商业评分偏低(4<30), 软降级
+  [Q]  《废土崛起》（校对版全本） score=? reason=[已知精品] 商业评分偏低(5<30), 软降级
+  [Q]  《异兽迷城》（校对版全本） score=? reason=[已知精品] 商业评分偏低(6<30), 软降级
+  [Q]  《恐慌沸腾》【爱上阅读_www.isyd.net】 score=? reason=[已知精品] 商业评分偏低(7<30), 软降级
+  [Q]  《我 的 末 世 领 地》（校对版） score=? reason=商业评分偏低(8<30, intra_genre)→可能慢热
+  [Q]  《我在末世有套房》（校对版全本） score=? reason=[已知精品] 商业评分偏低(9<30), 软降级
+  [Q]  《我的女友是丧尸》（校对版全本） score=? reason=[已知精品] 商业评分偏低(10<30), 软降级
+  [Q]  《末世之深渊召唤师》（校对版全本） score=? reason=商业评分偏低(11<30, intra_genre)→可能慢热
+  [Q]  《末世召唤狂潮》（校对版全本） score=? reason=[已知精品] 商业评分偏低(12<30), 软降级
+  [Q]  《末世大回炉》（校对版全本） score=? reason=[已知精品] 商业评分偏低(13<30), 软降级
+  [Q]  《末世魔神游戏》（校对版全本） score=? reason=商业评分偏低(14<30, intra_genre)→可能慢热
+  [Q]  《末日拼图游戏》（校对版全本） score=? reason=[已知精品] 商业评分偏低(15<30), 软降级
+  [Q]  《末日蟑螂》 score=? reason=[已知精品] 商业评分偏低(16<30), 软降级
+  [Q]  《灾厄纪元》（校对版全本） score=? reason=[已知精品] 商业评分偏低(17<30), 软降级
+  [Q]  《神秘尽头》-+黑山老鬼 score=? reason=[已知精品] 商业评分偏低(18<30), 软降级
+  [Q]  《第九特区》 score=? reason=[已知精品] 商业评分偏低(19<30), 软降级
+  [Q]  《蹉跎》（校对版全本） score=? reason=商业评分偏低(20<30, intra_genre)→可能慢热
+  [Q]  《重卡战车在末世》（校对版全本） score=? reason=[已知精品] 商业评分偏低(21<30), 软降级
+  [Q]  《黑暗末日》（校对版全本） score=? reason=商业评分偏低(22<30, intra_genre)→可能慢热
+  [Q]  《黑暗王者》（校对版全本） score=? reason=[已知精品] 商业评分偏低(23<30), 软降级
+  [Q]  全球变异，从灾厄降临开始 score=? reason=商业评分偏低(24<30, intra_genre)→可能慢热
+  [Q]  我在末世种个田 score=? reason=商业评分偏低(25<30, intra_genre)→可能慢热
+  [Q]  末世超级商人 score=? reason=[已知精品] 商业评分偏低(26<30), 软降级
+  [Q]  狩魔手记_烟雨江南 score=? reason=[已知精品] 商业评分偏低(27<30), 软降级
+  [Q]  限制级末日症候 score=? reason=[已知精品] 商业评分偏低(28<30), 软降级
+  [Q]  黑暗文明_古羲 score=? reason=[已知精品] 商业评分偏低(29<30), 软降级
+
+末世 FAIL: 0
+末世 总计: 30/30 本参与 (全部30本有节奏数据)
+
+--- STEP 7: CREATIVE BRIDGE ---
+  末世_分析摘要.md (980B)
+  末世_创作指导.json (11221B)
+  末世_创作指导.md (10698B)
+
+# 末世类网文创作分析摘要
+
+> 基于1本精品书分析 · 置信度: low
+> 以下指标基于精品书统计关联(相关,非因果)。优先保证情节强度,量化指标仅作辅助检查。
+
+---
+
+## 你最需要关注的三件事
+
+1. **开篇钩子**: 0.842
+2. **节奏红线**: {'avg_streak': 10, 'max_safe': 2, 'red_line': '连续≥3章→读者弃书风险30%+'}
+3. **核心冲突**: [{'type': '打脸', 'pct': 42}, {'type': '羁绊', 'pct': 36}, {'type': '突破', 'pct': 9}]
+
+## 各维度速查
+
+| 维度 | 关键数据 |
+|------|---------|
+| 每章字数 | 约1855字 |
+| 常用钩子 | {'none': 70.1, '悬念式': 20.9, '反转式': 7.3, '情绪炸弹': 0.9, '信息投放': 0.7} |
+| 对话占比 | 17% (精品范围0.17-0.17) |
+| 情感摆动 | {'V_start_mean': -0.318, 
+
+--- FULL DATASET PATHS ---
+  novel_index:    data/raw/novel_index.json (47 books)
+  rhythm CSVs:    data/processed/rhythm/ (30 files)
+  llm scores:     data/processed/llm_scores/ (0 files)
+  llm labels:     data/processed/llm_labels/ (27 files)
+  quality_manifest: data/processed/quality_manifest.json
+  annotation_reliability: data/processed/annotation_reliability.json
+  creative_guidance: outputs/reports/creative_guidance/

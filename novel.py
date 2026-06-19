@@ -40,6 +40,10 @@ import sys
 from pathlib import Path
 from datetime import datetime
 
+# v8.0 重构: src/ 加入 sys.path，启用包绝对 import
+sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
+from xiaoshuo import __version__
+
 
 # ============================================================================
 # 全局常量 — 项目根目录 & 关键文件路径
@@ -131,14 +135,14 @@ DIRECTORIES = [
     # 引擎层 — AI 行为模块
     "agents",
 
-    # 数据层 — 设定文件（canon = 唯一真相源）
-    "canon",
-    "voice",
-    "outline/chapter_plans",
-
-    # 产出层 — 正文 & 衍生
-    "chapters",
-    "wiki",
+    # 资产层 — 创作资产（统一使用 assets/ 前缀）
+    "assets/canon",
+    "assets/voice",
+    "assets/outline",
+    "assets/chapters",
+    "assets/library",
+    "assets/library/genres",
+    "assets/library/references",
 
     # 评估层 — 测试 & 基准
     "tests/golden_test_set/ground_truth",
@@ -171,30 +175,30 @@ DIRECTORIES = [
     ".archive/ai_references",       # S2b AI参考版历史
 
     # 探索层 — 分析Notebook
-    "notebooks",                    # 🆕 Jupyter/IPython探索分析
+    "notebooks",                    # Jupyter/IPython探索分析
 ]
 
 # ── 模板文件 ──
 # key = 相对路径, value = 初始内容。
 # 仅在文件不存在时创建，已存在的文件不会被覆盖（保护用户数据）。
 TEMPLATE_FILES = {
-    # canon/ — 设定数据库（作者手动维护）
-    "canon/world.md":              "# 世界观设定\n\n> 待填写 — 参见 DESIGN.md §4.10\n",
-    "canon/characters.md":         "# 角色设定\n\n> 待填写 — 后续由 NovelGraph 自动关联\n",
-    "canon/rules.md":              "# 规则体系\n\n> 待填写 — 力量体系/经济系统/社会规则\n",
-    "canon/timeline.md":           "# 时间线\n\n> 待填写 — 后续从 NovelGraph 时序图自动生成\n",
-    "canon/foreshadowing.md":      "# 伏笔追踪\n\n> 待填写 — 含因果链 + SVO 追溯\n",
-    "canon/emotional_arcs.md":     "# 情感弧线\n\n> 待填写 — 每章结束后自动更新\n",
-    "canon/subplot_board.md":      "# 支线看板\n\n> 待填写 — 多线叙事管理\n",
+    # assets/canon/ — 设定数据库（作者手动维护）
+    "assets/canon/world.md":              "# 世界观设定\n\n> 待填写 — 参见 DESIGN.md §4.10\n",
+    "assets/canon/characters.md":         "# 角色设定\n\n> 待填写 — 后续由 NovelGraph 自动关联\n",
+    "assets/canon/rules.md":              "# 规则体系\n\n> 待填写 — 力量体系/经济系统/社会规则\n",
+    "assets/canon/timeline.md":           "# 时间线\n\n> 待填写 — 后续从 NovelGraph 时序图自动生成\n",
+    "assets/canon/foreshadowing.md":      "# 伏笔追踪\n\n> 待填写 — 含因果链 + SVO 追溯\n",
+    "assets/canon/emotional_arcs.md":     "# 情感弧线\n\n> 待填写 — 每章结束后自动更新\n",
+    "assets/canon/subplot_board.md":      "# 支线看板\n\n> 待填写 — 多线叙事管理\n",
 
-    # voice/ — 文风层（机器辅助维护）
-    "voice/voice.md":              "# 文风指南\n\n> 待填写 — 从基线数据自动生成 (P0)\n",
-    "voice/anti_slop_blacklist.md":"# AI 指纹黑名单\n\n> P2 动态更新 — 社区AI常用词爬取+去重\n",
-    "voice/platform_compliance.md":"# 平台合规参考\n\n> PAN 2026 对抗策略参考\n",
+    # assets/voice/ — 文风层（机器辅助维护）
+    "assets/voice/voice.md":              "# 文风指南\n\n> 待填写 — 从基线数据自动生成 (P0)\n",
+    "assets/voice/anti_slop_blacklist.md":"# AI 指纹黑名单\n\n> P2 动态更新 — 社区AI常用词爬取+去重\n",
+    "assets/voice/platform_compliance.md":"# 平台合规参考\n\n> PAN 2026 对抗策略参考\n",
 
-    # outline/ — 大纲层
-    "outline/rough_outline.md":    "# 粗纲\n\n> S0 阶段由 LLM 生成（脱敏后）\n",
-    "outline/candidates.md":       "# 候选方向\n\n> S0 反同质化检查结果\n",
+    # assets/outline/ — 大纲层
+    "assets/outline/rough_outline.md":    "# 粗纲\n\n> S0 阶段由 LLM 生成（脱敏后）\n",
+    "assets/outline/candidates.md":       "# 候选方向\n\n> S0 反同质化检查结果\n",
 }
 
 
@@ -238,7 +242,7 @@ def cmd_init(args) -> None:
     if not STATE_PATH.exists():
         initial_state = {
             # ── 基础信息 ──
-            "version": "7.1",
+            "version": __version__,
             "created_at": datetime.now().isoformat(),
 
             # ── 进度追踪 ──
@@ -308,7 +312,7 @@ def cmd_status(args) -> None:
     config = load_config()
 
     print("=" * 60)
-    print("  番茄小说 AI 辅助创作系统 v7.3")
+    print(f"  番茄小说 AI 辅助创作系统 v{__version__}")
     print("=" * 60)
 
     # ── 进度 ──
@@ -399,10 +403,8 @@ def cmd_s1(args) -> None:
     每个温度生成 1 个方向, 共 3 个可选方向。
     标注认知距离 (近/中/远), 鼓励作者选择最远的。
     """
-    import sys
-    sys.path.insert(0, str(PROJECT_ROOT / "agents"))
-    from skill_loader import SkillLoader
-    from model_orchestrator import get_orchestrator
+    from xiaoshuo.agents.skill_loader import SkillLoader
+    from xiaoshuo.agents.model_orchestrator import get_orchestrator
 
     chapter = args.chapter
     loader = SkillLoader()
@@ -451,8 +453,8 @@ def cmd_s1(args) -> None:
 
 
 def _load_outline(root: Path) -> str:
-    """从 outline/ 加载大纲（如果存在）。"""
-    outline_path = root / "outline" / "rough_outline.md"
+    """从 assets/outline/ 加载大纲（如果存在）。"""
+    outline_path = root / "assets" / "outline" / "rough_outline.md"
     if outline_path.exists():
         text = outline_path.read_text(encoding="utf-8")
         if "待填写" not in text:
@@ -470,10 +472,8 @@ def cmd_s3(args) -> None:
       3. 通过 orchestrator 调用主模型
       4. 打印评审结果
     """
-    import sys
-    sys.path.insert(0, str(PROJECT_ROOT / "agents"))
-    from skill_loader import SkillLoader
-    from model_orchestrator import get_orchestrator
+    from xiaoshuo.agents.skill_loader import SkillLoader
+    from xiaoshuo.agents.model_orchestrator import get_orchestrator
 
     chapter = args.chapter
 
@@ -532,8 +532,8 @@ def cmd_s3(args) -> None:
 
 
 def _load_characters(root: Path) -> str:
-    """从 canon/characters.md 加载角色设定（如果存在）。"""
-    chars_path = root / "canon" / "characters.md"
+    """从 assets/canon/characters.md 加载角色设定（如果存在）。"""
+    chars_path = root / "assets" / "canon" / "characters.md"
     if chars_path.exists():
         text = chars_path.read_text(encoding="utf-8")
         # 跳过模板提示语
@@ -550,89 +550,116 @@ def cmd_worldbuild(args) -> None:
     阶段: 时间背景 → 核心矛盾 → 场景设计 → 社会规则 → 特殊元素
     每阶段 AI 以 Socratic 方式逐个提问, 作者回答后追问深层问题。
     结果写入 canon/world.md 和 canon/rules.md。
+
+    v7.5: 委托给 world_builder.run_world_build()。
     """
-    import sys
-    sys.path.insert(0, str(PROJECT_ROOT / "agents"))
-    from model_orchestrator import get_orchestrator
-    from world_builder import SOCRATIC_SYSTEM_PROMPT, STAGE_TEMPLATES, WorldStage
+    from xiaoshuo.agents.model_orchestrator import get_orchestrator
+    from xiaoshuo.agents.world_builder import run_world_build
 
     orch = get_orchestrator()
-    stages = [
-        (WorldStage.TIME, "一: 时间背景"),
-        (WorldStage.CONFLICT, "二: 核心矛盾"),
-        (WorldStage.SCENE, "三: 场景设计"),
-        (WorldStage.RULES, "四: 社会规则"),
-        (WorldStage.SPECIAL, "五: 特殊元素"),
-    ]
+    world_content = run_world_build(orch)
 
-    print("=" * 60)
-    print("  S0 世界观构建 — 5 阶段 Socratic 引导")
-    print("  AI 提问, 你回答。每次只说关键设定, 不要求完整描述。")
-    print("=" * 60)
-
-    all_answers = []
-
-    for wstage, title in stages:
-        tpl = STAGE_TEMPLATES[wstage]
-        core_q = tpl["core_question"]
-
-        print(f"\n{'─' * 60}")
-        print(f"  阶段{title}")
-        print(f"  [{tpl['goal']}]")
-        print(f"\n  AI: {core_q}")
-        print(f"  (输入 'q' 跳过此阶段)")
-        answer = input("  你: ").strip()
-
-        if answer.lower() == "q":
-            all_answers.append(f"## {title}\n(作者跳过)\n")
-            continue
-
-        # Socratic 追问: 使用 SOCRATIC_SYSTEM_PROMPT + world_builder 的追逐链
-        print(f"\n  AI 追问中...")
-        msgs = [
-            {"role": "system", "content": SOCRATIC_SYSTEM_PROMPT},
-            {"role": "user", "content": (
-                f"阶段: {title} ({tpl['goal']})\n"
-                f"核心问题: {core_q}\n"
-                f"作者回答: {answer}\n\n"
-                f"追问链: {tpl['chase_chain'][0]}\n"
-                f"请基于作者的回答, 提出一个 Socratic 追问 (只问一个问题)。"
-            )}
-        ]
-
-        result = orch.chat("main_model", msgs, max_tokens=120, temperature=0.7, timeout=60)
-        if "error" not in result:
-            follow_up = result["content"].strip()
-            print(f"  AI: {follow_up}")
-            fu_answer = input("  你: ").strip()
-            if fu_answer:
-                all_answers.append(f"## {title}\n问: {core_q}\n答: {answer}\n追问: {follow_up}\n答: {fu_answer}\n")
-            else:
-                all_answers.append(f"## {title}\n问: {core_q}\n答: {answer}\n")
-        else:
-            all_answers.append(f"## {title}\n问: {core_q}\n答: {answer}\n")
-
-    world_path = PROJECT_ROOT / "canon" / "world.md"
-    world_path.write_text("# 世界观设定\n\n" + "\n".join(all_answers), encoding="utf-8")
+    world_path = PROJECT_ROOT / "assets" / "canon" / "world.md"
+    world_path.parent.mkdir(parents=True, exist_ok=True)
+    world_path.write_text(world_content, encoding="utf-8")
     print(f"\n{'=' * 60}")
-    print(f"  [OK] 世界观已保存到 canon/world.md")
+    print(f"  [OK] 世界观已保存到 assets/canon/world.md")
     print(f"{'=' * 60}")
 
 
 def cmd_s4(args) -> None:
     """
-    S4+++ 七层检测 — PPL/突发性/AI词共现/N-gram PPL 加权判定。
-    模块: s4_plus_plus.py
-    依赖: 作者声音基线 (voice_baseline.py) 积累 5+ 章样本
+    S4+++ 七层检测 — 基础版 (L1 PPL + L2 Burstiness)。
+    完整七层需 s4_plus_plus.py + voice_baseline.py (5+ 章样本积累)。
     """
-    print("[S4+++] 七层检测 — 暂未实现")
-    print("  依赖: s4_plus_plus.py + voice_baseline.py")
-    print("  前置: 5+ 章手写样本积累（建立声音基线）")
+    from math import sqrt, log
+    from collections import Counter
+
+    target = args.file
+    if not target:
+        print("[S4+++] 用法: python novel.py s4 --file <章节路径>")
+        return
+
+    filepath = Path(target)
+    if not filepath.exists():
+        print(f"[FAIL] 文件不存在: {target}")
+        return
+
+    text = filepath.read_text(encoding='utf-8', errors='replace')
+    if not text.strip():
+        print("[FAIL] 文件为空")
+        return
+
+    # ── 读取检测阈值 (SSOT: config.yaml) ──
+    try:
+        cfg = yaml.safe_load(open(CONFIG_PATH, 'r', encoding='utf-8'))
+        l1 = cfg.get("detection", {}).get("layers", {}).get("l1_ppl", {})
+        l2 = cfg.get("detection", {}).get("layers", {}).get("l2_burstiness", {})
+        ppl_safe = l1.get("safe_threshold", 50)
+        ppl_warn = l1.get("warn_threshold", 40)
+        burst_safe = l2.get("safe_threshold", 0.6)
+    except Exception:
+        ppl_safe, ppl_warn = 50, 40
+        burst_safe = 0.6
+
+    # ── L1: Perplexity (unigram model, 全文本) ──
+    chars = [c for c in text if c.strip()]
+    total = len(chars)
+    if total < 10:
+        print("[FAIL] 文本太短，无法计算 PPL")
+        return
+    freq = Counter(chars)
+    entropy = -sum((f / total) * log(f / total, 2) for f in freq.values())
+    ppl = 2 ** entropy
+
+    # ── L2: Burstiness (句长变异系数) ──
+    import re
+    sentences = re.split(r'[。！？!?\n]+', text)
+    sentences = [s.strip() for s in sentences if s.strip()]
+    if len(sentences) < 3:
+        print("[FAIL] 句子太少，无法计算 Burstiness")
+        return
+    sent_lens = [len(s) for s in sentences]
+    mean_len = sum(sent_lens) / len(sent_lens)
+    if mean_len < 1:
+        var = 0.0
+    else:
+        var = sqrt(sum((x - mean_len) ** 2 for x in sent_lens) / len(sent_lens))
+    burstiness = var / mean_len if mean_len > 0 else 0.0
+
+    # ── 判定 ──
+    ppl_status = "人类风格" if ppl > ppl_safe else ("警告" if ppl > ppl_warn else "AI嫌疑")
+    ppl_icon = "[OK]" if ppl > ppl_safe else ("[WARN]" if ppl > ppl_warn else "[FAIL]")
+    burst_status = "人类风格" if burstiness > burst_safe else "AI嫌疑"
+    burst_icon = "[OK]" if burstiness > burst_safe else "[FAIL]"
+
+    print(f"\n{'=' * 60}")
+    print(f"  S4+++ 基础检测: {filepath.name}")
+    print(f"{'=' * 60}")
+    print(f"  L1 PPL:        {ppl:.2f}  {ppl_icon} {ppl_status}")
+    print(f"     (安全阈值: >{ppl_safe}, 警告阈值: <{ppl_warn})")
+    print(f"  L2 Burstiness: {burstiness:.4f}  {burst_icon} {burst_status}")
+    print(f"     (安全阈值: >{burst_safe}, 句数: {len(sentences)})")
+    print(f"  L3-L7: 需完整 voice_baseline (5+ 章积累)")
+    print(f"{'=' * 60}")
+
+    # ── 综合判定 ──
+    flags = 0
+    if ppl <= ppl_safe:
+        flags += 1
+    if burstiness <= burst_safe:
+        flags += 1
+    if flags == 0:
+        print("  [OK] 综合: 通过基础检测，无明显 AI 痕迹")
+    elif flags == 1:
+        print("  [WARN] 综合: 1 层异常，建议人工复查")
+    else:
+        print("  [FAIL] 综合: 2 层异常，高度疑似 AI 生成")
 
 
 def cmd_deep(args) -> None:
     """二阶段深度拆书: Top-N (规则+LLM) + Bottom-N (仅规则)."""
-    from analysis.deep_diagnosis import run_deep
+    from xiaoshuo.tools.deep_diagnosis import run_deep
     run_deep(genre=args.genre, top_n=args.top, bottom_n=args.bottom)
 
 
@@ -641,7 +668,7 @@ def cmd_analyze(args) -> None:
     import subprocess
     from pathlib import Path
 
-    scripts = [sys.executable, str(Path(__file__).parent / "analysis" / "analyze_all.py")]
+    scripts = [sys.executable, str(Path(__file__).parent / "src" / "xiaoshuo" / "pipeline" / "analyze_all.py")]
     scripts += ["--genre", args.genre]
     if args.with_llm:
         scripts.append("--with-llm")
@@ -650,7 +677,7 @@ def cmd_analyze(args) -> None:
         print("[ANALYZE] 全题材分析模式")
         genres = ["末世", "玄幻", "都市", "仙侠", "洪荒", "悬疑", "历史", "无限流"]
         for g in genres:
-            cmd = [sys.executable, str(Path(__file__).parent / "analysis" / "analyze_all.py"),
+            cmd = [sys.executable, str(Path(__file__).parent / "src" / "xiaoshuo" / "pipeline" / "analyze_all.py"),
                    "--genre", g]
             if args.with_llm:
                 cmd.append("--with-llm")
@@ -665,9 +692,7 @@ def cmd_analyze(args) -> None:
 
 def cmd_intent(args) -> None:
     """意图→结构化建议翻译: 作者说"这章太拖了"→系统翻译为可执行建议."""
-    import sys
-    sys.path.insert(0, str(PROJECT_ROOT / "analysis"))
-    from intent_translator import translate
+    from xiaoshuo.tools.intent_translator import translate
 
     text = args.text.strip()
     result = translate(text)
@@ -689,12 +714,12 @@ def cmd_test(args) -> None:
 
     python = sys.executable  # Current Python interpreter (avoids hardcoded path)
     modules = [
-        "agents\\model_orchestrator.py",
-        "agents\\skill_loader.py",
-        "agents\\state_machine.py",
-        "agents\\world_builder.py",
-        "analysis\\book_processor.py",
-        "analysis\\creative_bridge.py",
+        "src/xiaoshuo/agents/model_orchestrator.py",
+        "src/xiaoshuo/agents/skill_loader.py",
+        "src/xiaoshuo/agents/state_machine.py",
+        "src/xiaoshuo/agents/world_builder.py",
+        "src/xiaoshuo/pipeline/book_processor.py",
+        "src/xiaoshuo/pipeline/creative_bridge.py",
     ]
 
     print("=" * 60)
@@ -705,13 +730,17 @@ def cmd_test(args) -> None:
     passed = 0
     failed = 0
 
+    import os
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(PROJECT_ROOT / "src") + os.pathsep + env.get("PYTHONPATH", "")
+
     for mod in modules:
-        name = mod.split("\\")[-1]
+        name = mod.split("\\")[-1].split("/")[-1]
         cmd = [python, mod]
         if "quality_gate" in name:
             cmd.append("--dry-run")
         print(f"[{name}] ... ", end="", flush=True)
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=env)
         if r.returncode == 0 or "DONE" in r.stdout or "DONE" in r.stderr or "RESULT" in r.stdout:
             print("[OK]")
             passed += 1
@@ -734,9 +763,9 @@ def cmd_test(args) -> None:
 
     # 新模块语法检查
     new_modules = [
-        "agents\\session_manager.py",
-        "agents\\character_designer.py",
-        "agents\\chapter_decisions.py",
+        "src/xiaoshuo/agents/session_manager.py",
+        "src/xiaoshuo/agents/character_designer.py",
+        "src/xiaoshuo/agents/chapter_decisions.py",
     ]
     for mod in new_modules:
         name = mod.split("\\")[-1]
@@ -765,8 +794,7 @@ def cmd_session(args) -> None:
     这是系统的"主入口"。作者在 REPL 中完成 S0->S4 全流程。
     每条命令对应一个已有模块, session 只是胶水层。
     """
-    sys.path.insert(0, str(PROJECT_ROOT / "agents"))
-    from session_manager import SessionManager, STAGE_LABELS, STAGE_COMMANDS
+    from xiaoshuo.agents.session_manager import SessionManager, STAGE_LABELS, STAGE_COMMANDS
 
     sm = SessionManager()
 
@@ -896,102 +924,38 @@ def _print_session_help(sm) -> None:
 
 
 def _session_worldbuild(sm) -> None:
-    """在会话中调用世界观构建。"""
-    sys.path.insert(0, str(PROJECT_ROOT / "agents"))
-    from model_orchestrator import get_orchestrator
-    from world_builder import SOCRATIC_SYSTEM_PROMPT, STAGE_TEMPLATES, WorldStage
+    """在会话中调用世界观构建。v7.5: 委托给 world_builder.run_world_build()。"""
+    from xiaoshuo.agents.model_orchestrator import get_orchestrator
+    from xiaoshuo.agents.world_builder import run_world_build
 
     orch = get_orchestrator()
-    stages = [
-        (WorldStage.TIME, "One: Time & Setting"),
-        (WorldStage.CONFLICT, "Two: Core Conflict"),
-        (WorldStage.SCENE, "Three: Scene Design"),
-        (WorldStage.RULES, "Four: Social Rules"),
-        (WorldStage.SPECIAL, "Five: Special Elements"),
-    ]
-
-    print("\n" + "=" * 60)
-    print("  S0 World Building -- 5-Stage Socratic Guide")
-    print("=" * 60)
-
-    all_answers = []
-    for wstage, title in stages:
-        tpl = STAGE_TEMPLATES[wstage]
-        print(f"\n  Stage: {title} [{tpl['goal']}]")
-        print(f"  AI: {tpl['core_question']}")
-        print(f"  (type 'q' to skip)")
-        answer = input("  You: ").strip()
-        if answer.lower() == "q":
-            all_answers.append(f"## {title}\n(skipped)\n")
-            continue
-
-        # Socratic follow-up
-        print("  AI: Thinking...")
-        msgs = [
-            {"role": "system", "content": SOCRATIC_SYSTEM_PROMPT},
-            {"role": "user", "content": (
-                f"Stage: {title} ({tpl['goal']})\n"
-                f"Core question: {tpl['core_question']}\n"
-                f"Author answer: {answer}\n\n"
-                f"Chase chain: {tpl['chase_chain'][0]}\n"
-                f"Ask ONE Socratic follow-up question."
-            )}
-        ]
-        result = orch.chat("main_model", msgs, max_tokens=120, temperature=0.7, timeout=60)
-        if "error" not in result:
-            follow_up = result["content"].strip()
-            print(f"  AI: {follow_up}")
-            fu_answer = input("  You: ").strip()
-            if fu_answer:
-                all_answers.append(f"## {title}\nQ: {tpl['core_question']}\nA: {answer}\nFollow: {follow_up}\nA: {fu_answer}\n")
-            else:
-                all_answers.append(f"## {title}\nQ: {tpl['core_question']}\nA: {answer}\n")
-        else:
-            all_answers.append(f"## {title}\nQ: {tpl['core_question']}\nA: {answer}\n")
+    world_content = run_world_build(orch, session_manager=sm)
 
     world_path = PROJECT_ROOT / "assets" / "canon" / "world.md"
     world_path.parent.mkdir(parents=True, exist_ok=True)
-    world_path.write_text("# World Setting\n\n" + "\n".join(all_answers), encoding="utf-8")
+    world_path.write_text(world_content, encoding="utf-8")
     print(f"\n  [OK] World saved to assets/canon/world.md")
     sm.advance_stage("S0")
 
 
 def _session_outline(sm) -> None:
-    """在会话中调用大纲生成。"""
-    sys.path.insert(0, str(PROJECT_ROOT / "agents"))
-    from model_orchestrator import get_orchestrator
-    from skill_loader import SkillLoader
+    """在会话中调用大纲生成。v7.5: 委托给 outline_builder.run_outline_build()。"""
+    from xiaoshuo.agents.model_orchestrator import get_orchestrator
+    from xiaoshuo.agents.outline_builder import run_outline_build
 
     orch = get_orchestrator()
-    loader = SkillLoader()
+
+    world = sm.chapter_context().get("world", "")
+    genre = sm.chapter_context().get("genre", "末世")
 
     print("\n" + "=" * 60)
     print("  S0 Outline Generation")
     print("=" * 60)
 
-    world = sm.chapter_context().get("world", "")
-    prompt = loader.build("S1_creative", {
-        "chapter_num": 0,
-        "outline_section": "",
-        "characters_section": world[:500] if world else "(no world yet)",
-    })
+    result = run_outline_build(orch, genre=genre, total_chapters=300)
 
-    print("  AI: Generating rough outline based on your world setting...")
-    msgs = [
-        {"role": "system", "content": prompt},
-        {"role": "user", "content": (
-            f"World summary: {world[:800] if world else '(not set)'}\n\n"
-            f"Generate a rough outline with:\n"
-            f"1. Overall arc (3 acts)\n"
-            f"2. Volume plan (5 volumes, 1 sentence each)\n"
-            f"3. First 10 chapter hooks (1 sentence each)\n"
-            f"Keep it concise, under 500 words."
-        )}
-    ]
-
-    result = orch.chat("S1_creative", msgs, max_tokens=1000, temperature=0.7, timeout=120)
-    if "error" not in result:
-        outline_text = result["content"]
+    if result["rough_outline"]:
+        outline_text = result["rough_outline"]
         print(f"\n{outline_text}")
 
         outline_path = PROJECT_ROOT / "assets" / "outline" / "rough_outline.md"
@@ -999,21 +963,19 @@ def _session_outline(sm) -> None:
         outline_path.write_text(f"# Rough Outline\n\n{outline_text}", encoding="utf-8")
         print(f"\n  [OK] Outline saved to assets/outline/rough_outline.md")
     else:
-        print(f"  [FAIL] {result['error']}")
+        print(f"  [FAIL] Outline generation failed")
 
 
 def _session_characters(sm) -> None:
     """在会话中调用角色设计。"""
-    sys.path.insert(0, str(PROJECT_ROOT / "agents"))
-    from character_designer import run_character_design
+    from xiaoshuo.agents.character_designer import run_character_design
     run_character_design()
 
 
 def _session_s1(sm) -> None:
     """在会话中调用 S1 创意引导。"""
-    sys.path.insert(0, str(PROJECT_ROOT / "agents"))
-    from skill_loader import SkillLoader
-    from model_orchestrator import get_orchestrator
+    from xiaoshuo.agents.skill_loader import SkillLoader
+    from xiaoshuo.agents.model_orchestrator import get_orchestrator
 
     loader = SkillLoader()
     orch = get_orchestrator()
@@ -1052,9 +1014,57 @@ def _session_s1(sm) -> None:
     print("\n  Tip: The 'Far' direction gives the most creative freedom.")
 
 
+def _run_prewrite_combined(sm, chapter: int) -> None:
+    """v7.5: 整合 contract_chain 写前检查 + writing_instructions 指导。
+    在 write 命令前自动调用，为作者提供统一的写前准备信息。
+    """
+    print(f"\n  [prewrite] 写前准备 — 合同链 + 写作指令")
+
+    # ── 1. 合同链: 从 canon 生成运行时合同 ──
+    try:
+        from xiaoshuo.pipeline.contract_chain import ContractSeed, run_contract_chain
+        canon_path = PROJECT_ROOT / "assets" / "canon"
+        seed = ContractSeed(
+            world_path=canon_path / "world.md",
+            character_path=canon_path / "characters.md",
+            timeline_path=canon_path / "timeline.md",
+            emotional_path=canon_path / "emotional_arcs.md",
+            subplot_path=canon_path / "subplot_board.md",
+        )
+        contracts = run_contract_chain(seed, chapter)
+        if contracts:
+            summary = contracts.get("pre_write_checklist", [])
+            if summary:
+                print(f"  [contract] {len(summary)} 条写前合同约束:")
+                for item in summary[:5]:
+                    print(f"    - {item}")
+                if len(summary) > 5:
+                    print(f"    ... 还有 {len(summary) - 5} 条")
+    except Exception:
+        pass  # contract_chain 不可用则静默跳过
+
+    # ── 2. 写作指令: 从 rhythm 数据生成逐章指导 ──
+    try:
+        from xiaoshuo.pipeline.writing_instructions import generate_instructions
+        cfg = yaml.safe_load(open(CONFIG_PATH, 'r', encoding='utf-8'))
+        project = cfg.get("writing_instructions", {}).get("project", "末日模拟器")
+        instructions = generate_instructions(project, chapter)
+        if instructions:
+            print(f"  [instructions] 第 {chapter} 章写作指令:")
+            for key, val in list(instructions.items())[:5]:
+                print(f"    {key}: {val}")
+    except Exception:
+        pass  # writing_instructions 不可用则静默跳过
+
+    print(f"  [prewrite] 写前准备完成\n")
+
+
 def _session_write(sm, file_arg: str = "") -> None:
     """在会话中提交章节文本。"""
     chapter = sm.current_chapter
+
+    # ── v7.5: 写前准备 — 合同链 + 写作指令整合 ──
+    _run_prewrite_combined(sm, chapter)
 
     # 如果提供了文件路径, 直接读取
     if file_arg:
@@ -1114,9 +1124,8 @@ def _session_write(sm, file_arg: str = "") -> None:
 
 def _session_review(sm) -> None:
     """在会话中调用 AI 评审。"""
-    sys.path.insert(0, str(PROJECT_ROOT / "agents"))
-    from skill_loader import SkillLoader
-    from model_orchestrator import get_orchestrator
+    from xiaoshuo.agents.skill_loader import SkillLoader
+    from xiaoshuo.agents.model_orchestrator import get_orchestrator
 
     chapter = sm.current_chapter
     ctx = sm.chapter_context()
@@ -1183,8 +1192,7 @@ def _session_review(sm) -> None:
 
 def _session_decisions(sm) -> None:
     """在会话中采集章节决策。"""
-    sys.path.insert(0, str(PROJECT_ROOT / "agents"))
-    from chapter_decisions import collect_decisions
+    from xiaoshuo.agents.chapter_decisions import collect_decisions
     collect_decisions(sm.current_chapter)
 
 
@@ -1197,8 +1205,7 @@ def cmd_write(args) -> None:
     提交章节文本并自动评估。
     用法: python novel.py write --chapter 5 --file my_chapter.md [--genre 末世] [--no-eval]
     """
-    sys.path.insert(0, str(PROJECT_ROOT / "agents"))
-    from session_manager import SessionManager
+    from xiaoshuo.agents.session_manager import SessionManager
 
     sm = SessionManager()
     chapter = args.chapter
@@ -1251,7 +1258,7 @@ def cmd_write(args) -> None:
     ev_path = eval_dir / safe_name
 
     try:
-        from analysis.comparison_engine import evaluate_author_chapter, generate_evaluation_report
+        from xiaoshuo.pipeline.comparison_engine import evaluate_author_chapter, generate_evaluation_report
         result = evaluate_author_chapter(text, genre=genre, chapter_num=chapter, with_llm=False)
         generate_evaluation_report(result, ev_path)
         print(f"[OK] Evaluation report: {ev_path}.md")
@@ -1268,8 +1275,7 @@ def cmd_decisions(args) -> None:
     采集章节决策数据 -- 风格涌现的原始数据源。
     用法: python novel.py decisions --chapter 5
     """
-    sys.path.insert(0, str(PROJECT_ROOT / "agents"))
-    from chapter_decisions import collect_decisions, get_style_summary
+    from xiaoshuo.agents.chapter_decisions import collect_decisions, get_style_summary
 
     chapter = args.chapter
     collect_decisions(chapter)
@@ -1295,8 +1301,7 @@ def cmd_characters(args) -> None:
     S0 角色设计 -- 4维度 Socratic 引导。
     用法: python novel.py characters
     """
-    sys.path.insert(0, str(PROJECT_ROOT / "agents"))
-    from character_designer import run_character_design
+    from xiaoshuo.agents.character_designer import run_character_design
     run_character_design()
 
 
@@ -1308,13 +1313,13 @@ def cmd_outline(args) -> None:
     """
     S0 大纲生成 -- 基于世界观生成三层大纲。
     用法: python novel.py outline
+
+    v7.5: 委托给 outline_builder.run_outline_build()。
     """
-    sys.path.insert(0, str(PROJECT_ROOT / "agents"))
-    from model_orchestrator import get_orchestrator
-    from skill_loader import SkillLoader
+    from xiaoshuo.agents.model_orchestrator import get_orchestrator
+    from xiaoshuo.agents.outline_builder import run_outline_build
 
     orch = get_orchestrator()
-    loader = SkillLoader()
 
     # 加载世界观
     world_path = PROJECT_ROOT / "assets" / "canon" / "world.md"
@@ -1322,40 +1327,21 @@ def cmd_outline(args) -> None:
     if world_path.exists():
         world = world_path.read_text(encoding="utf-8")
 
-    prompt = loader.build("S1_creative", {
-        "chapter_num": 0,
-        "outline_section": "",
-        "characters_section": world[:500] if world else "(no world setting yet, run worldbuild first)",
-    })
-
     print("=" * 60)
     print("  S0 Outline Generation")
     print("=" * 60)
-    print("  AI: Generating rough outline...")
 
-    msgs = [
-        {"role": "system", "content": prompt},
-        {"role": "user", "content": (
-            f"World summary: {world[:800] if world else '(not set)'}\n\n"
-            f"Generate a rough outline:\n"
-            f"1. Overall arc (3 acts)\n"
-            f"2. Volume plan (5 volumes)\n"
-            f"3. First 10 chapter hooks\n"
-            f"Keep under 500 words."
-        )}
-    ]
+    result = run_outline_build(orch, genre="末世", total_chapters=300)
 
-    result = orch.chat("S1_creative", msgs, max_tokens=1000, temperature=0.7, timeout=120)
-    if "error" in result:
-        print(f"  [FAIL] {result['error']}")
-        return
+    if result["rough_outline"]:
+        print(f"\n{result['rough_outline']}")
 
-    print(f"\n{result['content']}")
-
-    outline_path = PROJECT_ROOT / "assets" / "outline" / "rough_outline.md"
-    outline_path.parent.mkdir(parents=True, exist_ok=True)
-    outline_path.write_text(f"# Rough Outline\n\n{result['content']}", encoding="utf-8")
-    print(f"\n  [OK] Saved to assets/outline/rough_outline.md")
+        outline_path = PROJECT_ROOT / "assets" / "outline" / "rough_outline.md"
+        outline_path.parent.mkdir(parents=True, exist_ok=True)
+        outline_path.write_text(f"# Rough Outline\n\n{result['rough_outline']}", encoding="utf-8")
+        print(f"\n  [OK] Saved to assets/outline/rough_outline.md")
+    else:
+        print(f"\n  [FAIL] Outline generation failed")
 
 
 # ============================================================================
@@ -1364,7 +1350,7 @@ def cmd_outline(args) -> None:
 
 def cmd_compare(args) -> None:
     """对比新人作者的结构层(世界观/大纲/角色)与精品基准。"""
-    from analysis.structure_comparator import (
+    from xiaoshuo.tools.structure_comparator import (
         _load_guidance_json, _load_rhythm_pool,
         compare_worldbuilding, compare_outline, compare_characters,
         generate_report,

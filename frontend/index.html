@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>番茄拆书舱</title>
+    <link rel="stylesheet" href="css/tokens.css">
+    <link rel="stylesheet" href="css/base.css">
+    <link rel="stylesheet" href="css/layout.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/dashboard.css">
+</head>
+<body>
+    <div class="app">
+        <header class="topbar">
+            <div class="brand">
+                <span class="brand-mark"></span>
+                <span class="brand-name">番茄拆书舱</span>
+            </div>
+            <div class="global-status">
+                <span class="status-dot" id="globalStatusDot"></span>
+                <span id="globalStatusText">就绪</span>
+            </div>
+        </header>
+
+        <main class="workspace">
+            <aside class="hardware-panel">
+                <h2 class="panel-title">硬件健康舱</h2>
+                <div class="gauges">
+                    <div class="gauge" id="gaugeTemp">
+                        <div class="gauge-ring">
+                            <svg viewBox="0 0 120 120">
+                                <circle class="gauge-track" cx="60" cy="60" r="50"/>
+                                <circle class="gauge-fill" cx="60" cy="60" r="50" id="arcTemp"/>
+                            </svg>
+                            <div class="gauge-value">
+                                <span class="gauge-num" id="valTemp">--</span>
+                                <span class="gauge-unit">°C</span>
+                            </div>
+                        </div>
+                        <div class="gauge-meta">
+                            <span class="gauge-label">GPU 温度</span>
+                            <span class="health-badge" id="badgeTemp">未检测</span>
+                        </div>
+                    </div>
+
+                    <div class="gauge" id="gaugeVram">
+                        <div class="gauge-ring">
+                            <svg viewBox="0 0 120 120">
+                                <circle class="gauge-track" cx="60" cy="60" r="50"/>
+                                <circle class="gauge-fill" cx="60" cy="60" r="50" id="arcVram"/>
+                            </svg>
+                            <div class="gauge-value">
+                                <span class="gauge-num" id="valVram">--</span>
+                                <span class="gauge-unit">MB</span>
+                            </div>
+                        </div>
+                        <div class="gauge-meta">
+                            <span class="gauge-label">显存使用</span>
+                            <span class="health-badge" id="badgeVram">未检测</span>
+                        </div>
+                    </div>
+
+                    <div class="gauge" id="gaugeFan">
+                        <div class="gauge-ring">
+                            <svg viewBox="0 0 120 120">
+                                <circle class="gauge-track" cx="60" cy="60" r="50"/>
+                                <circle class="gauge-fill" cx="60" cy="60" r="50" id="arcFan"/>
+                            </svg>
+                            <div class="gauge-value">
+                                <span class="gauge-num" id="valFan">--</span>
+                                <span class="gauge-unit">%</span>
+                            </div>
+                        </div>
+                        <div class="gauge-meta">
+                            <span class="gauge-label">风扇转速</span>
+                            <span class="health-badge" id="badgeFan">未检测</span>
+                        </div>
+                    </div>
+
+                    <div class="gauge" id="gaugeMem">
+                        <div class="gauge-ring">
+                            <svg viewBox="0 0 120 120">
+                                <circle class="gauge-track" cx="60" cy="60" r="50"/>
+                                <circle class="gauge-fill" cx="60" cy="60" r="50" id="arcMem"/>
+                            </svg>
+                            <div class="gauge-value">
+                                <span class="gauge-num" id="valMem">--</span>
+                                <span class="gauge-unit">GB</span>
+                            </div>
+                        </div>
+                        <div class="gauge-meta">
+                            <span class="gauge-label">系统内存</span>
+                            <span class="health-badge" id="badgeMem">未检测</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="log-stream" id="logStream">
+                    <h3 class="log-title">事件流</h3>
+                    <div class="log-filters">
+                        <button class="log-filter-btn active" data-level="all">全部</button>
+                        <button class="log-filter-btn" data-level="INFO">INFO</button>
+                        <button class="log-filter-btn" data-level="WARNING">WARN</button>
+                        <button class="log-filter-btn" data-level="ERROR">ERR</button>
+                    </div>
+                    <div class="log-list" id="logList"></div>
+                </div>
+            </aside>
+
+            <section class="task-panel">
+                <div class="control-strip">
+                    <div class="genre-select">
+                        <label for="genreSelect">题材</label>
+                        <select id="genreSelect">
+                            <option value="末世" selected>末世</option>
+                            <option value="玄幻">玄幻</option>
+                            <option value="都市">都市</option>
+                            <option value="仙侠">仙侠</option>
+                            <option value="洪荒">洪荒</option>
+                            <option value="悬疑">悬疑</option>
+                            <option value="历史">历史</option>
+                            <option value="无限流">无限流</option>
+                        </select>
+                    </div>
+                    <div class="selection-actions">
+                        <button class="text-btn" id="selectAllBtn">全选</button>
+                        <button class="text-btn" id="selectNoneBtn">清空</button>
+                        <span class="selection-count" id="selectionCount">已选 0 本</span>
+                    </div>
+                    <div class="spacer"></div>
+                    <button class="power-btn" id="powerBtn" disabled>
+                        <span class="power-icon" id="powerIcon"></span>
+                        <span id="powerText">启动拆书</span>
+                    </button>
+                </div>
+
+                <div class="pipeline-progress" id="pipelineProgress" style="display:none">
+                    <div class="pipeline-header">
+                        <span class="pipeline-stage-name" id="pipelineStageName">--</span>
+                        <span class="pipeline-stage-num" id="pipelineStageNum"></span>
+                        <span class="pipeline-stage-pct" id="pipelineStagePct">0%</span>
+                    </div>
+                    <div class="pipeline-track">
+                        <div class="pipeline-fill" id="pipelineFill"></div>
+                    </div>
+                    <div class="pipeline-meta" id="pipelineMeta"></div>
+                    <div class="pipeline-steps" id="pipelineSteps"></div>
+                    <div class="pipeline-completed" id="pipelineCompleted">
+                        <div class="pipeline-completed-title">已完成书籍</div>
+                        <div class="pipeline-completed-list" id="pipelineCompletedList"></div>
+                    </div>
+                    <div class="pipeline-error" id="pipelineError"></div>
+                </div>
+
+                <div class="stats-bar">
+                    <div class="stat">
+                        <span class="stat-num" id="statDone">0</span>
+                        <span class="stat-label">已完成</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-num" id="statRunning">0</span>
+                        <span class="stat-label">进行中</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-num" id="statPending">0</span>
+                        <span class="stat-label">等待中</span>
+                    </div>
+                </div>
+
+                <div class="book-queue" id="bookQueue">
+                    <div class="empty-state">
+                        <div class="empty-title">暂无书籍</div>
+                        <div class="empty-desc">请选择题材，或确认 data/raw/novels/ 目录存在 TXT 文件</div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <div class="alert-drawer" id="alertDrawer">
+        <div class="alert-header">
+            <span class="alert-title">硬件告警</span>
+            <button class="icon-btn" id="closeAlertBtn">×</button>
+        </div>
+        <div class="alert-body" id="alertBody"></div>
+    </div>
+
+    <div class="modal-overlay" id="confirmModal">
+        <div class="modal">
+            <div class="modal-title">确认停止</div>
+            <div class="modal-body">正在停止当前拆书流程。已处理进度会自动保存到 checkpoint。</div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="cancelStopBtn">取消</button>
+                <button class="btn btn-danger" id="confirmStopBtn">确认停止</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- P2: Book detail modal -->
+    <div class="modal-overlay" id="bookDetailModal">
+        <div class="modal book-detail-modal">
+            <div class="modal-header">
+                <div class="modal-title" id="detailBookName">书籍详情</div>
+                <button class="icon-btn" id="closeDetailBtn">×</button>
+            </div>
+            <div class="modal-body" id="detailBody">
+                <div class="detail-tabs">
+                    <button class="detail-tab active" data-tab="l3">全书概览</button>
+                    <button class="detail-tab" data-tab="l2">卷级分析</button>
+                    <button class="detail-tab" data-tab="l1">章节摘要</button>
+                </div>
+                <div class="detail-content" id="detailContent"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" id="scoreBtn">商业化打分</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- P2: Score result modal -->
+    <div class="modal-overlay" id="scoreModal">
+        <div class="modal score-modal">
+            <div class="modal-header">
+                <div class="modal-title" id="scoreBookName">商业化评估</div>
+                <button class="icon-btn" id="closeScoreBtn">×</button>
+            </div>
+            <div class="modal-body" id="scoreBody"></div>
+        </div>
+    </div>
+
+    <script type="module" src="js/api.js"></script>
+    <script type="module" src="js/hardware.js"></script>
+    <script type="module" src="js/dashboard.js"></script>
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>

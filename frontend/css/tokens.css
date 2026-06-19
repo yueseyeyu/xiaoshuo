@@ -1,0 +1,51 @@
+:root {
+    /* Background layers */
+    --bg-primary: #0a0c10;
+    --bg-secondary: #11141c;
+    --bg-tertiary: #1a1f2a;
+    --bg-hover: #222a3a;
+
+    /* Text */
+    --text-primary: #f0f2f5;
+    --text-secondary: #8b93a7;
+    --text-tertiary: #5a6275;
+    --text-disabled: #4a5266;
+
+    /* Accent & semantic */
+    --accent: #00d4ff;
+    --accent-dim: rgba(0, 212, 255, 0.12);
+    --accent-glow: rgba(0, 212, 255, 0.25);
+
+    --success: #00ff88;
+    --success-dim: rgba(0, 255, 136, 0.12);
+    --warning: #ffcc00;
+    --warning-dim: rgba(255, 204, 0, 0.12);
+    --danger: #ff4444;
+    --danger-dim: rgba(255, 68, 68, 0.12);
+    --danger-glow: rgba(255, 68, 68, 0.35);
+
+    /* Brand */
+    --brand: #e74c3c;
+
+    /* Spacing */
+    --space-xs: 4px;
+    --space-sm: 8px;
+    --space-md: 16px;
+    --space-lg: 24px;
+    --space-xl: 32px;
+
+    /* Radius */
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-full: 9999px;
+
+    /* Typography */
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Microsoft YaHei", sans-serif;
+    --font-mono: "JetBrains Mono", "SF Mono", Consolas, monospace;
+
+    /* Transitions */
+    --transition-fast: 150ms ease;
+    --transition-base: 250ms ease;
+    --transition-slow: 400ms ease;
+}
