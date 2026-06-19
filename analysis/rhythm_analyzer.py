@@ -12,6 +12,7 @@ import csv
 import time
 import urllib.request
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import yaml
 from pathlib import Path
 
@@ -83,6 +84,23 @@ PHYSIO_REACTION = re.compile(
     r"沉默[了很]?久|久久[没未不]|一言不发|一动不动|半晌"
 )
 
+# ── v10新增: 隐式爽点 — 策略/资源/人际关系 (解决非战斗流低估, e.g. 第九特区80%+ none) ──
+PLEASURE_STRATEGY = re.compile(
+    r"计策|谋划|布局|算计|预判|先[一]步|棋[高一]?着|将[了]?一军|"
+    r"反[将计]?|设局|做局|套路|坑[了他]|算[计准]?|"
+    r"计划[得通]|顺利|完美|不[出动]所料|果然|果[真不其]然"
+)
+PLEASURE_RESOURCE = re.compile(
+    r"收获|获得|得到|入手|到[手账]|收集|囤积|储备|库存|"
+    r"物资|粮食|水源|药[品剂]|武器|装备|弹药|"
+    r"发现了|找到了|挖[到出]|捡[到回]|开[出启]了"
+)
+PLEASURE_SOCIAL = re.compile(
+    r"信[任赖]|托付|交[给托]|认可|承认|接纳|加入|"
+    r"成为[一了]|列入|纳入|吸收|收[编留]|"
+    r"追随|跟随|效忠|臣服|折服|震慑|威[慑压]"
+)
+
 # ── v4 新增: 4类非战斗冲突 (外部评审: 原冲突库对智斗流低估40-60%) ──
 # 来源: 心理博弈/道德困境/环境对抗/社会冲突 — 3份评审收敛建议
 CONFLICT_PSYCHOLOGICAL = re.compile(
@@ -118,11 +136,15 @@ CONFLICT_SUSPENSE = re.compile(
 
 # ── 合并冲突正则 (v5: 战斗 + 心理 + 道德 + 环境 + 社会 + 悬疑) ──
 CONFLICT_KW_ALL = [
+    # v10: removed single-char matches (杀/血/战/敌/斗/轰/爆/碎/伤)
+    # — these caused ~30-40% false positives in non-combat context
     re.compile(
-        r"你敢|休想|去死|找死|不可能！|我不信|凭什么|战斗|杀|轰|爆|碎|血|伤|敌|战|斗|"
-        r"杀意|杀气|怒吼|暴怒|杀机|出手|进攻|攻击|反击|反攻|偷袭|暗算|围杀|刺杀|击杀|斩杀|"
-        r"一刀|一剑|一拳|一掌|一枪|武器|兵器|法宝|神通|禁术|秘术|底牌|拼命|拼死|搏命|殊死|"
-        r"血战|激战|苦战|酣战|大战|对决|决斗|生死|致命|致命一击|决一死战|不死不休"
+        r"你敢|休想|去死|找死|不可能！|我不信|凭什么|"
+        r"战斗|厮杀|搏杀|血战|激战|苦战|酣战|大战|对决|决斗|"
+        r"杀意|杀气|怒吼|暴怒|杀机|出手|进攻|攻击|反击|反攻|"
+        r"偷袭|暗算|围杀|刺杀|击杀|斩杀|"
+        r"一刀|一剑|一拳|一掌|一枪|武器|兵器|法宝|神通|禁术|秘术|底牌|"
+        r"拼命|拼死|搏命|殊死|生死|致命|致命一击|决一死战|不死不休"
     ),
     CONFLICT_PSYCHOLOGICAL,
     CONFLICT_MORAL,
@@ -146,15 +168,35 @@ NEGATIVE = re.compile(
     r"悲伤|悲痛|心碎|心寒|心凉|心如死灰|万念俱灰"
 )
 
-# Chapter-ending hook words (cliffhanger indicators)
+# Chapter-ending hook words (cliffhanger indicators) — v10: de-noised
+# Removed: 竟(→竟[然敢会]), 只见(→只见[那这]), 突然→保留但限上下文
+# Added: 威胁式/疑问式/承诺式/系统提示式 hook types
 CLIFFHANGER = re.compile(
-    r"就在这时|突然|忽然|骤然|猛然|只见|赫然|不料|竟|竟然|居然|"
+    r"就在这时|突然[一之]|忽然|骤然|猛然|只见[那这]|赫然|不料|"
+    r"竟然|居然|竟[然敢会]|"
     r"下一刻|下一秒|紧接着|与此同时|眼下|眼下这一幕|"
-    r"未完待续|欲知后事|预知后事",
+    r"未完待续|欲知后事|预知后事|"
+    r"危机降临|危险[正即]|不妙|不好[了啦]|糟糕|"
+    r"\?[ \n]*$|难道|莫非|怎么[会可]|为[什]?么|"
+    r"一定会|必定|必将|来日|改日|下次|等着|走着瞧",
 )
 
-# Paragraph break detection
-PARA_SPLIT = re.compile(r'\n\s*\n')
+# Paragraph break detection — v10: dual-mode for different file formats
+# Some files use \n\n (standard), others use single \n (e.g. 全球变异)
+PARA_SPLIT_DOUBLE = re.compile(r'\n\s*\n')
+PARA_SPLIT_SINGLE = re.compile(r'\n')
+
+
+def _split_paragraphs(text, wc_hint=None):
+    """v10: Dual-mode paragraph splitting.
+    Try double-newline first. If result is too few paragraphs vs word count,
+    fall back to single-newline (handles files like 全球变异).
+    """
+    paras = [p.strip() for p in PARA_SPLIT_DOUBLE.split(text) if p.strip()]
+    if wc_hint and len(paras) < max(1, wc_hint / 200):
+        # Too few paragraphs — likely single-\n format
+        paras = [p.strip() for p in PARA_SPLIT_SINGLE.split(text) if p.strip()]
+    return paras
 
 
 def _parse_cn_num(s):
@@ -277,7 +319,7 @@ def _build_chapters(parts):
                         ch_num = _parse_cn_num(num_str)
                 break
 
-        paragraphs = [p.strip() for p in PARA_SPLIT.split(body) if p.strip()]
+        paragraphs = _split_paragraphs(body, len(pure_text))
         chapters.append({
             "num": ch_num, "title": header, "text": body[:3000],
             "wc": len(pure_text), "para_count": len(paragraphs),
@@ -294,8 +336,8 @@ def _build_chapters(parts):
 
 
 def rule_analyze(ch):
-    """Zero-LLM chapter analysis v4. Returns dict with 20+ metrics.
-    v4: 扩充隐式爽点(羁绊/认知/牺牲) + 4类非战斗冲突 + 钩子窗口500字 + 生理反应信号"""
+    """Zero-LLM chapter analysis v10. Returns dict with 20+ metrics.
+    v10: +3隐式爽点(策略/资源/社交) + 8类钩子 + 双模段落检测 + 去假阳性正则"""
     body = ch["raw_body"]
     wc = ch["wc"]
 
@@ -306,7 +348,7 @@ def rule_analyze(ch):
     excl_count = len(EXCLAM_PAT.findall(body))
     excl_density = excl_count / max(wc, 1) * 100
 
-    # ── Pleasure sub-types (v4: 9 subtypes = 6显式 + 3隐式) ──
+    # ── Pleasure sub-types (v10: 12 subtypes = 6显式 + 6隐式) ──
     slap_count = len(PLEASURE_FACE_SLAP.findall(body))
     level_count = len(PLEASURE_LEVEL_UP.findall(body))
     crush_count = len(PLEASURE_CRUSH.findall(body))
@@ -317,6 +359,10 @@ def rule_analyze(ch):
     cognitive_count = len(PLEASURE_COGNITIVE.findall(body))
     sacrifice_count = len(PLEASURE_SACRIFICE.findall(body))
     physio_count = len(PHYSIO_REACTION.findall(body))
+    # v10新增: 隐式非战斗爽点
+    strategy_count = len(PLEASURE_STRATEGY.findall(body))
+    resource_count = len(PLEASURE_RESOURCE.findall(body))
+    social_count = len(PLEASURE_SOCIAL.findall(body))
 
     # v5: 羁绊消歧 — 上下文30字共现约束 (评审: "守护仓库"≠羁绊)
     bond_count = 0
@@ -328,24 +374,26 @@ def rule_analyze(ch):
         if re.search(r"你|我|他|她|眼中|心里|轻声|沉默|握住|凝视", ctx):
             bond_count += 1
 
-    # ── v8: pos_density按r加权聚合 (CCMMW方法, MDPI Symmetry 2023) ──
-    # 依据 calibrate_v2 特征重要性: max(0, r) 作为权重, 负相关/弱相关自动衰减
-    # r值: slap=0.096 level=0.086 crush=0.300 comeback=0.178 hidden=0.108(N/A,估算)
-    #       bond=0.155 cognitive=0.017 sacrifice=0.053 physio=0.179 general=0.108(估算)
+    # ── v10: pos_density按r加权聚合 (CCMMW方法) ──
+    # r值: slap=0.096 level=0.086 crush=0.300 comeback=0.178 hidden=0.108
+    #       bond=0.155 cognitive=0.017 sacrifice=0.0 physio=0.179 general=0.108
+    #       strategy/resource/social=0.108 (估算, 待calibrate_v2标定)
     weighted_pleasure = (
         slap_count * 0.096 + level_count * 0.086 + crush_count * 0.300 +
         comeback_count * 0.178 + hidden_count * 0.108 + general_count * 0.108 +
-        bond_count * 0.155 + cognitive_count * 0.017 + sacrifice_count * 0.0 +  # r=-0.13→0
-        physio_count * 0.179
+        bond_count * 0.155 + cognitive_count * 0.017 + sacrifice_count * 0.0 +
+        physio_count * 0.179 +
+        strategy_count * 0.108 + resource_count * 0.108 + social_count * 0.108
     )
     total_pleasure = weighted_pleasure  # v8: 替代等权相加
     pos_density = total_pleasure / max(wc, 1) * 100
 
-    # Dominant pleasure sub-type (v4: include new subtypes)
+    # Dominant pleasure sub-type (v10: 12 subtypes)
     subtypes = [("打脸", slap_count), ("突破", level_count), ("碾压", crush_count),
                 ("绝地反击", comeback_count), ("扮猪吃虎", hidden_count),
                 ("羁绊", bond_count), ("认知突破", cognitive_count),
-                ("牺牲", sacrifice_count)]
+                ("牺牲", sacrifice_count),
+                ("策略", strategy_count), ("资源", resource_count), ("社交", social_count)]
     dominant_sub = max(subtypes, key=lambda x: x[1])
 
     # ── Negative emotion density ──
@@ -360,22 +408,33 @@ def rule_analyze(ch):
     hook_count = len(CLIFFHANGER.findall(body))
     hook_density = hook_count / max(wc/1000, 1)
 
-    # ── v4: Hook type classification (窗口 500字, 评审建议) ──
+    # ── v10: Hook type classification (扩展至8类, 窗口 500字) ──
     ending = body[-500:] if len(body) > 500 else body
     # Paragraph-level structural analysis: last 3 paragraphs
-    ending_paras = [p.strip() for p in PARA_SPLIT.split(ending) if p.strip()]
+    ending_paras = _split_paragraphs(ending, len(ending))
     last_para = ending_paras[-1] if ending_paras else ending
     last2_para = ending_paras[-2] if len(ending_paras) >= 2 else ""
     last3_para = ending_paras[-3] if len(ending_paras) >= 3 else ""
 
-    hook_suspense = bool(re.search(r"竟然|居然|突然出现|不可能|怎么可能|但[是那]|然而|只不过", ending[-300:]))
-    # Short para after long para = reversal signal
+    # 悬念式: 意外转折/信息不对称
+    hook_suspense = bool(re.search(r"竟然|居然|不可能|怎么可能|但[是那]|然而|只不过|不料|谁知[道]?|没想[到过]", ending[-300:]))
+    # 反转式: 短段接长段 OR 特定句型
     hook_reversal_para = (len(last_para) < 30 and len(last2_para) > 80) if last2_para else False
     hook_reversal_sent = bool(re.search(r"([^。！？\n]{5,}。\s*)([^。！？\n]{2,15})$", ending[-400:]))
     hook_reversal = hook_reversal_para or hook_reversal_sent
-    hook_emotion = bool(re.search(r"(从[来没]|你[就从没]|再也[不没]|永远|终于|最后[一]?)[^。！？]{3,25}$", ending[-300:]))
-    # v4: 信息投放式钩子 — 扩展检测范围
-    hook_info_dump = bool(re.search(r"(翻开|打开|看到|发现|显示|弹出|浮现|出现|亮起|闪烁|跳[出动])[^。！？]{3,25}$", ending[-300:]))
+    # 情绪炸弹: 情感冲击式结尾
+    hook_emotion = bool(re.search(r"(从[来没]|再也[不没]|永远|终于|最后[一]?)[^。！？]{3,25}$", ending[-300:]))
+    # 信息投放: 系统提示/新信息揭露
+    hook_info_dump = bool(re.search(r"(翻开|打开|看到|发现|显示|弹出|浮现|亮起|闪烁|跳[出动]|面板|提示|解锁)[^。！？]{3,25}$", ending[-300:]))
+    # v10新增4类:
+    # 威胁逼近: 危险信号/不详预感
+    hook_threat = bool(re.search(r"(危险|危机|威胁|杀[机意]|死亡|毁灭|不详|不[妙对]|糟糕|完[了蛋])[^。！？]{0,20}$", ending[-250:]))
+    # 疑问式: 以问题结尾
+    hook_question = bool(re.search(r"[？?][ \n]*$", ending[-200:]) or re.search(r"(难道|莫非|为[什]?么|怎么[会可])[^。！？]{3,30}$", ending[-250:]))
+    # 承诺式: "明天一定"/"下次再见"
+    hook_promise = bool(re.search(r"(一定|必将|必定|来日|改日|下次|等着|走着瞧|不[会能]放[过弃])[^。！？]{2,20}$", ending[-200:]))
+    # 系统提示式: 游戏/系统流特有
+    hook_system = bool(re.search(r"(叮[!！]|系统提示|任务完成|奖励|升级|进化|觉醒|解锁|新[的个]技能)", ending[-250:]))
 
     hook_type = "none"
     if hook_suspense:
@@ -386,6 +445,14 @@ def rule_analyze(ch):
         hook_type = "反转式"
     elif hook_info_dump:
         hook_type = "信息投放"
+    elif hook_threat:
+        hook_type = "威胁式"
+    elif hook_question:
+        hook_type = "疑问式"
+    elif hook_promise:
+        hook_type = "承诺式"
+    elif hook_system:
+        hook_type = "系统提示"
 
     # ── Readability score (AlphaReadabilityChinese method) ──
     sentences = re.split(r'[。！？!?]', body)
@@ -394,9 +461,14 @@ def rule_analyze(ch):
     pure_text = body.replace("\n", "").replace(" ", "")
     unique_chars = len(set(pure_text))
     vocab_diversity = unique_chars / max(len(pure_text), 1)
+    # v10: Chinese readability — vd scaling recalibrated
+    # Chinese vocab_diversity (unique_chars/total_chars) ~0.15-0.25,
+    # vs English ~0.005-0.02. Old factor 10 → 93% negative values.
+    # Factor 3: vd=0.23 → 1-0.69=0.31, keeps readability positive for typical CN text.
+    # Sentence length: shorter→easier; diversity: higher→harder; deviation from 35→penalty.
     readability_score = round(
-        min(1.0, (avg_sentence_len / 80) * 0.5 + (1 - vocab_diversity * 10) * 0.3 +
-         (abs(avg_sentence_len - 35) / 50) * 0.2), 3)
+        max(0.0, min(1.0, (avg_sentence_len / 80) * 0.5 + (1 - vocab_diversity * 3) * 0.3 +
+         (abs(avg_sentence_len - 35) / 50) * 0.2)), 3)
 
     # ── v8: Platt Scaling (data-driven from calibrate_v2 100章) ──
     # 公式: LLM = 0.106 * Rule + 2.8 (L341注释中的校准系数)
@@ -477,6 +549,9 @@ def rule_analyze(ch):
         "cognitive_count": cognitive_count,  # v4
         "sacrifice_count": sacrifice_count,  # v4
         "physio_count": physio_count,        # v4
+        "strategy_count": strategy_count,    # v10
+        "resource_count": resource_count,    # v10
+        "social_count": social_count,        # v10
         "dominant_sub": dominant_sub[0],
         "pleasure_type": pleasure_type,
         "pleasure_intensity": pleasure_intensity,
@@ -672,24 +747,30 @@ def analyze_book(filepath):
     llm_correlation = None
     if server_ok:
         print(f"  LLM-as-Judge sampling {len(verify_indices)} chapters (~{total//10 if total>10 else 1}% coverage)...")
+        # v11: ThreadPool parallel LLM calls (matches llama-server --parallel 2)
+        llm_parallel = 3  # mirror llama-server --parallel (config analysis.llm_parallel)
+        valid_indices = [vi for vi in verify_indices if vi < len(results)]
+
+        def _verify_one(vi):
+            return vi, llm_verify(chapters[vi], results[vi])
+
         rule_labels = []
         llm_labels = []
         verified = 0
-        for vi in verify_indices:
-            if vi >= len(results): continue
-            ch = chapters[vi]
-            r = results[vi]
-            # Store rule labels before LLM overwrites
-            rule_labels.append(r["pleasure_intensity"])
-            llm = llm_verify(ch, r)
-            if llm:
-                r["pleasure_type"] = llm.get("pleasure_type", r["pleasure_type"])
-                r["pleasure_intensity"] = llm.get("pleasure_intensity", r["pleasure_intensity"])
-                r["conflict_level"] = llm.get("conflict_level", r["conflict_level"])
-                r["emotion"] = llm.get("emotion", r["emotion"])
-                r["pace"] = llm.get("pace", r["pace"])
-                llm_labels.append(r["pleasure_intensity"])
-                verified += 1
+        with ThreadPoolExecutor(max_workers=llm_parallel) as ex:
+            futures = {ex.submit(_verify_one, vi): vi for vi in valid_indices}
+            for future in as_completed(futures):
+                vi, llm = future.result()
+                r = results[vi]
+                rule_labels.append(r["pleasure_intensity"])
+                if llm:
+                    r["pleasure_type"] = llm.get("pleasure_type", r["pleasure_type"])
+                    r["pleasure_intensity"] = llm.get("pleasure_intensity", r["pleasure_intensity"])
+                    r["conflict_level"] = llm.get("conflict_level", r["conflict_level"])
+                    r["emotion"] = llm.get("emotion", r["emotion"])
+                    r["pace"] = llm.get("pace", r["pace"])
+                    llm_labels.append(r["pleasure_intensity"])
+                    verified += 1
 
         # ── Correlation validation (WebNovelBench method) ──
         if len(rule_labels) > 5 and len(rule_labels) == len(llm_labels):
@@ -713,6 +794,7 @@ def analyze_book(filepath):
               "excl_density","pos_density","neg_density","conflict_density","hook_density",
               "slap_count","level_count","crush_count","comeback_count","hidden_count",
               "bond_count","cognitive_count","sacrifice_count","physio_count",  # v4
+              "strategy_count","resource_count","social_count",  # v10
               "dominant_sub",
               "pleasure_type","pleasure_intensity","pleasure_level",
               "hook_type","readability","avg_sentence_len","vocab_diversity",

@@ -25,8 +25,12 @@ def cross_review(
     primary_model: str = "main_model",
     secondary_model: str = "logic_cop_candidate",
     r1_specialty_only: bool = True,
+    previous_findings: str = "",
 ) -> dict:
     """主模型全面审查 + 辅助模型对专长维度做补充标注。
+    
+    v7.5: 新增 previous_findings 参数 — 传入前次评审摘要，
+    当前评审员会先读已知问题，避免重复检查，聚焦新发现。
 
     Args:
         chapter_text: 章节全文
@@ -34,9 +38,11 @@ def cross_review(
         primary_model: 主模型 key (默认 main_model = Qwen3.5-9B)
         secondary_model: 辅助模型 key (默认 logic_cop_candidate = DeepSeek-R1-7B)
         r1_specialty_only: 是否只让辅助模型审查其专长维度 (默认 True, 省 token)
+        previous_findings: 前次评审摘要文本 (用于记忆积累, 避免重复)
 
     Returns:
-        {"primary": 主模型报告, "secondary_patches": 辅助模型补充标注, "merged": 合并报告}
+        {"primary": 主模型报告, "secondary_patches": 辅助模型补充标注, 
+         "merged": 合并报告, "findings_summary": 可传下一次的摘要}
     """
     orch = get_orchestrator()
     word_count = len(chapter_text.replace("\n", "").replace(" ", ""))
@@ -49,10 +55,18 @@ def cross_review(
         "覆盖: 时间线、因果关系、角色动机、世界观规则、信息一致性。"
         "直接输出审查报告，不要求总结。"
     )
+    memory_hint = ""
+    if previous_findings:
+        memory_hint = (
+            f"\n\n[前次已知问题, 勿重复报告]"
+            f"\n{previous_findings[:800]}"
+            f"\n[以上已知, 请聚焦本章新增或未解决的新问题]"
+        )
     primary_user = (
         f"## 第{chapter_num}章 逻辑审查\n"
-        f"## 章节 ({word_count}字):\n\n{chapter_text}\n\n"
-        f"请逐条列出发现的所有逻辑问题。"
+        f"## 章节 ({word_count}字):\n\n{chapter_text}"
+        f"{memory_hint}\n\n"
+        f"请逐条列出发现的所有逻辑问题。仅列新问题或已有问题在本章的新证据。"
     )
     primary_messages = [
         {"role": "system", "content": primary_sys},
@@ -108,14 +122,77 @@ def cross_review(
     else:
         merged += "\n\n[交叉审查确认无遗漏问题]"
 
+    # v7.5: findings summary for next iteration
+    findings_summary = _extract_findings_summary(primary_result["content"], secondary_patch)
+
     return {
         "primary": primary_result["content"],
         "secondary_patches": secondary_patch,
         "has_additions": has_additions,
         "merged": merged,
+        "findings_summary": findings_summary,
         "primary_usage": primary_result.get("usage", {}),
         "secondary_usage": secondary_result.get("usage", {}) if "error" not in secondary_result else None,
     }
+
+
+def cross_review_iterative(
+    chapter_text: str,
+    chapter_num: int,
+    max_rounds: int = 3,
+    primary_model: str = "main_model",
+) -> list:
+    """v7.5: 迭代交叉评审 — 每轮累积记忆，直到无新发现或达到上限。
+    
+    适用于对同一章做深度审查。每轮评审员会收到上一轮的发现摘要，
+    聚焦新增问题，避免冗余。
+    
+    Args:
+        chapter_text: 章节全文
+        chapter_num: 章节编号
+        max_rounds: 最大迭代轮次 (默认3, 防无限循环)
+        
+    Returns:
+        list of per-round review dicts, each with findings_summary
+    """
+    rounds = []
+    previous = ""
+    no_new_rounds = 0
+
+    for r in range(max_rounds):
+        result = cross_review(
+            chapter_text, chapter_num,
+            primary_model=primary_model,
+            r1_specialty_only=(r > 0),  # 首轮交叉, 后续只专长
+            previous_findings=previous,
+        )
+        if "error" in result:
+            rounds.append(result)
+            break
+
+        rounds.append(result)
+        previous = result.get("findings_summary", "")
+
+        # Stop early if no additions in two consecutive rounds
+        if not result.get("has_additions", True):
+            no_new_rounds += 1
+        else:
+            no_new_rounds = 0
+        if no_new_rounds >= 2:
+            break
+
+    return rounds
+
+
+def _extract_findings_summary(primary_report, secondary_patch):
+    """Extract a concise summary from review reports for memory passing."""
+    # Take first 3 lines from primary + secondary as context summary
+    primary_lines = [l.strip("- ") for l in primary_report.splitlines()
+                     if l.strip().startswith(("- ", "* ", "1.", "2.", "3."))][:5]
+    secondary_lines = [l.strip("- ") for l in (secondary_patch or "").splitlines()
+                       if l.strip().startswith(("- ", "* "))][:3]
+    summary = "; ".join(primary_lines + secondary_lines)
+    return summary[:600] if summary else ""
 
 
 # ============================================================

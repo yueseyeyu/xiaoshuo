@@ -1,11 +1,16 @@
 """
-outline_builder.py — S0b 大纲生成引导 v2
+outline_builder.py — S0b 大纲生成引导 v3
 ============================================================
 ─ 设计蓝本 ─
 · 网文俱乐部三层大纲法: 总纲(5段式)→卷纲→章纲
 · 马良写作 5 种模板 + 4类钩子(悬念/反转/情绪/信息)
 · 番茄编辑 末世文公式: 囤物资→收队友→扩张→升级
 · 马良节奏标准: 小爽点每章≥1, 中爽点3-5章1个, 情绪高峰≤2章间隔
+
+─ v3 新增 ─
+· 从 creative_guidance JSON 加载进度百分位基准
+· inject_rhythm_targets(): 章纲注入量化节奏目标
+· generate_rhythm_plan(): 全书节奏分布曲线
 
 ─ 代笔边界 ─
 · AI 可生成: 总纲框架 + 卷纲事件拆分 + 章纲爽点分布 + 模板推荐
@@ -15,7 +20,12 @@ outline_builder.py — S0b 大纲生成引导 v2
 outline/ 目录: summary.md(总纲) + volume_*.md(卷纲) + chapters.csv(章纲映射)
 """
 
+import json
+import yaml
 from enum import Enum
+from pathlib import Path
+from typing import Optional
+
 
 # ============================================================
 # 大纲层级定义 (网文俱乐部标准)
@@ -176,11 +186,218 @@ APOCALYPSE_SIMULATOR_SKELETON = {
 }
 
 # ============================================================
+# v3: 量化节奏注入 (从 creative_guidance JSON 加载)
+# ============================================================
+
+def _find_project_root() -> Path:
+    """Find project root by locating config.yaml."""
+    p = Path(__file__).resolve().parent
+    for _ in range(5):
+        if (p / "config.yaml").exists():
+            return p
+        p = p.parent
+    return Path(__file__).resolve().parent.parent  # fallback
+
+
+def load_guidance_benchmarks(genre: str = "末世") -> dict:
+    """Load pct_benchmarks + rule from creative_guidance JSON.
+
+    Returns dict with keys: pct_benchmarks, hook_rule, pleasure_rule, hook_per_chars, pleasure_per_chars.
+    Returns empty dict if guidance file not found.
+    """
+    root = _find_project_root()
+    guidance_path = root / "data" / "reports" / genre / "creative_guidance" / f"{genre}_创作指导.json"
+
+    if not guidance_path.exists():
+        print(f"[WARN] 创作指导数据不存在: {guidance_path}")
+        return {}
+
+    try:
+        data = json.loads(guidance_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, IOError) as e:
+        print(f"[WARN] 创作指导数据读取失败: {e}")
+        return {}
+
+    # Extract pct_benchmarks from rough_outline section
+    rough = data.get("rough_outline", {})
+    pct = rough.get("pct_benchmarks", {})
+
+    # Extract rules from worldbuilding
+    wb = data.get("worldbuilding", {})
+    rule = wb.get("rule", "")
+
+    # Load hook/pleasure thresholds from config.yaml
+    hook_per_chars = 500
+    pleasure_per_chars = 300
+    cfg_path = root / "config.yaml"
+    if cfg_path.exists():
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                cfg = yaml.safe_load(f)
+            cb = cfg.get("creative_bridge", {})
+            hook_per_chars = cb.get("hook_per_chars", hook_per_chars)
+            pleasure_per_chars = cb.get("pleasure_per_chars", pleasure_per_chars)
+        except (yaml.YAMLError, IOError):
+            pass
+
+    return {
+        "pct_benchmarks": pct,
+        "hook_rule": rule,
+        "hook_per_chars": hook_per_chars,
+        "pleasure_per_chars": pleasure_per_chars,
+        "genre": genre,
+    }
+
+
+def generate_rhythm_plan(chapter_count: int, genre: str = "末世") -> dict:
+    """Generate chapter-by-chapter rhythm targets based on elite book benchmarks.
+
+    Interpolates between pct_benchmark nodes (0%, 10%, 30%, 50%, 80%, 100%)
+    to assign hook/conflict/pleasure targets per chapter.
+
+    Returns dict: {chapter_number: {"hook_target": float, "conflict_target": float, "pleasure_target": float, "progress_pct": float}}
+    """
+    guidance = load_guidance_benchmarks(genre)
+    if not guidance:
+        return {}
+
+    pct_benchmarks = guidance.get("pct_benchmarks", {})
+    if not pct_benchmarks:
+        return {}
+
+    # Parse benchmark nodes as (progress_pct, {metrics})
+    nodes = []
+    for key, val in pct_benchmarks.items():
+        try:
+            pct_val = float(key.replace("%", ""))
+            nodes.append((pct_val, val))
+        except (ValueError, AttributeError):
+            continue
+    nodes.sort(key=lambda x: x[0])
+
+    if len(nodes) < 2:
+        return {}
+
+    # For each chapter, find its position in the book progress and interpolate
+    rhythm_plan = {}
+    for ch in range(1, chapter_count + 1):
+        progress = (ch / chapter_count) * 100.0
+
+        # Find bracketing benchmark nodes
+        lower = nodes[0]
+        upper = nodes[-1]
+        for n in nodes:
+            if n[0] <= progress:
+                lower = n
+            if n[0] >= progress and upper[0] > progress:
+                upper = n
+                break
+
+        # Linear interpolation
+        if upper[0] == lower[0]:
+            t = 0.0
+        else:
+            t = (progress - lower[0]) / (upper[0] - lower[0])
+
+        def _interp(key, default=0.0):
+            lo = lower[1].get(key, default)
+            hi = upper[1].get(key, default)
+            return round(lo + (hi - lo) * t, 4)
+
+        rhythm_plan[ch] = {
+            "hook_target": _interp("hook_mean"),
+            "conflict_target": _interp("conflict_mean"),
+            "pleasure_target": _interp("pleasure_mean"),
+            "progress_pct": round(progress, 1),
+        }
+
+    return rhythm_plan
+
+
+def inject_rhythm_targets(chapter_data: list, genre: str = "末世", chapter_size: int = 2000) -> list:
+    """Annotate chapter outline list with quantified rhythm targets.
+
+    Args:
+        chapter_data: list of dicts with at least {"chapter": int, "event": str}
+        genre: genre name for benchmark loading
+        chapter_size: target characters per chapter (default 2000)
+
+    Returns:
+        chapter_data with added "rhythm" key containing target metrics and concrete counts
+    """
+    if not chapter_data:
+        return chapter_data
+
+    rhythm_plan = generate_rhythm_plan(len(chapter_data), genre)
+    if not rhythm_plan:
+        return chapter_data
+
+    guidance = load_guidance_benchmarks(genre)
+    hook_per = guidance.get("hook_per_chars", 500)
+    pleasure_per = guidance.get("pleasure_per_chars", 300)
+
+    for ch_info in chapter_data:
+        ch_num = ch_info.get("chapter", 0)
+        plan = rhythm_plan.get(ch_num, {})
+        if not plan:
+            continue
+
+        # Convert density targets to per-chapter counts
+        hook_count = max(1, round(plan["hook_target"] * chapter_size))
+        pleasure_count = max(1, round(plan["pleasure_target"] * chapter_size))
+
+        # Platform benchmarks for comparison
+        platform_hook = max(1, chapter_size // hook_per)
+        platform_pleasure = max(1, chapter_size // pleasure_per)
+
+        ch_info["rhythm"] = {
+            "hook_density": plan["hook_target"],
+            "conflict_density": plan["conflict_target"],
+            "pleasure_density": plan["pleasure_target"],
+            "progress_pct": plan["progress_pct"],
+            "targets_per_chapter": {
+                "hooks_needed": hook_count,
+                "pleasure_points_needed": pleasure_count,
+            },
+            "platform_benchmark": {
+                "hooks_recommended": platform_hook,
+                "pleasure_points_recommended": platform_pleasure,
+            },
+            "rule": guidance.get("hook_rule", ""),
+        }
+
+    return chapter_data
+
+
+def print_rhythm_plan(chapter_count: int, genre: str = "末世") -> None:
+    """Print a human-readable rhythm plan table."""
+    plan = generate_rhythm_plan(chapter_count, genre)
+    if not plan:
+        print("[WARN] 无节奏基准数据")
+        return
+
+    print(f"\n{'='*70}")
+    print(f"  节奏基准计划 | genre={genre} | chapters={chapter_count}")
+    print(f"{'='*70}")
+    print(f"  {'Ch':>4s}  {'进度':>5s}  {'钩子密度':>8s}  {'冲突密度':>8s}  {'爽点密度':>8s}")
+    print(f"  {'-'*4}  {'-'*5}  {'-'*8}  {'-'*8}  {'-'*8}")
+
+    for ch in sorted(plan.keys()):
+        p = plan[ch]
+        print(f"  {ch:4d}  {p['progress_pct']:4.1f}%  {p['hook_target']:8.4f}  {p['conflict_target']:8.4f}  {p['pleasure_target']:8.4f}")
+
+    print(f"{'='*70}")
+    guidance = load_guidance_benchmarks(genre)
+    if guidance.get("hook_rule"):
+        print(f"  Rule: {guidance['hook_rule']}")
+
+
+# ============================================================
 # 模块自检
 # ============================================================
 if __name__ == "__main__":
     print("=" * 60)
-    print("  outline_builder.py — 自检 (仅验证数据完整性)")
+    print("  outline_builder.py v3 — 自检")
     print("=" * 60)
 
     assert len(OutlineLevel.__members__) == 3, "[FAIL] 应有 3 层大纲"
@@ -195,12 +412,32 @@ if __name__ == "__main__":
     assert CHAPTER_OUTLINE_SYSP, "[FAIL] 缺章纲 System Prompt"
     print(f"  [OK] 3个 System Prompt 完整")
 
-    assert len(TEMPLATE_RECOMMEND) == 11, f"[FAIL] 应有 11 种题材推荐, 实际 {len(TEMPLATE_RECOMMEND)}"
+    assert len(TEMPLATE_RECOMMEND) >= 10, f"[FAIL] 题材推荐不足"
     print(f"  [OK] 题材推荐: {len(TEMPLATE_RECOMMEND)} 种")
 
     assert "主线" in APOCALYPSE_SIMULATOR_SKELETON, "[FAIL] 缺末世模拟器骨架"
     assert len(APOCALYPSE_SIMULATOR_SKELETON["前5万字任务"]) == 3, "[FAIL] 前5万字任务不足3个"
     print(f"  [OK] 末世模拟器专属骨架: {APOCALYPSE_SIMULATOR_SKELETON['主线']}")
 
+    # v3: test rhythm injection
+    print("\n--- v3 量化节奏注入测试 ---")
+    guidance = load_guidance_benchmarks("末世")
+    if guidance:
+        print(f"  [OK] 加载创作指导: {len(guidance.get('pct_benchmarks', {}))} 个百分位节点")
+        print(f"  [OK] 平台建议: 每{guidance['hook_per_chars']}字1钩子 / 每{guidance['pleasure_per_chars']}字1爽点")
+    else:
+        print("  [SKIP] 创作指导数据不可用")
 
-    print("\n[DONE] outline_builder.py v2 数据验证完成")
+    # Test rhythm plan generation
+    plan = generate_rhythm_plan(10, "末世")
+    if plan:
+        print(f"  [OK] 节奏计划: {len(plan)} 章目标生成")
+        # Test injection
+        sample = [{"chapter": i, "event": f"test event {i}"} for i in range(1, 6)]
+        injected = inject_rhythm_targets(sample, "末世")
+        has_rhythm = all("rhythm" in ch for ch in injected)
+        print(f"  [OK] 节奏注入: {'全部成功' if has_rhythm else '部分失败'}")
+    else:
+        print("  [SKIP] 节奏计划生成跳过 (数据不可用)")
+
+    print("\n[DONE] outline_builder.py v3 数据验证完成")

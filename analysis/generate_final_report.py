@@ -1,0 +1,289 @@
+"""Final comprehensive evaluation report: system capability assessment + optimization suggestions."""
+import json
+from pathlib import Path
+from datetime import datetime
+
+REPORTS_DIR = Path("data/reports/末世")
+DATA_DIR = Path("data/processed/末世")
+
+def build_final_report():
+    # Load existing data
+    quality_report = json.loads((REPORTS_DIR / "data_quality_assessment.json").read_text("utf-8"))
+    guidance = json.loads((REPORTS_DIR / "writer_guidance_framework.json").read_text("utf-8"))
+    manifest = json.loads((DATA_DIR / "quality_manifest.json").read_text("utf-8"))
+    
+    report = {
+        "meta": {
+            "title": "番茄小说AI创作辅助系统 v7.4 综合质量评估报告",
+            "generated_at": datetime.now().isoformat(),
+            "scope": "数据质量 + 创作指导体系 + 新人辅助能力评估",
+            "books_analyzed": 30,
+            "total_chapters": 38738,
+        },
+        
+        "executive_summary": {
+            "overall_grade": "B+ (良好)",
+            "one_liner": "系统已具备辅助新人作者创作的基础能力, 但存在3个High级缺陷需在2周内修复以提升可靠性。",
+            "key_strengths": [
+                "数据完整性优秀: 30本书, 38738章, 0空值, 32字段全覆盖",
+                "评分方法论扎实: Bayesian Stacking + Borda多维度共识, LOOCV r=0.66",
+                "创作指导有实证基础: 所有基准/阈值均来自30本精品数据, 非主观杜撰",
+                "六维评估体系结构完整: 覆盖从世界观到叙事节奏的全创作链"
+            ],
+            "key_weaknesses": [
+                "可读性指标失效: Flesch公式不适用中文, 需立即替换",
+                "正则标注F1偏低: 0.368, 爽点子项0.23最弱",
+                "全精品池无对照组: 无法验证评分对低质作品的区分度"
+            ]
+        },
+        
+        "system_capability_assessment": {
+            "question": "该体系是否具备辅助新人作者创作出符合市场需求、具有商业价值作品的能力?",
+            "answer": "有条件具备, 但目前处于「可用但需补强」阶段。",
+            "detailed_assessment": {
+                "strength_areas": {
+                    "数据驱动的基准线": {
+                        "level": "强",
+                        "detail": "新人可以获得精确的「市场门槛值」: 钩子密度P50=1.42/千字, 爽点P50=1.90, 章节均值2899字。这比任何主观的'写得好一点'建议都有价值。"
+                    },
+                    "多维度对标": {
+                        "level": "强",
+                        "detail": "Borda五维度画像让新人可以按自己的优劣势选择对标书籍。例如: 擅长世界观但节奏弱的作者对标多样性强的书, 节奏好的对标signing强的书。"
+                    },
+                    "创作全流程覆盖": {
+                        "level": "中",
+                        "detail": "六阶段指导(世界观->角色->粗纲->细纲->文本->节奏)覆盖完整创作链, 但目前只有节奏维度有量化基准, 其他维度以定性标准为主。"
+                    },
+                    "商业化嗅觉": {
+                        "level": "中强",
+                        "detail": "Bayesian Stacking r=0.66的商业评分可区分精品内部差异。但缺少「番茄平台特化」的偏好数据, 所有30本以降起点为主。"
+                    }
+                },
+                "gap_areas": {
+                    "低质识别能力": {
+                        "level": "弱",
+                        "detail": "无对照组无法回答「我的书对比签约失败的书好在哪」。新人最需要的是「离签约还差多少」的判断, 系统目前只能给出「你是精品池第X名」。",
+                        "fix": "Phase 2补充10本非精品对照组"
+                    },
+                    "实时写作反馈": {
+                        "level": "弱",
+                        "detail": "系统是离线分析工具, 非实时写作助手。新人写作时无法获得即时的「这章钩子密度只有0.8, 建议加一个反转」反馈。",
+                        "fix": "未来可考虑 novel.py session模式扩展为逐章实时评分"
+                    },
+                    "番茄平台适配": {
+                        "level": "弱",
+                        "detail": "所有30本以降起点为主, 番茄免费模式下读者阅读行为(跳过率/完读率拐点)与付费模式不同。",
+                        "fix": "Phase 3采集番茄平台数据"
+                    },
+                    "自动化程度": {
+                        "level": "中弱",
+                        "detail": "六维评分目前完全依赖人工判断(阅读文章后对照rubric打分), 缺乏自动化辅助。节奏维度是唯一有自动量化能力的维度。",
+                        "fix": "Phase 2为世界观/角色维度开发自动探测指标"
+                    }
+                }
+            },
+            "capability_readiness_by_stage": {
+                "世界观构建": {
+                    "auto_assess": False,
+                    "manual_capable": True,
+                    "maturity": "定性标准可用, 缺自动量化指标",
+                    "suggestion": "开发势力数量/设定密度自动探测"
+                },
+                "角色塑造": {
+                    "auto_assess": False,
+                    "manual_capable": True,
+                    "maturity": "定性标准可用, 缺性格维度自动检测",
+                    "suggestion": "利用dominant_sub字段做角色驱动类型分析"
+                },
+                "粗纲设计": {
+                    "auto_assess": False,
+                    "manual_capable": True,
+                    "maturity": "定性标准 + 结构模板可用",
+                    "suggestion": "提供精品书结构模板供新人参考"
+                },
+                "细纲设计": {
+                    "auto_assess": True,
+                    "manual_capable": True,
+                    "maturity": "节奏自动量化 + conflict/hook/pleasure自动检测成熟",
+                    "suggestion": "在session模式中增加逐章实时评分"
+                },
+                "文本表达": {
+                    "auto_assess": "部分可用(句长统计)", 
+                    "manual_capable": True,
+                    "maturity": "句长/段落统计可用, 中文可读性需修复",
+                    "suggestion": "修复readability指标(Phase 1)"
+                },
+                "叙事节奏": {
+                    "auto_assess": True,
+                    "manual_capable": True,
+                    "maturity": "最成熟维度, 钩子/爽点/冲突/pace全自动量化",
+                    "suggestion": "当前最强维度, 可作为新人入门首选"
+                }
+            }
+        },
+        
+        "optimization_recommendations": {
+            "immediate_must_fix": {
+                "timeline": "2周内",
+                "priority": "P0 (阻塞发布)",
+                "items": [
+                    {
+                        "id": "R-01",
+                        "item": "修复readability指标为中文适配版本",
+                        "why": "目前Flesch公式对中文无效, 商业评分7维中1维失效",
+                        "effort": "中",
+                        "expected_impact": "可读性从0信息量变为有效维度, 商业评分精度提升5-10%"
+                    },
+                    {
+                        "id": "R-02",
+                        "item": "全量重跑rhythm_analyzer (修复readability后)",
+                        "why": "所有下游分析依赖修复后的数据",
+                        "effort": "中(需数小时LLM重标注)",
+                        "expected_impact": "所有分析基准更新"
+                    },
+                    {
+                        "id": "R-03",
+                        "item": "per-book F1分析 + F1<0.3的书全量LLM重标",
+                        "why": "爽点F1=0.23可能导致部分书爽点密度系统性低估",
+                        "effort": "中",
+                        "expected_impact": "消除标注偏差, 提升爽点相关分析可靠性"
+                    }
+                ]
+            },
+            "short_term_enhancements": {
+                "timeline": "1-2个月",
+                "priority": "P1 (提升可靠性)",
+                "items": [
+                    {
+                        "id": "R-04",
+                        "item": "拓展hook regex到10+类型",
+                        "why": "当前7.3%章节hook=0, 影响节奏分析",
+                        "effort": "小",
+                        "expected_impact": "hook_density=0比例降至3%以下"
+                    },
+                    {
+                        "id": "R-05",
+                        "item": "补充非精品对照组(10本) + 重跑Bayesian Stacking",
+                        "why": "验证评分在低质内容上的区分度, 回答「离签约差多少」",
+                        "effort": "大",
+                        "expected_impact": "商业评分适用范围从精品池扩展至全质量谱"
+                    },
+                    {
+                        "id": "R-06",
+                        "item": "Borda维度独立性检验 + 合并冗余维度",
+                        "why": "signing/retention/webnovel8可能高度相关",
+                        "effort": "小",
+                        "expected_impact": "多维共识更真实"
+                    },
+                    {
+                        "id": "R-07",
+                        "item": "开发世界观/角色维度的自动探测指标",
+                        "why": "当前只有节奏维度可自动量化",
+                        "effort": "大",
+                        "expected_impact": "六维从人工评分变为半自动评分"
+                    }
+                ]
+            },
+            "medium_term_vision": {
+                "timeline": "3-6个月",
+                "priority": "P2 (完善生态)",
+                "items": [
+                    {
+                        "id": "R-08",
+                        "item": "番茄平台末世数据采集 + 追读率/跳过率建模",
+                        "why": "消除平台偏差, 让评分更贴近番茄用户偏好",
+                        "effort": "大",
+                        "expected_impact": "评分体系对番茄作者的实用性翻倍"
+                    },
+                    {
+                        "id": "R-09",
+                        "item": "novel.py session模式扩展为逐章实时评分",
+                        "why": "从离线分析变为在线写作助手",
+                        "effort": "大",
+                        "expected_impact": "新人写作时获得即时反馈, 辅助效果质变"
+                    },
+                    {
+                        "id": "R-10",
+                        "item": "季度数据更新机制 + 女性向末世补充",
+                        "why": "保持时效性 + 覆盖性别维度",
+                        "effort": "中",
+                        "expected_impact": "维持数据的市场代表性"
+                    }
+                ]
+            }
+        },
+        
+        "new_author_usage_guide": {
+            "description": "基于当前系统能力的「新人使用路径」",
+            "step_1": {
+                "name": "确定题材方向",
+                "action": "查看commercial_scores.json的子类型分布, 选择竞争较少的子赛道",
+                "current_data": "升级流(10本)竞争最激烈, 通用(11本)次之, 恐怖悬疑流(7本)和系统流(2本)有差异化空间"
+            },
+            "step_2": {
+                "name": "对标精品书",
+                "action": "根据Borda维度画像选择2-3本对表书, 重点研究其节奏模式",
+                "current_data": "例如: 节奏强选《地球游戏场》(signing=1), 世界观强选《末世之深渊召唤师》(diversity=1)"
+            },
+            "step_3": {
+                "name": "开篇质量自检",
+                "action": "写完前10章后, 用rhythm_analyzer分析, 检查钩子/爽点/冲突密度是否达到P50基准",
+                "current_data": f"P50基准: 钩子>1.42/千字, 爽点>1.90, 冲突>0.90"
+            },
+            "step_4": {
+                "name": "节奏调优",
+                "action": "对照pace序列和冲突曲线, 避免连续3章以上同pace/低冲突",
+                "current_data": "可用rhythm CSV的ch_variability字段监控节奏单调性"
+            },
+            "step_5": {
+                "name": "商业潜力预估",
+                "action": "代入Bayesian Stacking模型获得预估商业分, 重点关注弱项维度",
+                "current_data": "当前可区分91-98区间, 非精品书可能低于91(需对照组验证)"
+            }
+        },
+        
+        "limitations_and_risks": {
+            "data_risks": [
+                "所有30本均为已验证精品, 评分体系在低质内容上表现未知",
+                "以降起点为主, 番茄平台特征未覆盖",
+                "最早2012年至最晚2024年, 2025-2026趋势空白",
+                "全男性向, 女性读者偏好未知"
+            ],
+            "methodology_risks": [
+                "readability指标当前失效(将在Phase 1修复)",
+                "正则标注F1=0.368, 15%辅助数据存疑",
+                "Borda三维修可能冗余, 多维共识设计意图未充分实现"
+            ],
+            "usage_risks": [
+                "新人可能过度依赖评分而忽视创作直觉",
+                "高分书=商业成功 不等于 文学价值, 系统不评估文学性",
+                "评分是基于历史精品的逆向工程, 创新作品可能被低估"
+            ]
+        }
+    }
+    
+    return report
+
+
+if __name__ == "__main__":
+    report = build_final_report()
+    output_path = REPORTS_DIR / "final_comprehensive_assessment.json"
+    output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"[OK] Final comprehensive assessment saved to {output_path}")
+    print(f"[OK] System readiness: {report['executive_summary']['overall_grade']}")
+    
+    # Load quality report for the summary
+    quality_report = json.loads((REPORTS_DIR / "data_quality_assessment.json").read_text("utf-8"))
+    
+    print(f"[OK] Deficiencies: {len(quality_report['deficiencies'])} | Optimization phases: {len(quality_report['optimization_plan'])}")
+    
+    print(f"\n{'='*60}")
+    print(f"SUMMARY")
+    print(f"{'='*60}")
+    print(f"System readiness: {report['executive_summary']['overall_grade']}")
+    print(f"Books: 30 | Chapters: 38,738 | Words: ~1120 Wan")
+    print(f"Data integrity: 0 null files, 32 fields, 100% coverage")
+    print(f"High-level issues: {sum(1 for d in quality_report['deficiencies'] if d['severity'] == 'High')}")
+    print(f"Medium-level issues: {sum(1 for d in quality_report['deficiencies'] if d['severity'] == 'Medium')}")
+    print(f"Low-level issues: {sum(1 for d in quality_report['deficiencies'] if d['severity'] == 'Low')}")
+    print(f"Immediate must-fix: {len(report['optimization_recommendations']['immediate_must_fix']['items'])} items")

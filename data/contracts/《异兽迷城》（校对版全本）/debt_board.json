@@ -1,0 +1,598 @@
+{
+  "book": "《异兽迷城》（校对版全本）",
+  "updated": "2026-06-19T09:11:59.657581",
+  "total": 59,
+  "pending": 59,
+  "debts": [
+    {
+      "id": 1,
+      "origin_ch": 58,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.629582",
+      "resolved_at": null
+    },
+    {
+      "id": 2,
+      "origin_ch": 97,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.631582",
+      "resolved_at": null
+    },
+    {
+      "id": 3,
+      "origin_ch": 136,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.632581",
+      "resolved_at": null
+    },
+    {
+      "id": 4,
+      "origin_ch": 171,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.632581",
+      "resolved_at": null
+    },
+    {
+      "id": 5,
+      "origin_ch": 195,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.632581",
+      "resolved_at": null
+    },
+    {
+      "id": 6,
+      "origin_ch": 210,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.633583",
+      "resolved_at": null
+    },
+    {
+      "id": 7,
+      "origin_ch": 256,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.633583",
+      "resolved_at": null
+    },
+    {
+      "id": 8,
+      "origin_ch": 261,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.633583",
+      "resolved_at": null
+    },
+    {
+      "id": 9,
+      "origin_ch": 279,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.634582",
+      "resolved_at": null
+    },
+    {
+      "id": 10,
+      "origin_ch": 314,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.634582",
+      "resolved_at": null
+    },
+    {
+      "id": 11,
+      "origin_ch": 362,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.634582",
+      "resolved_at": null
+    },
+    {
+      "id": 12,
+      "origin_ch": 389,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.635586",
+      "resolved_at": null
+    },
+    {
+      "id": 13,
+      "origin_ch": 390,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.635586",
+      "resolved_at": null
+    },
+    {
+      "id": 14,
+      "origin_ch": 395,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.635586",
+      "resolved_at": null
+    },
+    {
+      "id": 15,
+      "origin_ch": 397,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.636588",
+      "resolved_at": null
+    },
+    {
+      "id": 16,
+      "origin_ch": 433,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.636588",
+      "resolved_at": null
+    },
+    {
+      "id": 17,
+      "origin_ch": 443,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.636588",
+      "resolved_at": null
+    },
+    {
+      "id": 18,
+      "origin_ch": 506,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.637586",
+      "resolved_at": null
+    },
+    {
+      "id": 19,
+      "origin_ch": 547,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.637586",
+      "resolved_at": null
+    },
+    {
+      "id": 20,
+      "origin_ch": 548,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.638582",
+      "resolved_at": null
+    },
+    {
+      "id": 21,
+      "origin_ch": 590,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.638582",
+      "resolved_at": null
+    },
+    {
+      "id": 22,
+      "origin_ch": 617,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.639582",
+      "resolved_at": null
+    },
+    {
+      "id": 23,
+      "origin_ch": 627,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.639582",
+      "resolved_at": null
+    },
+    {
+      "id": 24,
+      "origin_ch": 641,
+      "type": "emotion_release",
+      "summary": "情绪紧张未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.639582",
+      "resolved_at": null
+    },
+    {
+      "id": 25,
+      "origin_ch": 657,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.640582",
+      "resolved_at": null
+    },
+    {
+      "id": 26,
+      "origin_ch": 668,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.640582",
+      "resolved_at": null
+    },
+    {
+      "id": 27,
+      "origin_ch": 723,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.641582",
+      "resolved_at": null
+    },
+    {
+      "id": 28,
+      "origin_ch": 728,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.641582",
+      "resolved_at": null
+    },
+    {
+      "id": 29,
+      "origin_ch": 743,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.642582",
+      "resolved_at": null
+    },
+    {
+      "id": 30,
+      "origin_ch": 753,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.642582",
+      "resolved_at": null
+    },
+    {
+      "id": 31,
+      "origin_ch": 778,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.642582",
+      "resolved_at": null
+    },
+    {
+      "id": 32,
+      "origin_ch": 795,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.643582",
+      "resolved_at": null
+    },
+    {
+      "id": 33,
+      "origin_ch": 863,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.643582",
+      "resolved_at": null
+    },
+    {
+      "id": 34,
+      "origin_ch": 893,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.644582",
+      "resolved_at": null
+    },
+    {
+      "id": 35,
+      "origin_ch": 898,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.644582",
+      "resolved_at": null
+    },
+    {
+      "id": 36,
+      "origin_ch": 910,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.645581",
+      "resolved_at": null
+    },
+    {
+      "id": 37,
+      "origin_ch": 937,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.645581",
+      "resolved_at": null
+    },
+    {
+      "id": 38,
+      "origin_ch": 956,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.646581",
+      "resolved_at": null
+    },
+    {
+      "id": 39,
+      "origin_ch": 965,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.646581",
+      "resolved_at": null
+    },
+    {
+      "id": 40,
+      "origin_ch": 981,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.647582",
+      "resolved_at": null
+    },
+    {
+      "id": 41,
+      "origin_ch": 982,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.647582",
+      "resolved_at": null
+    },
+    {
+      "id": 42,
+      "origin_ch": 984,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.648582",
+      "resolved_at": null
+    },
+    {
+      "id": 43,
+      "origin_ch": 986,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.648582",
+      "resolved_at": null
+    },
+    {
+      "id": 44,
+      "origin_ch": 995,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.649582",
+      "resolved_at": null
+    },
+    {
+      "id": 45,
+      "origin_ch": 1018,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.649582",
+      "resolved_at": null
+    },
+    {
+      "id": 46,
+      "origin_ch": 1052,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.650583",
+      "resolved_at": null
+    },
+    {
+      "id": 47,
+      "origin_ch": 1073,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.650583",
+      "resolved_at": null
+    },
+    {
+      "id": 48,
+      "origin_ch": 1080,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.651582",
+      "resolved_at": null
+    },
+    {
+      "id": 49,
+      "origin_ch": 1109,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.652583",
+      "resolved_at": null
+    },
+    {
+      "id": 50,
+      "origin_ch": 1124,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.652583",
+      "resolved_at": null
+    },
+    {
+      "id": 51,
+      "origin_ch": 1149,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.653582",
+      "resolved_at": null
+    },
+    {
+      "id": 52,
+      "origin_ch": 1180,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.653582",
+      "resolved_at": null
+    },
+    {
+      "id": 53,
+      "origin_ch": 1191,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.654582",
+      "resolved_at": null
+    },
+    {
+      "id": 54,
+      "origin_ch": 1195,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.655582",
+      "resolved_at": null
+    },
+    {
+      "id": 55,
+      "origin_ch": 1204,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.655582",
+      "resolved_at": null
+    },
+    {
+      "id": 56,
+      "origin_ch": 1212,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.656582",
+      "resolved_at": null
+    },
+    {
+      "id": 57,
+      "origin_ch": 1241,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.656582",
+      "resolved_at": null
+    },
+    {
+      "id": 58,
+      "origin_ch": 1245,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.657581",
+      "resolved_at": null
+    },
+    {
+      "id": 59,
+      "origin_ch": 1284,
+      "type": "emotion_release",
+      "summary": "情绪悲壮未释放 — 建议后文安排爽点或温情转折",
+      "severity": "MED",
+      "status": "pending",
+      "created_at": "2026-06-19T09:11:59.657581",
+      "resolved_at": null
+    }
+  ]
+}

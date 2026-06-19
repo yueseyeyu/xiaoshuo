@@ -1,4 +1,4 @@
-# 项目状态 v7.4 — 2026-06-08 22:26
+# 项目状态 v7.5 — 2026-06-19 10:12
 
 ## 项目定位
 **近期**: 全题材——任一题材精品书足够 → 量化指导新人写出高质量爆款
@@ -21,20 +21,35 @@
 ## 数据资产
 | 类型 | 数量 |
 |------|:---:|
-| 末世精品 | 17本 (+2本废土恐慌) |
-| 其他题材 | 16本 (+10本新增) |
-| 总计 | 33本 |
-| 分析模块 | 20个 .py |
+| 末世精品 | 33本 |
+| 分析模块 | 21个 .py |
 | 单元测试 | 13个 |
-| 题材类型 | 13种 (末世/科幻/玄幻/仙侠/无限流/历史/都市/悬疑/武侠/洪荒/游戏/奇幻/未知) |
+| 题材类型 | 13种 |
 
-## 🆕 新建模块 (本轮 2026-06-08)
+## 🆕 新建模块 (v7.5 2026-06-19)
 | 文件 | 用途 |
 |------|------|
-| `analysis/writing_instructions.py` | P0三步"体检→处方": 逐章指令+评分归因+写书指导手册 (323行) |
-| `analysis/checkpoint.py` | 管线检查点快照: 断点续传, 6步自动存档 (103行) |
+| `analysis/contract_chain.py` | 合同链: 合同种子→运行时合同→债务看板 (webnovel-writer借鉴) |
+| `analysis/recursive_summarize.py` | 递归摘要: L1章组→L2卷级→L3全书 (Map-Reduce, 解决长文伏笔追踪) |
+| `analysis/cross_book_synthesis.py` | 跨书关联: REM扫描30本L3→品类白皮书 (OpenClaw借鉴) |
+| `analysis/style_detection_loop.py` | S4检测循环: PPL/突发/词共现/句变 四层指标 |
+| `scripts/check_scores.py` | LLM评分质量分布检查 |
+| `agents/cross_review.py` | 升级: previous_findings记忆积累 + 迭代评审 |
 
-## 🆕 P0修复 (本轮, 存量模块)
+## 🆕 P0 性能优化 (v7.5 2026-06-19)
+| 模块 | 改动 |
+|------|------|
+| `recursive_summarize.py` | +幂等跳过 +chunk 5→8 +checkpoint断点续传 +dead-letter队列 |
+| `config.yaml` | n_ctx 4096→8192, v7.3→v7.5 |
+| `CODEBUDDY.md` | v7.4→v7.5, n_ctx修正, 管线描述更新 |
+
+## 历史模块 (v7.4)
+| 文件 | 用途 |
+|------|------|
+| `analysis/writing_instructions.py` | 三步"体检→处方": 逐章指令+评分归因+写书指导手册 |
+| `analysis/checkpoint.py` | 管线检查点快照: 断点续传, 6步自动存档 |
+
+## 🆕 P0修复 (v7.4, 存量模块)
 | 文件 | 改动 |
 |------|------|
 | `book_processor.py` | +detect_genre_multi() +MIN_CONFIDENCE门控 +3项零成本检查 +TITLE_RULES扩充20条 +降权跨题材词 +统一routing |

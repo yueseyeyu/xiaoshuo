@@ -7,13 +7,13 @@ REM       S1 创意引导需要 thinking: --reasoning on
 REM v3: flash-attn on + KV q8_0 + parallel 4 + cont-batching
 REM ============================================================
 
-echo [START] Qwen3.5-9B-Q4_K_M (v3 optimized: flash-attn + KV q8_0 + parallel 4)
+echo [START] Qwen3.5-9B-Q4_K_M (v4: ctx8192 + KV q8_0 + parallel 2)
 echo.
 
 D:\miniconda3\envs\llm-shared\Library\bin\llama-server.exe ^
     --model D:/DaMoXing/Qwen3.5-9B-Q4_K_M.gguf ^
     --n-gpu-layers 99 ^
-    --ctx-size 3072 ^
+    --ctx-size 8192 ^
     --port 8000 ^
     --host 127.0.0.1 ^
     --alias Qwen3.5-9B ^

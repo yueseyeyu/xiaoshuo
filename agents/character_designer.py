@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-character_designer.py -- S0 角色设计引导 v1
+character_designer.py -- S0 角色设计引导 v2
 ============================================================
 -- 设计蓝本 --
 融合三方方法论:
@@ -15,18 +15,141 @@ character_designer.py -- S0 角色设计引导 v1
 - AI 给出 2-3 方案供选, 禁止替作者决定角色命运
 - 输出写入 canon/characters.md
 
+-- v2 新增 --
+- CharacterNode + CharacterGraph: 关系网生成 + 矩阵输出
+- ArcTracker: 弧光追踪(起点→转折→终点)
+- 势力归属: 从 creative_guidance 冲突类型分布加载
+
 -- 角色维度 --
   1. 主角: 核心缺陷 + 核心需求 + 成长弧光 + 独特能力
   2. 对手: 镜像关系 + 动机合理性 + 威胁等级
   3. 盟友: 功能定位 + 关系张力 + 牺牲代价
   4. 势力领袖: 阵营立场 + 利益冲突 + 权力结构
-
--- 实现状态 --
-v1: 4维度角色卡 + Socratic 追问 + 关系网生成
 """
 
+import json
 from pathlib import Path
 from typing import Optional
+
+
+# ============================================================
+# v2: 角色数据模型
+# ============================================================
+
+class CharacterNode:
+    """Single character in the relationship graph."""
+
+    def __init__(self, name: str, role: str, arc_start: str = "", arc_turn: str = "",
+                 arc_end: str = "", faction: str = "", ability: str = "",
+                 flaw: str = ""):
+        self.name = name
+        self.role = role  # protagonist/antagonist/ally/power_leader
+        self.arc_start = arc_start
+        self.arc_turn = arc_turn
+        self.arc_end = arc_end
+        self.faction = faction
+        self.ability = ability
+        self.flaw = flaw
+        self.relations: dict[str, str] = {}  # {target_name: relation_type}
+
+    def add_relation(self, target: str, relation_type: str) -> None:
+        """Add a relationship edge. relation_type: 羁绊/敌对/同盟/师徒/爱慕/利用"""
+        self.relations[target] = relation_type
+
+    @property
+    def arc_summary(self) -> str:
+        """One-line arc description."""
+        if not self.arc_start and not self.arc_end:
+            return "(未定义)"
+        return f"{self.arc_start} → {self.arc_turn} → {self.arc_end}"
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "role": self.role,
+            "arc": self.arc_summary,
+            "faction": self.faction,
+            "ability": self.ability,
+            "flaw": self.flaw,
+            "relations": self.relations,
+        }
+
+
+class CharacterGraph:
+    """Tracks all characters and their relationships."""
+
+    def __init__(self):
+        self.nodes: dict[str, CharacterNode] = {}
+
+    def add_node(self, node: CharacterNode) -> None:
+        self.nodes[node.name] = node
+
+    def add_edge(self, from_name: str, to_name: str, relation_type: str) -> None:
+        if from_name in self.nodes:
+            self.nodes[from_name].add_relation(to_name, relation_type)
+
+    def build_matrix(self) -> list[list[str]]:
+        """Generate relationship matrix: rows=from, cols=to, cells=relation."""
+        names = list(self.nodes.keys())
+        if not names:
+            return []
+        header = [""] + names
+        rows = [header]
+        for a_name in names:
+            node = self.nodes[a_name]
+            row = [a_name]
+            for b_name in names:
+                row.append(node.relations.get(b_name, "-"))
+            rows.append(row)
+        return rows
+
+    def find_by_role(self, role: str) -> list[CharacterNode]:
+        return [n for n in self.nodes.values() if n.role == role]
+
+    def validate(self) -> list[str]:
+        """Return list of warnings (e.g., isolated characters, missing arcs)."""
+        warnings = []
+        if not self.find_by_role("protagonist"):
+            warnings.append("[WARN] 无主角节点")
+        isolated = [n.name for n in self.nodes.values() if not n.relations]
+        if isolated:
+            warnings.append(f"[WARN] 孤立角色(无关系): {isolated}")
+        no_arc = [n.name for n in self.nodes.values() if not n.arc_start]
+        if no_arc:
+            warnings.append(f"[WARN] 无弧光定义: {no_arc}")
+        return warnings
+
+    def to_markdown(self) -> str:
+        """Render full character graph as markdown."""
+        lines = ["# 角色关系图谱\n"]
+        if not self.nodes:
+            lines.append("(无角色)\n")
+            return "\n".join(lines)
+
+        # Character cards
+        for node in self.nodes.values():
+            lines.append(f"## {node.name} [{node.role}]")
+            lines.append(f"- **阵营**: {node.faction or '(未定义)'}")
+            lines.append(f"- **能力**: {node.ability or '(未定义)'}")
+            lines.append(f"- **缺陷**: {node.flaw or '(未定义)'}")
+            lines.append(f"- **弧光**: {node.arc_summary}")
+            if node.relations:
+                rels = ", ".join(f"{t}({r})" for t, r in node.relations.items())
+                lines.append(f"- **关系**: {rels}")
+            lines.append("")
+
+        # Relationship matrix
+        lines.append("## 关系矩阵\n")
+        matrix = self.build_matrix()
+        if matrix:
+            # Format as markdown table
+            header = matrix[0]
+            lines.append("| " + " | ".join(header) + " |")
+            lines.append("|" + "|".join(["---"] * len(header)) + "|")
+            for row in matrix[1:]:
+                lines.append("| " + " | ".join(row) + " |")
+
+        return "\n".join(lines)
 
 
 # ============================================================
@@ -120,6 +243,49 @@ CHARACTER_DIMENSIONS = [
         ],
     },
 ]
+
+
+# ============================================================
+# v2: 势力数据加载
+# ============================================================
+
+def _find_project_root() -> Path:
+    """Find project root by locating config.yaml."""
+    p = Path(__file__).resolve().parent
+    for _ in range(5):
+        if (p / "config.yaml").exists():
+            return p
+        p = p.parent
+    return Path(__file__).resolve().parent.parent
+
+
+def load_faction_guidance(genre: str = "末世") -> dict:
+    """Load conflict type distribution from creative_guidance JSON.
+
+    Returns dict with keys: dominant_conflicts (list), arc_distribution (dict).
+    """
+    root = _find_project_root()
+    guidance_path = root / "data" / "reports" / genre / "creative_guidance" / f"{genre}_创作指导.json"
+
+    if not guidance_path.exists():
+        return {}
+
+    try:
+        data = json.loads(guidance_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, IOError):
+        return {}
+
+    wb = data.get("worldbuilding", {})
+    return {
+        "dominant_conflicts": wb.get("dominant_conflict_types", []),
+        "arc_distribution": wb.get("arc_distribution", {}),
+        "guidance": wb.get("guidance", []),
+    }
+
+
+def get_relation_types() -> list[str]:
+    """Standard relationship types for web novels."""
+    return ["羁绊", "敌对", "同盟", "师徒", "爱慕", "利用", "竞争", "守护", "背叛", "崇拜"]
 
 
 # ============================================================
@@ -238,6 +404,25 @@ def run_character_design() -> None:
     header = "# Character Design\n\n" if not existing or "待填写" in existing else existing + "\n\n---\n\n"
     chars_path.write_text(header + "\n".join(all_cards), encoding="utf-8")
 
+    # v2: also save graph template and faction guidance
+    faction_data = load_faction_guidance()
+    graph_path = chars_path.parent / "character_graph.md"
+    graph_lines = [
+        "# 角色关系图谱 (模板)\n",
+        "> 交互式角色设计完成后，在此填写角色节点和关系。\n",
+        "> 关系类型: " + ", ".join(get_relation_types()) + "\n",
+    ]
+    if faction_data.get("dominant_conflicts"):
+        graph_lines.append("## 题材冲突类型参考 (来自30本精品统计)\n")
+        for c in faction_data["dominant_conflicts"]:
+            graph_lines.append(f"- **{c['type']}**: {c['pct']}%")
+        graph_lines.append("")
+    graph_path.write_text("\n".join(graph_lines), encoding="utf-8")
+
     print(f"\n{'=' * 60}")
     print(f"  [OK] Characters saved to assets/canon/characters.md")
+    print(f"  [OK] Graph template: assets/canon/character_graph.md")
+    if faction_data:
+        conflicts = [c['type'] for c in faction_data.get('dominant_conflicts', [])[:3]]
+        print(f"  [OK] Faction guidance: {', '.join(conflicts)}")
     print(f"{'=' * 60}")

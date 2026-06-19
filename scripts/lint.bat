@@ -1,57 +1,81 @@
 @echo off
-REM ============================================================
-REM lint.bat — 代码质量快速检查（仅依赖 Python stdlib）
-REM 
-REM 检查项:
-REM   1. py_compile — 语法错误
-REM   2. 模块 import — 能否被 import
-REM   3. __main__ 自检 — 运行每个模块的自检代码
-REM
-REM 用法: 双击运行 或 scripts\lint.bat
-REM ============================================================
+setlocal enabledelayedexpansion
+chcp 65001 >nul 2>&1
 
 echo ============================================================
-echo   番茄小说 AI 辅助创作系统 — 代码检查
+echo   Tomato Novel AI System - Code Lint
 echo ============================================================
 echo.
 
-set PYTHON=D:\miniconda3\envs\llm-shared\python.exe
+set "PYTHON=D:\miniconda3\envs\llm-shared\python.exe"
 set PASS=0
 set FAIL=0
 
-REM ── 检查 1: py_compile（语法错误） ──
-echo [1/3] 语法检查 (py_compile)...
-for %%f in (novel.py "\agents\\model_orchestrator.py" "\agents\\skill_loader.py") do (
-    %PYTHON% -m py_compile "%%~f" 2>nul
-    if %errorlevel% equ 0 (
-        echo   [OK] %%~nxf
-        set /a PASS+=1
+echo [1/3] Syntax Check (py_compile)...
+for %%f in (
+    novel.py
+    agents\model_orchestrator.py
+    agents\skill_loader.py
+    agents\outline_builder.py
+    agents\character_designer.py
+    analysis\book_processor.py
+    analysis\quality_gate.py
+    analysis\rhythm_analyzer.py
+    analysis\genre_synthesizer.py
+    analysis\synthesis_reporter.py
+    analysis\creative_bridge.py
+    analysis\comparison_engine.py
+    analysis\structure_comparator.py
+) do (
+    if exist "%%~f" (
+        %PYTHON% -m py_compile "%%~f" 2>&1
+        if !errorlevel! equ 0 (
+            echo   [OK] %%~nxf
+            set /a PASS+=1
+        ) else (
+            echo   [FAIL] %%~nxf - syntax error
+            set /a FAIL+=1
+        )
     ) else (
-        echo   [FAIL] %%~nxf — 语法错误，请检查
-        set /a FAIL+=1
+        echo   [SKIP] %%~nxf - file not found
     )
 )
 
-REM ── 检查 2: import 测试（能否被导入） ──
 echo.
-echo [2/3] 导入测试...
-%PYTHON% -c "import sys; sys.path.insert(0, 'agents'); from model_orchestrator import get_orchestrator; print('  [OK] model_orchestrator')" 2>nul
-if %errorlevel% equ 0 (set /a PASS+=1) else (echo   [FAIL] model_orchestrator & set /a FAIL+=1)
+echo [2/3] Import Test...
 
-%PYTHON% -c "import sys; sys.path.insert(0, 'agents'); from skill_loader import SkillLoader; print('  [OK] skill_loader')" 2>nul
-if %errorlevel% equ 0 (set /a PASS+=1) else (echo   [FAIL] skill_loader & set /a FAIL+=1)
+%PYTHON% -c "import sys; sys.path.insert(0,'agents'); from model_orchestrator import get_orchestrator; print('[OK] model_orchestrator')" 2>&1
+if !errorlevel! equ 0 (set /a PASS+=1) else (echo   [FAIL] model_orchestrator import & set /a FAIL+=1)
 
-REM ── 检查 3: 自检运行 ──
+%PYTHON% -c "import sys; sys.path.insert(0,'agents'); from skill_loader import SkillLoader; print('[OK] skill_loader')" 2>&1
+if !errorlevel! equ 0 (set /a PASS+=1) else (echo   [FAIL] skill_loader import & set /a FAIL+=1)
+
+%PYTHON% -c "import sys; sys.path.insert(0,'agents'); from outline_builder import inject_rhythm_targets; print('[OK] outline_builder')" 2>&1
+if !errorlevel! equ 0 (set /a PASS+=1) else (echo   [FAIL] outline_builder import & set /a FAIL+=1)
+
+%PYTHON% -c "import sys; sys.path.insert(0,'agents'); from character_designer import CharacterGraph; print('[OK] character_designer')" 2>&1
+if !errorlevel! equ 0 (set /a PASS+=1) else (echo   [FAIL] character_designer import & set /a FAIL+=1)
+
+%PYTHON% -c "import sys; sys.path.insert(0,'analysis'); from comparison_engine import generate_report; print('[OK] comparison_engine')" 2>&1
+if !errorlevel! equ 0 (set /a PASS+=1) else (echo   [FAIL] comparison_engine import & set /a FAIL+=1)
+
+%PYTHON% -c "import sys; sys.path.insert(0,'analysis'); from structure_comparator import compare_worldbuilding; print('[OK] structure_comparator')" 2>&1
+if !errorlevel! equ 0 (set /a PASS+=1) else (echo   [FAIL] structure_comparator import & set /a FAIL+=1)
+
 echo.
-echo [3/3] 自检运行...
-%PYTHON% "agents\\model_orchestrator.py" 2>nul | findstr "DONE" >nul
-if %errorlevel% equ 0 (echo   [OK] model_orchestrator 自检 & set /a PASS+=1) else (echo   [FAIL] model_orchestrator 自检 & set /a FAIL+=1)
+echo [3/3] Self-test Run...
 
-%PYTHON% "agents\\skill_loader.py" 2>nul | findstr "DONE" >nul
-if %errorlevel% equ 0 (echo   [OK] skill_loader 自检 & set /a PASS+=1) else (echo   [FAIL] skill_loader 自检 & set /a FAIL+=1)
+%PYTHON% "agents\model_orchestrator.py" 2>&1
+if !errorlevel! equ 0 (echo   [OK] model_orchestrator self-test & set /a PASS+=1) else (echo   [FAIL] model_orchestrator self-test & set /a FAIL+=1)
+
+%PYTHON% "agents\skill_loader.py" 2>&1
+if !errorlevel! equ 0 (echo   [OK] skill_loader self-test & set /a PASS+=1) else (echo   [FAIL] skill_loader self-test & set /a FAIL+=1)
 
 echo.
 echo ============================================================
-echo   结果: %PASS% 通过 / %FAIL% 失败
+echo   Result: !PASS! passed / !FAIL! failed
 echo ============================================================
-pause
+
+timeout /t 5 /nobreak >nul
+endlocal
+exit /b 0

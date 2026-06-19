@@ -1,0 +1,86 @@
+{
+  "generated": "2026-06-14T17:33:23.725438",
+  "updated_by": "scripts/score_compare.py",
+  "rows": [
+    {
+      "book": "黑暗文明(神作)",
+      "qwen_rule": 88,
+      "qwen_llm": 73,
+      "deepseek": 69,
+      "gap_rule_vs_ds": 19,
+      "gap_llm_vs_ds": 4
+    },
+    {
+      "book": "三宫六院(模板)",
+      "qwen_rule": 88,
+      "qwen_llm": 78,
+      "deepseek": 68,
+      "gap_rule_vs_ds": 20,
+      "gap_llm_vs_ds": 10
+    },
+    {
+      "book": "精灵皇(路人)",
+      "qwen_rule": 76,
+      "qwen_llm": 79,
+      "deepseek": 59,
+      "gap_rule_vs_ds": 17,
+      "gap_llm_vs_ds": 20
+    },
+    {
+      "book": "地球游戏场(精品)",
+      "qwen_rule": 96,
+      "qwen_llm": 70,
+      "deepseek": 72,
+      "gap_rule_vs_ds": 24,
+      "gap_llm_vs_ds": -2
+    },
+    {
+      "book": "神秘尽头(悬疑)",
+      "qwen_rule": 84,
+      "qwen_llm": 76,
+      "deepseek": 65,
+      "gap_rule_vs_ds": 19,
+      "gap_llm_vs_ds": 11
+    },
+    {
+      "book": "狩魔手记(最低78)",
+      "qwen_rule": 78,
+      "qwen_llm": 78,
+      "deepseek": 62,
+      "gap_rule_vs_ds": 16,
+      "gap_llm_vs_ds": 16
+    },
+    {
+      "book": "第九特区(低85)",
+      "qwen_rule": 76,
+      "qwen_llm": 70,
+      "deepseek": 55,
+      "gap_rule_vs_ds": 21,
+      "gap_llm_vs_ds": 15
+    },
+    {
+      "book": "灾厄纪元(低85)",
+      "qwen_rule": 81,
+      "qwen_llm": 74,
+      "deepseek": 62,
+      "gap_rule_vs_ds": 19,
+      "gap_llm_vs_ds": 12
+    },
+    {
+      "book": "末日拼图游戏(高92)",
+      "qwen_rule": 92,
+      "qwen_llm": 76,
+      "deepseek": 73,
+      "gap_rule_vs_ds": 19,
+      "gap_llm_vs_ds": 3
+    },
+    {
+      "book": "黑暗末日(高92)",
+      "qwen_rule": 88,
+      "qwen_llm": 74,
+      "deepseek": 63,
+      "gap_rule_vs_ds": 25,
+      "gap_llm_vs_ds": 11
+    }
+  ]
+}

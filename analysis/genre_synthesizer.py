@@ -12,10 +12,15 @@ import csv
 import json
 import statistics
 import math
+import datetime
+import re
 import sys
 import yaml
+import http.client
 from pathlib import Path
 from collections import Counter
+
+from analysis.synthesis_reporter import auto_benchmark, cross_genre_summary
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -419,47 +424,45 @@ _grade_thresholds_cache = None
 
 
 def _grade(overall):
-    """Extract grade label from score. Thresholds from config.yaml analysis.commercial_grades.
-    Config is read once and cached at module level."""
+    """v7.5: Calibrated grade from scoring.grades in config."""
     global _grade_thresholds_cache
     if _grade_thresholds_cache is None:
         try:
             if CONFIG_PATH.exists():
                 with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
                     cfg = yaml.safe_load(f) or {}
-                grades = cfg.get("analysis", {}).get("commercial_grades", {})
+                g = cfg.get("model_orchestration", {}).get("scoring", {}).get("grades", {})
                 _grade_thresholds_cache = (
-                    grades.get("high", 70),
-                    grades.get("medium", 50),
-                    grades.get("low", 30),
+                    g.get("s_plus", 80), g.get("a", 70),
+                    g.get("b", 60), g.get("c", 50), g.get("d", 0),
                 )
             else:
-                _grade_thresholds_cache = (70, 50, 30)
+                _grade_thresholds_cache = (80, 70, 60, 50, 0)
         except Exception:
-            _grade_thresholds_cache = (70, 50, 30)
-    high, medium, low = _grade_thresholds_cache
-    if overall >= high:
-        return "🔥 高概率签约"
-    elif overall >= medium:
-        return "✅ 签约可期"
-    elif overall >= low:
-        return "⚠️ 需优化"
-    return "❌ 风险偏高"
+            _grade_thresholds_cache = (80, 70, 60, 50, 0)
+    sp, a, b, c, d = _grade_thresholds_cache
+    if overall >= sp:  return "S+ 神作"
+    elif overall >= a: return "A 精品"
+    elif overall >= b: return "B 普通需优化"
+    elif overall >= c: return "C 扑街风险"
+    else:              return "D 不建议发"
 
 
 def percentile_score(value, pool, metric):
-    """v5: Weibull plotting position (rank-0.5)/n, more stable for small n.
-    P0-3: if n<30, return 50 (disabled) to force upstream to use absolute thresholds."""
+    """v7.5: Bayesian shrinkage instead of hard cutoff.
+    When n < 30, raw percentile is shrunk toward 50 proportionally.
+    shrinkage = min(1, n/30) → n=9 gives 30% signal, n=20 gives 67% signal."""
     p_data = pool.get(metric, {})
     sorted_vals = p_data.get("_sorted", [])
     if not sorted_vals or len(sorted_vals) < 3:
         return 50
     n = len(sorted_vals)
-    if n < 30:
-        return 50  # P0-3 gate: sample too small, percentile disabled
     rank = sum(1 for v in sorted_vals if v <= value)
-    # Weibull plotting position: (rank - 0.5)/n — unbiased for small n
-    return round((rank - 0.5) / n * 100) if n > 0 else 50
+    raw_pct = round((rank - 0.5) / n * 100) if n > 0 else 50
+    if n < 30:
+        shrinkage = n / 30.0  # 0.1(min) → 0.97(max)
+        return round(50 + (raw_pct - 50) * shrinkage)
+    return raw_pct
 
 
 # v12: LLM sub-genre classification cache
@@ -589,6 +592,290 @@ def _detect_sub_genre(rows, book_name=None):
     return "通用"
 
 
+# ── v7.5: DeepSeek API independent scoring (self-eval bias mitigation) ──
+
+def _load_scoring_config():
+    """Read scoring section from config.yaml. Returns dict."""
+    try:
+        cfg_path = PROJECT_ROOT / "config.yaml"
+        with open(cfg_path, 'r', encoding='utf-8') as f:
+            cfg = yaml.safe_load(f) or {}
+        return cfg.get("model_orchestration", {}).get("scoring", {})
+    except Exception:
+        return {}
+
+
+def _load_deepseek_config():
+    """Read DeepSeek API config from config.yaml + secrets.yaml (gitignored).
+    Returns dict or None if disabled or key missing."""
+    try:
+        cfg_path = PROJECT_ROOT / "config.yaml"
+        with open(cfg_path, 'r', encoding='utf-8') as f:
+            cfg = yaml.safe_load(f) or {}
+        apis = cfg.get("model_orchestration", {}).get("models", {}).get("external_api", {})
+        ds = apis.get("deepseek", {})
+        if not ds.get("enabled"):
+            return None
+        secrets_path = PROJECT_ROOT / "secrets.yaml"
+        api_key = None
+        if secrets_path.exists():
+            with open(secrets_path, 'r', encoding='utf-8') as f:
+                secrets = yaml.safe_load(f) or {}
+            api_key = secrets.get("deepseek", {}).get("api_key")
+        if not api_key:
+            return None
+        ds["api_key"] = api_key
+        # Merge siliconflow backup config
+        sf = apis.get("siliconflow", {})
+        if sf.get("enabled"):
+            sf_key = secrets.get("siliconflow", {}).get("api_key") if secrets_path.exists() else None
+            if sf_key and "PLACEHOLDER" not in sf_key:
+                sf["api_key"] = sf_key
+                ds["siliconflow"] = sf
+        return ds
+    except Exception:
+        return None
+
+
+# ── v7.5: DeepSeek score cache ──
+_DS_CACHE = None
+
+
+def _load_ds_cache():
+    """Load DeepSeek score cache from data/deepseek_cache.json."""
+    global _DS_CACHE
+    if _DS_CACHE is not None:
+        return _DS_CACHE
+    cache_path = PROJECT_ROOT / "data" / "deepseek_cache.json"
+    if cache_path.exists():
+        try:
+            _DS_CACHE = json.loads(cache_path.read_text("utf-8"))
+        except Exception:
+            _DS_CACHE = {}
+    else:
+        _DS_CACHE = {}
+    return _DS_CACHE
+
+
+def _save_ds_cache():
+    """Persist DeepSeek score cache."""
+    global _DS_CACHE
+    cache_path = PROJECT_ROOT / "data" / "deepseek_cache.json"
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(_DS_CACHE, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _get_ds_cached(book_stem):
+    """Get cached DeepSeek score if fresh (<7 days)."""
+    cache = _load_ds_cache()
+    scoring_cfg = _load_scoring_config()
+    ttl = scoring_cfg.get("cache_ttl_days", 7) * 86400
+    entry = cache.get(book_stem)
+    if entry and entry.get("timestamp"):
+        try:
+            ts = datetime.datetime.fromisoformat(entry["timestamp"]).timestamp()
+            if time.time() - ts < ttl:
+                return entry
+        except Exception:
+            pass
+    return None
+
+
+def _set_ds_cached(book_stem, ds_data):
+    """Save DeepSeek score to cache."""
+    global _DS_CACHE
+    cache = _load_ds_cache()
+    cache[book_stem] = {
+        "timestamp": datetime.datetime.now().isoformat(),
+        **ds_data,
+    }
+    _DS_CACHE = cache
+    _save_ds_cache()
+
+
+_DS_SCORING_PROMPT = (
+    "你是网文商业评估专家。请对以下末世题材网文章节进行评分。\n\n"
+    "评分维度（0-10分，允许小数点后1位）：\n"
+    "1. 爽感强度：读者感到'爽'的程度\n"
+    "2. 留存吸引力：读完想继续追读的意愿\n"
+    "3. 钩子质量：章末悬念/反转/期待感\n"
+    "4. 节奏合理性：情节推进速度是否恰当\n"
+    "5. 冲突强度：本章冲突的激烈程度\n"
+    "6. 人物塑造：角色行为是否立体、有记忆点\n"
+    "7. 文笔流畅度：阅读体验是否顺畅、无卡顿\n\n"
+    "评分要求：\n"
+    "- 先简要分析本章优缺点（1-2句话）\n"
+    "- 再给出分数，格式：爽感,留存,钩子,节奏,冲突,人物,文笔\n"
+    "- 示例：7.5,6.0,8.0,7.0,5.5,4.0,6.5\n\n"
+    "章节内容：\n{text}"
+)
+
+
+def _deepseek_call_scoring(text, config):
+    """Call DeepSeek API with siliconflow fallback."""
+    results = _call_ds_api(text, config)
+    if results is None and config.get("siliconflow"):
+        results = _call_ds_api(text, config["siliconflow"])
+    return results
+
+
+def _call_ds_api(text, cfg):
+    """Call a single API endpoint for scoring."""
+    prompt = _DS_SCORING_PROMPT.format(text=text[:5000])
+    base = cfg.get("base_url", "https://api.deepseek.com").rstrip("/")
+    host = base.replace("https://", "").replace("http://", "")
+    data = json.dumps({
+        "model": cfg.get("model", "deepseek-chat"),
+        "messages": [
+            {"role": "system", "content": "你是网文评估专家。先分析再输出7个逗号分隔的数字。"},
+            {"role": "user", "content": prompt}
+        ],
+        "max_tokens": cfg.get("max_tokens", 80),
+        "temperature": cfg.get("temperature", 0.0),
+    }).encode("utf-8")
+
+    try:
+        timeout = cfg.get("timeout", 30)
+        conn = http.client.HTTPSConnection(host, timeout=timeout)
+        conn.request("POST", "/v1/chat/completions", body=data,
+                     headers={
+                         "Content-Type": "application/json",
+                         "Authorization": f"Bearer {cfg['api_key']}",
+                     })
+        resp = json.loads(conn.getresponse().read())
+        conn.close()
+        raw = resp.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+        nums = [float(n) for n in re.findall(r"\d+\.?\d*", raw)]
+        if len(nums) >= 7:
+            return nums[:7]
+        elif len(nums) >= 5:
+            return nums[:5] + [5.0, 5.0]
+        return None
+    except Exception:
+        return None
+
+
+def _load_chapter_texts(book_stem, indices):
+    """Load actual chapter text from raw novel file for LLM scoring.
+    Returns {idx: text} dict."""
+    if not book_stem or not indices:
+        return {}
+    try:
+        from analysis.rhythm_analyzer import extract_chapters
+        scoring_cfg = _load_scoring_config()
+        novel_base = scoring_cfg.get("novel_source_dir", "data/raw/novels")
+        novel_dir = PROJECT_ROOT / novel_base / "末世"
+        for txt_file in novel_dir.glob("*.txt"):
+            if book_stem[:6] in txt_file.stem or txt_file.stem[:6] in book_stem:
+                chapters = extract_chapters(str(txt_file))
+                result = {}
+                for i, ch in enumerate(chapters):
+                    if i in indices:
+                        result[i] = ch.get("raw_body", "")
+                return result
+        return {}
+    except Exception:
+        return {}
+
+
+def _score_book_with_deepseek(rows, ds_config, sample_n=None, book_stem=""):
+    """Score with DeepSeek, with cache check. Returns dims dict or None."""
+    if not ds_config or not rows:
+        return None
+
+    # Check cache first
+    if book_stem:
+        cached = _get_ds_cached(book_stem)
+        if cached and cached.get("overall"):
+            return cached
+
+    scoring_cfg = _load_scoring_config()
+    if sample_n is None:
+        sample_n = scoring_cfg.get("llm_sample_chapters", 5)
+    max_chars = scoring_cfg.get("llm_text_max_chars", 4000)
+
+    total = len(rows)
+    step = max(1, total // sample_n)
+    indices = list(range(0, min(total, step * sample_n), step))[:sample_n]
+
+    dims = ["intensity", "retention", "hook", "pace", "conflict", "character", "prose"]
+    all_scores = {d: [] for d in dims}
+
+    # ── v7.5 fix: pass actual chapter text, not metadata ──
+    chapter_texts = _load_chapter_texts(book_stem, indices) if book_stem else {}
+
+    for idx in indices:
+        ch = rows[idx]
+        ch_text = chapter_texts.get(idx)
+        if ch_text:
+            text = f"章节{ch.get('ch_num','?')}\n{ch_text[:max_chars]}"
+        else:
+            text = f"章节{ch.get('ch_num','?')} ({ch.get('wc','?')}字)\n"
+            text += f"钩子密度={ch.get('hook_density','?')} 冲突密度={ch.get('conflict_density','?')} 爽点={ch.get('pleasure_intensity','?')}"
+        scores = _deepseek_call_scoring(text, ds_config)
+        if scores:
+            for i, dim in enumerate(dims):
+                all_scores[dim].append(scores[i])
+
+    if not all_scores["intensity"]:
+        return None
+
+    result = {}
+    for dim in dims:
+        result[dim] = round(statistics.mean(all_scores[dim]), 1) if all_scores[dim] else 5.0
+
+    # Cache result
+    if book_stem:
+        _set_ds_cached(book_stem, result)
+    return result
+
+
+# ── v7.5: OLS Linear Regression Calibration ──
+# Fitted from Qwen vs DeepSeek paired scores. Expandable as more DS data arrives.
+
+
+def _ols_fit(pairs):
+    """Fit linear regression DS = a * Qwen + b using OLS (pure Python, no dependencies).
+    Returns (a, b)."""
+    n = len(pairs)
+    sx = sum(p[0] for p in pairs)
+    sy = sum(p[1] for p in pairs)
+    sxy = sum(p[0] * p[1] for p in pairs)
+    sx2 = sum(p[0] * p[0] for p in pairs)
+    denom = n * sx2 - sx * sx
+    if abs(denom) < 0.001:
+        return 1.0, -22.0  # fallback to simple offset
+    a = (n * sxy - sx * sy) / denom
+    b = (sy - a * sx) / n
+    return round(a, 4), round(b, 1)
+
+
+def _loocv_mae(pairs):
+    """Leave-One-Out Cross-Validation Mean Absolute Error."""
+    errors = []
+    n = len(pairs)
+    for i in range(n):
+        train = pairs[:i] + pairs[i + 1:]
+        a, b = _ols_fit(train)
+        pred = a * pairs[i][0] + b
+        actual = pairs[i][1]
+        errors.append(abs(pred - actual))
+    return round(sum(errors) / n, 1) if errors else 0
+
+
+# Calibration pairs: (Qwen_score, DeepSeek_score) from 10-book validation
+_CALIB_PAIRS = [
+    (88, 69), (88, 68), (76, 59), (96, 72), (84, 65),
+    (88, 63), (87, 62), (88, 62), (82, 55), (76, 59),
+]
+_CALIB_A, _CALIB_B = _ols_fit(_CALIB_PAIRS)
+
+
+def _ols_calibrate(qwen_score):
+    """Calibrate Qwen score to DeepSeek scale."""
+    return _CALIB_A * qwen_score + _CALIB_B
+
+
 def compute_commercial_score(rows, genre="末世", book_name=None):
     """分布驱动商业评分 (v6): 百分位排名替代魔术数字, S曲线替代线性, 频率替代二元."""
     total = len(rows)
@@ -638,29 +925,58 @@ def compute_commercial_score(rows, genre="末世", book_name=None):
     # ── 评分: 百分位制 (P50=50, P75=75, P25=25) ──
     scores = {}
 
-    # ── v7: Load LLM scores for CURRENT book only (FIXED: was loading all books and overwriting) ──
-    # Derive which book we're scoring from rows (use first row's ch_num to find CSV)
-    # Actually, we need the book's CSV name. Derive from the rhythm data directory.
-    # Simplest fix: load ALL LLM scores keyed by (book_stem, ch_num) tuple
-    llm_ch = _load_all_llm_scores()  # returns {(stem, ch_num): scores}
+    # ── v7.5: DS-priority LLM scoring with cache ──
+    scoring_cfg = _load_scoring_config()
+    ds_config = _load_deepseek_config()
 
-    # Find this book's stem from its rhythm data
+    # Find book stem
+    llm_ch = _load_all_llm_scores()
     book_stem = _find_book_stem(rows, llm_ch)
 
-    # v12: Load ALL LLM dimensions for signing+retention scoring
+    # Try DeepSeek first (cache -> API), fallback Qwen
+    llm_source = "rule"
+    ds_data = None
+    if ds_config and book_stem:
+        ds_data = _score_book_with_deepseek(rows, ds_config, book_stem=book_stem)
+        if ds_data:
+            llm_source = "deepseek"
+
+    # Load Qwen LLM scores as fallback/comparison
     llm_data = {"intensity": [], "retention": [], "hook": [], "pace": [], "conflict": []}
     if book_stem:
-        sample_n = min(30, total)
-        for r in rows[:sample_n]:
+        sample_n_llm = min(30, total)
+        for r in rows[:sample_n_llm]:
             key = (book_stem, r["ch_num"])
             if key in llm_ch:
                 for dim in llm_data:
                     llm_data[dim].append(llm_ch[key][dim])
-    # Compute LLM averages (fallback to rule-based if no LLM data)
-    llm_avg_intensity = statistics.mean(llm_data["intensity"]) if llm_data["intensity"] else opening_intensity
-    llm_avg_retention = statistics.mean(llm_data["retention"]) if llm_data["retention"] else 5.0
+        if llm_data["intensity"] and llm_source == "rule":
+            llm_source = "qwen"
+
+    # Use DS if available, else Qwen, else rule fallback
+    if ds_data:
+        llm_avg_intensity = ds_data.get("intensity", opening_intensity)
+        llm_avg_retention = ds_data.get("retention", 5.0)
+        llm_avg_hook = ds_data.get("hook", opening_hook * 10)
+        llm_avg_pace = ds_data.get("pace", 6.0)
+        llm_avg_conflict = ds_data.get("conflict", opening_conflict * 10)
+    elif llm_data["intensity"]:
+        llm_avg_intensity = statistics.mean(llm_data["intensity"])
+        llm_avg_retention = statistics.mean(llm_data["retention"]) if llm_data["retention"] else 5.0
+        llm_avg_hook = statistics.mean(llm_data["hook"]) if llm_data["hook"] else (opening_hook * 10)
+        llm_avg_pace = statistics.mean(llm_data["pace"]) if llm_data["pace"] else 6.0
+        llm_avg_conflict = statistics.mean(llm_data["conflict"]) if llm_data["conflict"] else (opening_conflict * 10)
+    else:
+        # Compute LLM averages (v7.5: fallback to rule-based weighted mean, not fixed 5.0/6.0)
+        llm_avg_intensity = opening_intensity
+    # retention fallback: weighted mean of hook + conflict + pleasure (rule-based signals)
+    rule_retention_est = (opening_hook * 3 + opening_conflict * 3 + opening_pos_density * 2) / 8 * 10
+    llm_avg_retention = statistics.mean(llm_data["retention"]) if llm_data["retention"] else min(10, max(1, round(rule_retention_est, 1)))
     llm_avg_hook = statistics.mean(llm_data["hook"]) if llm_data["hook"] else (opening_hook * 10)
-    llm_avg_pace = statistics.mean(llm_data["pace"]) if llm_data["pace"] else 6.0
+    # pace fallback: based on para_len (fast=7, medium=5, slow=3)
+    avg_para_len = statistics.mean([r.get("avg_para_len", 80) for r in rows[:min(30, total)]])
+    rule_pace = 7 if avg_para_len < 60 else (5 if avg_para_len < 200 else 3)
+    llm_avg_pace = statistics.mean(llm_data["pace"]) if llm_data["pace"] else rule_pace
     llm_avg_conflict = statistics.mean(llm_data["conflict"]) if llm_data["conflict"] else (opening_conflict * 10)
     # Opening-specific LLM scores (first 3 chapters)
     llm_opening_int = llm_data["intensity"][:3] if len(llm_data["intensity"]) >= 3 else llm_data["intensity"]
@@ -669,6 +985,10 @@ def compute_commercial_score(rows, genre="末世", book_name=None):
     llm_opening_intensity = statistics.mean(llm_opening_int) if llm_opening_int else llm_avg_intensity
     llm_opening_hook_val = statistics.mean(llm_opening_hook) if llm_opening_hook else llm_avg_hook
     llm_opening_retention = statistics.mean(llm_opening_ret) if llm_opening_ret else llm_avg_retention
+
+    # ── v7.5: DeepSeek independent scoring (self-eval bias mitigation) ──
+    ds_config = _load_deepseek_config()
+    ds_data = _score_book_with_deepseek(rows, ds_config) if ds_config else None
     # Paywall hook: LLM retention at ~20% mark (free chapter boundary)
     paywall_idx = max(0, min(len(llm_data["retention"]) - 1, len(llm_data["retention"]) // 5))
     llm_paywall_ret = llm_data["retention"][paywall_idx] if llm_data["retention"] else 5.0
@@ -689,17 +1009,18 @@ def compute_commercial_score(rows, genre="末世", book_name=None):
 
     # ── Score 1: 签约概率 (Signing Probability) ──
     # 对标: 番茄编辑评估 + 前3章完读率≥45%方可进入首秀池
-    # LLM opening scores (0-10 scale) → percentile in fire-book pool
+    # v7.5: weights per external reviewer — conflict elevated (15→25%), paywall demoted (20→10%)
+    # Rationale: 冲突是末世文第一性原理, 番茄免费模式无真正"付费墙"
     signing_intensity = percentile_score(llm_opening_intensity, pool, "intensity")  # 首章爽感
     signing_hook = percentile_score(llm_opening_hook_val, pool, "hook_density")     # 前3章钩子
-    signing_paywall = percentile_score(llm_paywall_ret, pool, "retention")          # 付费墙钩子
-    # Rule-based supplement (15% weight)
+    signing_paywall = percentile_score(llm_paywall_ret, pool, "retention")          # 20%处留存
+    # Rule-based supplement (v7.5: 15→25% weight)
     rule_conflict_pct = percentile_score(opening_conflict, pool, "conflict")
     signing_score = round(
         signing_intensity * 0.35 +
         signing_hook * 0.30 +
-        signing_paywall * 0.20 +
-        rule_conflict_pct * 0.15
+        signing_paywall * 0.10 +
+        rule_conflict_pct * 0.25
     )
 
     # ── Score 2: 留存预测 (Retention Prediction) ──
@@ -750,12 +1071,62 @@ def compute_commercial_score(rows, genre="末世", book_name=None):
     }
     scores["WebNovelBench综合"] = round(statistics.mean(webnovel.values()))
 
-    # ── v12: Overall = signing * 0.5 + retention * 0.5 ──
-    # (equal weight — both equally important for new author survival)
+    # ── v7.5: Adaptive signing/retention weights ──
+    # Slow-burn literary novels (high dialogue + high vocab + low hook) →
+    # signing 40% + retention 60% (slow start, strong retention)
+    avg_dialogue = statistics.mean([r.get("dialogue_ratio", 0) for r in rows[:min(30, total)]])
+    vd_vals = [r.get("vocab_diversity", 0) for r in rows if r.get("vocab_diversity", 0) > 0]
+    avg_vd_all = statistics.mean(vd_vals) if vd_vals else 0.2
+    is_slow_burn = (avg_dialogue > 0.40) and (opening_hook < 1.5) and (avg_vd_all > 0.20)
+    if is_slow_burn:
+        w_sign, w_retain = 0.40, 0.60  # slow-burn: retention matters more
+    else:
+        w_sign, w_retain = 0.50, 0.50
     sign = signing_score
-    retain_old = retention_score  # backward compat variable name
-    bonus = retention_score  # for backward compat with grade calculation
-    overall = round(signing_score * 0.5 + retention_score * 0.5)
+    retain_old = retention_score
+    bonus = retention_score
+    overall = round(signing_score * w_sign + retention_score * w_retain)
+
+    # ── v13: Anti-template penalty ──
+    # Template novels (haem, system-flow) inflate hook/pleasure stats but have:
+    # (1) low vocab diversity, (2) concentrated pleasure subtypes, (3) low ch_variability
+    # v7.5: contextual thresholds — avoid penalizing specialized premium books
+    # Validated 2026-06-10: 黑暗文明(vocabDiv=0.226,Top2=41%) vs 三宫六院(vocabDiv=0.166,Top2=67%)
+    # Validated 2026-06-14: 地球游戏场(精品)被误伤 → 加 overall<85 + hook<1.5 条件
+    vocab_diversities = [r.get("vocab_diversity", 0) for r in rows if r.get("vocab_diversity", 0) > 0]
+    avg_vocab_div = statistics.mean(vocab_diversities) if vocab_diversities else 0.2
+
+    sub_counter = Counter(r.get("dominant_sub", "none") for r in rows)
+    total_subs = sum(sub_counter.values())
+    top2_concentration = sum(v for _, v in sub_counter.most_common(2)) / max(total_subs, 1)
+
+    ch_vars = [r.get("ch_variability", 0) for r in rows if r.get("ch_variability", 0) > 0]
+    avg_ch_var = statistics.mean(ch_vars) if ch_vars else 0
+
+    # Penalty: contextual to avoid hitting specialized premium books
+    anti_template_penalty = 1.0
+    # VD: only penalize if book already scores low (<85 = not premium-class)
+    if avg_vocab_div < 0.18 and overall < 85:
+        anti_template_penalty -= 0.05
+    # Top2: penalize if concentration high AND hook low AND NOT slow-burn literary
+    # Slow-burn novels (high VD+dialog) naturally have concentrated subtypes (dialogue-driven)
+    # Validated: 第九特区 Top2=76% but vd=0.232,dialog=0.60 → literary, not template
+    if top2_concentration > 0.55 and opening_hook < 1.5 and not is_slow_burn:
+        anti_template_penalty -= 0.05
+    # ch_var: only penalize long books (short novels naturally have less variability)
+    if avg_ch_var < 0.1 and len(rows) > 50:
+        anti_template_penalty -= 0.05
+    anti_template_penalty = max(0.70, anti_template_penalty)  # v7.5: floor at -30% (was -15%)
+
+    overall_raw = round(overall * anti_template_penalty)
+
+    # ── v7.5: OLS linear regression calibration (replaces -22 offset + slow-burn half) ──
+    # DS = a * Qwen + b, fitted from 10 paired data points, expandable to 30
+    calib_enabled = scoring_cfg.get("calibration_enabled", False)
+    if calib_enabled:
+        overall = max(0, min(100, round(_ols_calibrate(overall_raw))))
+    else:
+        overall = overall_raw
 
     # zero_var_dims: keep for backward compat
     zero_var_dims = []
@@ -802,19 +1173,71 @@ def compute_commercial_score(rows, genre="末世", book_name=None):
             risks.append({"ch": rows[i + 2]["ch_num"], "reason": "冲突断崖(连续3章<0.1)", "fire_rate": "20-30%"})
             break
 
+    # ── v7.5: DeepSeek vs Qwen comparison ──
+    ds_score = None
+    self_eval_bias = None
+    if ds_data and ds_config:
+        # Compute DeepSeek-based signing & retention (v7.5 weights + 7 dims)
+        ds_signing = round(
+            ds_data["intensity"] / 10 * 100 * 0.35 +
+            ds_data["hook"] / 10 * 100 * 0.30 +
+            ds_data["retention"] / 10 * 100 * 0.10 +
+            rule_conflict_pct * 0.25
+        )
+        # Character + prose bonus (v7.5 new dimensions)
+        char_prose_bonus = (ds_data.get("character", 5.0) + ds_data.get("prose", 5.0)) / 20 * 10  # 0-10 bonus
+        ds_retention = round(
+            ds_data["retention"] / 10 * 100 * 0.40 +
+            ds_data["intensity"] / 10 * 100 * 0.25 +
+            (100 - ds_data["pace"] * 10) * 0.20 +
+            retention_rule * 0.15 +
+            char_prose_bonus * 0.05  # character+prose signal in retention
+        )
+        ds_overall = round((ds_signing * 0.5 + ds_retention * 0.5) * anti_template_penalty)
+        ds_score = {
+            "overall": ds_overall,
+            "signing": ds_signing, "retention": ds_retention,
+            "raw": ds_data,
+        }
+        gap = abs(overall - ds_overall)
+        # v7.5: graded bias warnings per reviewer feedback
+        if gap > 20:
+            bias_level = "CRITICAL"
+            bias_note = "Severe self-evaluation bias (>20pts) — manual review required"
+        elif gap > 10:
+            bias_level = "WARNING"
+            bias_note = "Moderate bias (>10pts) — trust with caution"
+        elif gap > 5:
+            bias_level = "NOTICE"
+            bias_note = "Mild divergence (>5pts) — record for trend analysis"
+        else:
+            bias_level = "OK"
+            bias_note = "Within acceptable range (<=5pts)"
+        self_eval_bias = {
+            "qwen_score": overall, "deepseek_score": ds_overall,
+            "gap": gap, "level": bias_level,
+            "note": bias_note,
+        }
+
     return {
-        "overall": overall, "grade": grade,
+        "overall": overall, "overall_raw": overall_raw, "grade": grade,
+        "llm_source": llm_source,          # v7.5: deepseek/qwen/rule
+        "calibrated": calib_enabled,
+        "slow_burn": is_slow_burn,         # v7.5: detected literary/slow-burn style
+        "literary_bonus": 0,               # v7.5: OLS calibration replaces manual bonus
         "grade_range": grade_range,
         "scores": scores, "risks": risks[:10],
         "pool_n": pool["n_books"],
         "sub_genre": sub_genre,
-        "signing_score": signing_score,   # v12: LLM-dominant signing probability
-        "retention_score": retention_score,  # v12: LLM-dominant retention prediction
+        "signing_score": signing_score,
+        "retention_score": retention_score,
         "llm_coverage": len(llm_data["intensity"]) > 0,  # v12: whether LLM data was available
         "zero_var_dims": zero_var_dims,
         "grade_stability": round(grade_stable * 100),
         "annotation_reliability": f1_weights,
         "bootstrap_ci": {"low": bs_low, "high": bs_high, "width": bs_width},
+        "ds_score": ds_score,                # v7.5: DeepSeek independent score
+        "self_eval_bias": self_eval_bias,    # v7.5: bias detection
     }
 
 
@@ -1257,52 +1680,6 @@ def generate_report(genre, analyses, synth, output_path):
     print(f"[OK] Synthesis: {output_path}")
 
 
-def auto_benchmark(synth, analyses, output_dir):
-    """Auto-generate rhythm_benchmark.md from synthesis data (replaces hand-written version).
-    Skills (rough-outline/chapter evolution) read this file during SAMPLE-DB step."""
-    seg = synth["segment_comparison"]
-    cp = synth["common_patterns"]
-    # Extract pooled values
-    opening = seg.get("开篇(1-10%)", {})
-    early = seg.get("前期(10-30%)", {})
-    mid = seg.get("中期(30-60%)", {})
-    late = seg.get("后期(60-85%)", {})
-    ending = seg.get("结局(85-100%)", {})
-
-    lines = [
-        "# 网文节奏基准库（自动生成）",
-        f"> 源: genre_synthesizer.py v5 · {synth['book_count']}本末世火书 · {synth['total_chapters']}章",
-        f"> 更新: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M')}",
-        "> ⚠️ 本文件由 genre_synthesizer.py 自动生成，勿手动编辑",
-        "",
-        "## 题材: 末世",
-        f"- 火书数: {synth['book_count']} · 总章节: {synth['total_chapters']}",
-        f"- 钩子范围: {cp['hook_avg_range']} | 冲突范围: {cp['conflict_avg_range']}",
-        f"- **零钩子弃书红线**: ≤{cp['max_zero_hook_streak']}章",
-        "",
-        "## 按章节位置索引",
-        "| 位置 | hook_pooled | conflict_pooled | 爽点均值 | pace主流 | 主流爽点 |",
-        "|------|:---:|:---:|:---:|------|------|",
-        f"| 开篇(1-10%) | {opening.get('hook_pooled','-')} | {opening.get('conflict_pooled','-')} | {opening.get('pleasure_pooled','-')} | {opening.get('dominant_paces',[['?',0]])[0][0]} | {opening.get('top_pleasure_types',[['?',0]])[0][0] if opening.get('top_pleasure_types') else '?'} |",
-        f"| 前期(10-30%) | {early.get('hook_pooled','-')} | {early.get('conflict_pooled','-')} | {early.get('pleasure_pooled','-')} | {early.get('dominant_paces',[['?',0]])[0][0] if early.get('dominant_paces') else '?'} | {early.get('top_pleasure_types',[['?',0]])[0][0] if early.get('top_pleasure_types') else '?'} |",
-        f"| 中期(30-60%) | {mid.get('hook_pooled','-')} | {mid.get('conflict_pooled','-')} | {mid.get('pleasure_pooled','-')} | {mid.get('dominant_paces',[['?',0]])[0][0] if mid.get('dominant_paces') else '?'} | {mid.get('top_pleasure_types',[['?',0]])[0][0] if mid.get('top_pleasure_types') else '?'} |",
-        f"| 后期(60-85%) | {late.get('hook_pooled','-')} | {late.get('conflict_pooled','-')} | {late.get('pleasure_pooled','-')} | {late.get('dominant_paces',[['?',0]])[0][0] if late.get('dominant_paces') else '?'} | {late.get('top_pleasure_types',[['?',0]])[0][0] if late.get('top_pleasure_types') else '?'} |",
-        f"| 结局(85-100%) | {ending.get('hook_pooled','-')} | {ending.get('conflict_pooled','-')} | {ending.get('pleasure_pooled','-')} | {ending.get('dominant_paces',[['?',0]])[0][0] if ending.get('dominant_paces') else '?'} | {ending.get('top_pleasure_types',[['?',0]])[0][0] if ending.get('top_pleasure_types') else '?'} |",
-        "",
-        "## 商业基准",
-    ]
-
-    # Commercial scores
-    for a in analyses:
-        comm = a.get("commercial", {})
-        if comm and isinstance(comm.get("overall"), int):
-            lines.append(f"- {a['name'][:20]}: 签约{comm['overall']}分 · {comm.get('grade','-')}")
-
-    target = output_dir / "rhythm_benchmark.md"
-    target.write_text("\n".join(lines), encoding='utf-8')
-    print(f"[OK] Auto-benchmark: {target}")
-
-
 def evaluate_loocv(genre, analyses):
     """v9: True Leave-One-Out Cross-Validation.
     For each fold: rebuild pool from 9 books, score the held-out 1, collect prediction.
@@ -1384,6 +1761,19 @@ def evaluate_loocv(genre, analyses):
         t_stat = spearman_r * math.sqrt((n - 2) / max(1 - spearman_r**2, 0.0001))
         p_val = "p<0.05" if abs(t_stat) > 2.3 else "p>0.05"
         print(f"\n[LOOCV v9] 评分vs真实完读率相关性 r={spearman_r:.3f} ({p_val}) (n={n})")
+
+        # Persist LOOCV result for downstream report generation
+        loocv_dir = PROJECT_ROOT / "data" / "reports" / genre
+        loocv_path = loocv_dir / "loocv_result.json"
+        loocv_path.parent.mkdir(parents=True, exist_ok=True)
+        loocv_path.write_text(json.dumps({
+            "spearman_r": spearman_r,
+            "p_value": p_val,
+            "n_folds": n,
+            "method": "Leave-One-Out CV, Bayesian Stacking score vs true completion rate",
+            "timestamp": datetime.datetime.now().isoformat(),
+        }, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"  [SAVED] {loocv_path}")
         return spearman_r, None
     return None, None
 
@@ -1502,28 +1892,6 @@ def main():
             break
     print(f"[GENRE] {genre} (default from config.yaml: {get_default_genre()})")
     process_genre(genre)
-
-
-def cross_genre_summary(genre_results):
-    """Generate cross-genre comparison report from dict of {genre: (synth, output_dir)}."""
-    lines = [
-        "# 跨题材对比报告",
-        f"\n> 自动生成 · {datetime.now().strftime('%Y-%m-%d')} · {len(genre_results)}个题材",
-        "\n## 各题材商业评分对比\n",
-        "| 题材 | 书籍数 | 平均hook | 平均冲突 | 平均爽点 |",
-        "|------|:---:|:---:|:---:|:---:|",
-    ]
-    for genre, (synth, _) in genre_results.items():
-        if not synth: continue
-        lines.append(
-            f"| {genre} | {synth.get('book_count','?')} | "
-            f"{synth.get('avg_hook','?')} | {synth.get('avg_conflict','?')} | "
-            f"{synth.get('avg_pleasure','?')} |")
-    lines.append("\n## 写作建议\n- 同一题材书籍越多,基准越可靠\n- 差异过大的题材可能需要不同创作策略")
-    out = PROJECT_ROOT / "data" / "reports" / "cross_genre_comparison.md"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text("\n".join(lines), encoding='utf-8')
-    print(f"\n[CROSS-GENRE] 跨题材对比报告: {out}")
 
 
 if __name__ == "__main__":

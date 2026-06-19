@@ -1,16 +1,24 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-writing_instructions.py — P0: 三步管线"体检→处方"升级
-========================================================
+writing_instructions.py — 四步管线"合同链→体检→处方"升级
+===========================================================
+v7.5: 新增合同链 (webnovel-writer Story System 借鉴)
+  - 合同种子: 从 assets/canon/ 加载世界规则
+  - 运行时合同: 每章写前激活设定 + 债务提醒
+  - 章节提交: 写后事实沉淀 + 新债务注册
+  - 事件审计: 跨章追踪未兑现债务
+
+原有三步:
 ① 每章写作指令: 读 rhythm CSV → 模板NLG + 阈值触发
 ② 商业评分归因: 偏差幅度代理SHAP → 失分分析 + 改进预估
 ③ 写书指导手册: 聚合所有上游产出 → 单份 MD 报告
 
 搜索依据: AWE系统模板NLG模式 (Grammarly/Pigai, 2024) +
-         偏差归因 = (pool_median - value) / pool_IQR 排序
+         偏差归因 = (pool_median - value) / pool_IQR 排序 +
+         合同链 = webnovel-writer Story System (lingfengQAQ, 2025)
 
-用法: python analysis/writing_instructions.py --book <name> [--all]
+用法: python analysis/writing_instructions.py --book <name> [--all] [--contract]
 """
 import csv
 import statistics
@@ -19,6 +27,16 @@ from pathlib import Path
 from datetime import datetime
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+# Contract chain integration (v7.5)
+try:
+    from analysis.contract_chain import (
+        ContractSeed, RuntimeContract, DebtBoard, ChapterCommit,
+        run_contract_chain, batch_audit_from_rhythm,
+    )
+    _CONTRACT_AVAILABLE = True
+except ImportError:
+    _CONTRACT_AVAILABLE = False
 
 
 def _rhythm_dir(genre):
@@ -265,6 +283,29 @@ def generate_writing_manual(book_name, instruction_lines, attribution_lines,
     return lines
 
 
+# ── ⓪ 合同链步骤 ──
+
+def _run_contract_step(book_name, csv_path, results, use_contract):
+    """Run contract chain for this book. Returns (contract_md_lines, debt_stats)."""
+    if not use_contract or not _CONTRACT_AVAILABLE:
+        return [], {}
+    lines = ["## 合同链审计", f"生成: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ""]
+    try:
+        audit = batch_audit_from_rhythm(book_name, csv_path)
+        lines.extend(audit["debt_board_md"])
+        lines.append("")
+        seed_bank = ContractSeed(book_name)
+        lines.append(f"**{seed_bank.summary()}**")
+        if not seed_bank.loaded:
+            lines.append("> [WARN] 启用合同种子后，写前合同将自动校验设定一致性。")
+            lines.append("> 操作: 填入 `assets/canon/characters.md`、`rules.md` 等文件。")
+        lines.append("")
+        return lines, audit.get("debt_stats", {})
+    except Exception as e:
+        lines.append(f"[WARN] 合同链分析失败: {e}")
+        lines.append("")
+        return lines, {}
+
 # ── CLI ──
 
 def main():
@@ -273,6 +314,7 @@ def main():
         return
 
     book_filter = None
+    use_contract = "--contract" in sys.argv
     for i, arg in enumerate(sys.argv[1:], 1):
         if arg == "--book" and i < len(sys.argv) - 1:
             book_filter = sys.argv[i + 1]
@@ -311,6 +353,13 @@ def main():
                         row[k] = 0.0
                 results.append(row)
 
+        # ⓪ Contract chain audit (post-hoc: from rhythm data)
+        contract_lines, debt_stats = _run_contract_step(book_name, csv_path, results, use_contract)
+        if contract_lines:
+            contract_path = mdir / f"{book_name}_合同审计.md"
+            contract_path.write_text("\n".join(contract_lines), encoding='utf-8')
+            print(f"  [OK] 合同审计: {contract_path.name} ({debt_stats.get('pending', 0)} debts pending)")
+
         # ① Chapter instructions
         inst_lines, issue_count = generate_chapter_instructions(results, book_name)
         inst_path = mdir / f"{book_name}_逐章指令.md"
@@ -336,14 +385,19 @@ def main():
         attr_path.write_text("\n".join(attr_lines), encoding='utf-8')
         print(f"  [OK] 评分归因: {attr_path.name}")
 
-        # ③ Writing manual
+        # ③ Writing manual (merged: includes contract audit)
         summary = {"total_chaps": len(results), "total_words": sum(r['wc'] for r in results)}
         manual_lines = generate_writing_manual(book_name, inst_lines, attr_lines, summary)
+        # Prepend contract audit to manual
+        if contract_lines:
+            manual_lines = manual_lines[:3] + contract_lines + manual_lines[3:]
         manual_path = mdir / f"{book_name}_写书指导手册.md"
         manual_path.write_text("\n".join(manual_lines), encoding='utf-8')
         print(f"  [OK] 指导手册: {manual_path.name}")
 
     print(f"\n[DONE] Manuals in {mdir}")
+    if use_contract and not _CONTRACT_AVAILABLE:
+        print("[WARN] contract_chain module not available, --contract flag ignored")
 
 
 if __name__ == "__main__":

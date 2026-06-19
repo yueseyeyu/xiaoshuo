@@ -1,0 +1,10 @@
+{"timestamp": "2026-06-14T17:04:35.582475", "book": "黑暗文明(神作)", "model": "deepseek-chat", "chapters_sampled": 926, "deepseek": {"overall": 69, "signing": 70, "retention": 68}}
+{"timestamp": "2026-06-14T17:04:45.601043", "book": "三宫六院(模板)", "model": "deepseek-chat", "chapters_sampled": 323, "deepseek": {"overall": 68, "signing": 69, "retention": 68}}
+{"timestamp": "2026-06-14T17:04:54.817264", "book": "精灵皇(路人)", "model": "deepseek-chat", "chapters_sampled": 332, "deepseek": {"overall": 59, "signing": 57, "retention": 67}}
+{"timestamp": "2026-06-14T17:05:04.853663", "book": "地球游戏场(精品)", "model": "deepseek-chat", "chapters_sampled": 788, "deepseek": {"overall": 72, "signing": 76, "retention": 67}}
+{"timestamp": "2026-06-14T17:05:16.822798", "book": "神秘尽头(悬疑)", "model": "deepseek-chat", "chapters_sampled": 292, "deepseek": {"overall": 65, "signing": 63, "retention": 67}}
+{"timestamp": "2026-06-14T17:08:11.432878", "book": "狩魔手记(最低78)", "model": "deepseek-chat", "chapters_sampled": 568, "deepseek": {"overall": 62, "signing": 67, "retention": 64}}
+{"timestamp": "2026-06-14T17:08:21.139993", "book": "第九特区(低85)", "model": "deepseek-chat", "chapters_sampled": 2753, "deepseek": {"overall": 55, "signing": 51, "retention": 65}}
+{"timestamp": "2026-06-14T17:08:31.716191", "book": "灾厄纪元(低85)", "model": "deepseek-chat", "chapters_sampled": 1348, "deepseek": {"overall": 62, "signing": 56, "retention": 67}}
+{"timestamp": "2026-06-14T17:08:41.656116", "book": "末日拼图游戏(高92)", "model": "deepseek-chat", "chapters_sampled": 631, "deepseek": {"overall": 73, "signing": 79, "retention": 67}}
+{"timestamp": "2026-06-14T17:08:50.331156", "book": "黑暗末日(高92)", "model": "deepseek-chat", "chapters_sampled": 701, "deepseek": {"overall": 63, "signing": 59, "retention": 67}}

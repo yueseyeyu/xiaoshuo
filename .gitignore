@@ -45,6 +45,7 @@ notebooks/*.ipynb_checkpoints/
 # 🔐 敏感配置
 .env
 *.env.local
+secrets.yaml
 
 # 📋 Marvis 审查工作流（IDE 内部的对话记录，不必上传）
 prompts/

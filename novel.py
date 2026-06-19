@@ -1194,8 +1194,8 @@ def _session_decisions(sm) -> None:
 
 def cmd_write(args) -> None:
     """
-    提交章节文本。可以: 1) 从文件加载 2) 交互式输入。
-    用法: python novel.py write --chapter 5 --file my_chapter.md
+    提交章节文本并自动评估。
+    用法: python novel.py write --chapter 5 --file my_chapter.md [--genre 末世] [--no-eval]
     """
     sys.path.insert(0, str(PROJECT_ROOT / "agents"))
     from session_manager import SessionManager
@@ -1204,18 +1204,18 @@ def cmd_write(args) -> None:
     chapter = args.chapter
     sm.set_chapter(chapter)
 
+    # Load chapter text
     file_path = getattr(args, "file", "") or ""
+    text = ""
     if file_path:
         fpath = Path(file_path)
         if not fpath.is_absolute():
             fpath = PROJECT_ROOT / fpath
         if fpath.exists():
             text = fpath.read_text(encoding="utf-8")
-            path = sm.submit_chapter(chapter, text)
-            wc = len(text.replace("\n", "").replace(" ", ""))
-            print(f"[OK] Chapter {chapter} saved ({wc} chars): {path}")
         else:
             print(f"[FAIL] File not found: {fpath}")
+            return
     else:
         print(f"Enter chapter {chapter} text. End with 'END' on its own line:")
         lines = []
@@ -1228,12 +1228,35 @@ def cmd_write(args) -> None:
                 break
             lines.append(line)
         text = "\n".join(lines)
-        if text.strip():
-            path = sm.submit_chapter(chapter, text)
-            wc = len(text.replace("\n", "").replace(" ", ""))
-            print(f"[OK] Chapter {chapter} saved ({wc} chars): {path}")
-        else:
+        if not text.strip():
             print("No text entered.")
+            return
+
+    # Save to session
+    path = sm.submit_chapter(chapter, text)
+    wc = len(text.replace("\n", "").replace(" ", ""))
+    print(f"[OK] Chapter {chapter} saved ({wc} chars): {path}")
+
+    # Auto-evaluate (unless --no-eval)
+    skip_eval = getattr(args, "no_eval", False)
+    if skip_eval:
+        return
+
+    genre = getattr(args, "genre", "") or "末世"
+
+    # Report output path
+    eval_dir = PROJECT_ROOT / "data" / "reports" / genre / "evaluations"
+    eval_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = f"ch{chapter:03d}_evaluation"
+    ev_path = eval_dir / safe_name
+
+    try:
+        from analysis.comparison_engine import evaluate_author_chapter, generate_evaluation_report
+        result = evaluate_author_chapter(text, genre=genre, chapter_num=chapter, with_llm=False)
+        generate_evaluation_report(result, ev_path)
+        print(f"[OK] Evaluation report: {ev_path}.md")
+    except Exception as e:
+        print(f"[FAIL] Evaluation error: {e}")
 
 
 # ============================================================================

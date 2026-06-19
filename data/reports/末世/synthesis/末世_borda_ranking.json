@@ -2,21 +2,21 @@
   {
     "total_borda": 21,
     "dim_ranks": {
-      "signing": 1,
+      "signing": 5,
       "retention": 4,
-      "diversity": 10,
+      "diversity": 3,
       "bt_rank": 4,
-      "webnovel8": 2
+      "webnovel8": 5
     },
     "consensus_rank": 1,
     "book_name": "《地球游戏场》（校对版全本）作者：吉风冰"
   },
   {
-    "total_borda": 26,
+    "total_borda": 28,
     "dim_ranks": {
-      "signing": 2,
+      "signing": 1,
       "retention": 11,
-      "diversity": 1,
+      "diversity": 4,
       "bt_rank": 11,
       "webnovel8": 1
     },
@@ -24,311 +24,311 @@
     "book_name": "《末世之深渊召唤师》（校对版全本）作者：凉心未暖"
   },
   {
-    "total_borda": 34,
+    "total_borda": 39,
     "dim_ranks": {
-      "signing": 4,
+      "signing": 3,
       "retention": 12,
-      "diversity": 2,
+      "diversity": 10,
       "bt_rank": 12,
-      "webnovel8": 4
+      "webnovel8": 2
     },
     "consensus_rank": 3,
     "book_name": "《末世召唤狂潮》（校对版全本）作者：黑心的大白"
   },
   {
-    "total_borda": 49,
+    "total_borda": 53,
     "dim_ranks": {
-      "signing": 11,
-      "retention": 6,
-      "diversity": 15,
-      "bt_rank": 6,
-      "webnovel8": 11
+      "signing": 10,
+      "retention": 8,
+      "diversity": 17,
+      "bt_rank": 8,
+      "webnovel8": 10
     },
     "consensus_rank": 4,
-    "book_name": "《异兽迷城》（校对版全本）"
+    "book_name": "《我 的 末 世 领 地》（校对版）"
+  },
+  {
+    "total_borda": 53,
+    "dim_ranks": {
+      "signing": 13,
+      "retention": 3,
+      "diversity": 21,
+      "bt_rank": 3,
+      "webnovel8": 13
+    },
+    "consensus_rank": 5,
+    "book_name": "《全球进化》（精校版全本）作者：咬狗"
+  },
+  {
+    "total_borda": 53,
+    "dim_ranks": {
+      "signing": 15,
+      "retention": 1,
+      "diversity": 22,
+      "bt_rank": 1,
+      "webnovel8": 14
+    },
+    "consensus_rank": 6,
+    "book_name": "《世界末日从考试不及格开始》作者：小猫要成仙"
+  },
+  {
+    "total_borda": 56,
+    "dim_ranks": {
+      "signing": 16,
+      "retention": 2,
+      "diversity": 20,
+      "bt_rank": 2,
+      "webnovel8": 16
+    },
+    "consensus_rank": 7,
+    "book_name": "《从红月开始》（校对版全本）作者：黑山老鬼"
   },
   {
     "total_borda": 57,
     "dim_ranks": {
-      "signing": 8,
-      "retention": 10,
-      "diversity": 22,
-      "bt_rank": 10,
-      "webnovel8": 7
-    },
-    "consensus_rank": 5,
-    "book_name": "《我的女友是丧尸》（校对版全本）作者：黑暗荔枝"
-  },
-  {
-    "total_borda": 60,
-    "dim_ranks": {
-      "signing": 3,
-      "retention": 24,
-      "diversity": 6,
-      "bt_rank": 24,
-      "webnovel8": 3
-    },
-    "consensus_rank": 6,
-    "book_name": "全球变异，从灾厄降临开始"
-  },
-  {
-    "total_borda": 60,
-    "dim_ranks": {
-      "signing": 13,
-      "retention": 3,
-      "diversity": 28,
-      "bt_rank": 3,
-      "webnovel8": 13
-    },
-    "consensus_rank": 7,
-    "book_name": "《全球进化》（精校版全本）作者：咬狗"
-  },
-  {
-    "total_borda": 61,
-    "dim_ranks": {
-      "signing": 7,
-      "retention": 8,
-      "diversity": 30,
-      "bt_rank": 8,
-      "webnovel8": 8
+      "signing": 11,
+      "retention": 13,
+      "diversity": 9,
+      "bt_rank": 13,
+      "webnovel8": 11
     },
     "consensus_rank": 8,
-    "book_name": "《我 的 末 世 领 地》（校对版）"
-  },
-  {
-    "total_borda": 61,
-    "dim_ranks": {
-      "signing": 19,
-      "retention": 1,
-      "diversity": 20,
-      "bt_rank": 1,
-      "webnovel8": 20
-    },
-    "consensus_rank": 9,
-    "book_name": "《世界末日从考试不及格开始》作者：小猫要成仙"
-  },
-  {
-    "total_borda": 62,
-    "dim_ranks": {
-      "signing": 5,
-      "retention": 13,
-      "diversity": 26,
-      "bt_rank": 13,
-      "webnovel8": 5
-    },
-    "consensus_rank": 10,
     "book_name": "《末世大回炉》（校对版全本）作者：二十二刀流"
   },
   {
-    "total_borda": 64,
+    "total_borda": 57,
     "dim_ranks": {
-      "signing": 16,
+      "signing": 19,
+      "retention": 6,
+      "diversity": 7,
+      "bt_rank": 6,
+      "webnovel8": 19
+    },
+    "consensus_rank": 9,
+    "book_name": "《异兽迷城》（校对版全本）"
+  },
+  {
+    "total_borda": 58,
+    "dim_ranks": {
+      "signing": 2,
+      "retention": 15,
+      "diversity": 23,
+      "bt_rank": 15,
+      "webnovel8": 3
+    },
+    "consensus_rank": 10,
+    "book_name": "《末日拼图游戏》（校对版全本）作者：更从心"
+  },
+  {
+    "total_borda": 58,
+    "dim_ranks": {
+      "signing": 8,
       "retention": 9,
-      "diversity": 14,
+      "diversity": 24,
       "bt_rank": 9,
-      "webnovel8": 16
+      "webnovel8": 8
     },
     "consensus_rank": 11,
     "book_name": "《我在末世有套房》（校对版全本）作者：晨星LL"
   },
   {
-    "total_borda": 66,
+    "total_borda": 62,
     "dim_ranks": {
       "signing": 6,
-      "retention": 15,
-      "diversity": 24,
-      "bt_rank": 15,
+      "retention": 10,
+      "diversity": 30,
+      "bt_rank": 10,
       "webnovel8": 6
     },
     "consensus_rank": 12,
-    "book_name": "《末日拼图游戏》（校对版全本）作者：更从心"
+    "book_name": "《我的女友是丧尸》（校对版全本）作者：黑暗荔枝"
+  },
+  {
+    "total_borda": 64,
+    "dim_ranks": {
+      "signing": 17,
+      "retention": 14,
+      "diversity": 2,
+      "bt_rank": 14,
+      "webnovel8": 17
+    },
+    "consensus_rank": 13,
+    "book_name": "《末世魔神游戏》（校对版全本）作者：石闻"
   },
   {
     "total_borda": 72,
     "dim_ranks": {
-      "signing": 21,
-      "retention": 2,
-      "diversity": 25,
-      "bt_rank": 2,
-      "webnovel8": 22
-    },
-    "consensus_rank": 13,
-    "book_name": "《从红月开始》（校对版全本）作者：黑山老鬼"
-  },
-  {
-    "total_borda": 73,
-    "dim_ranks": {
-      "signing": 17,
-      "retention": 14,
-      "diversity": 11,
-      "bt_rank": 14,
-      "webnovel8": 17
+      "signing": 4,
+      "retention": 29,
+      "diversity": 5,
+      "bt_rank": 30,
+      "webnovel8": 4
     },
     "consensus_rank": 14,
-    "book_name": "《末世魔神游戏》（校对版全本）作者：石闻"
+    "book_name": "黑暗血时代"
   },
   {
-    "total_borda": 74,
+    "total_borda": 77,
     "dim_ranks": {
-      "signing": 25,
-      "retention": 5,
-      "diversity": 13,
-      "bt_rank": 5,
-      "webnovel8": 26
+      "signing": 9,
+      "retention": 24,
+      "diversity": 11,
+      "bt_rank": 24,
+      "webnovel8": 9
     },
     "consensus_rank": 15,
-    "book_name": "《废土崛起》（校对版全本）作者：通吃道人"
-  },
-  {
-    "total_borda": 76,
-    "dim_ranks": {
-      "signing": 12,
-      "retention": 18,
-      "diversity": 16,
-      "bt_rank": 18,
-      "webnovel8": 12
-    },
-    "consensus_rank": 16,
-    "book_name": "《神秘尽头》-+黑山老鬼"
+    "book_name": "全球变异，从灾厄降临开始"
   },
   {
     "total_borda": 78,
     "dim_ranks": {
+      "signing": 25,
+      "retention": 5,
+      "diversity": 18,
+      "bt_rank": 5,
+      "webnovel8": 25
+    },
+    "consensus_rank": 16,
+    "book_name": "《废土崛起》（校对版全本）作者：通吃道人"
+  },
+  {
+    "total_borda": 83,
+    "dim_ranks": {
       "signing": 22,
       "retention": 7,
-      "diversity": 21,
+      "diversity": 25,
       "bt_rank": 7,
-      "webnovel8": 21
+      "webnovel8": 22
     },
     "consensus_rank": 17,
     "book_name": "《恐慌沸腾》【爱上阅读_www.isyd.net】"
   },
   {
-    "total_borda": 80,
+    "total_borda": 84,
     "dim_ranks": {
-      "signing": 9,
-      "retention": 27,
-      "diversity": 7,
-      "bt_rank": 28,
-      "webnovel8": 9
+      "signing": 18,
+      "retention": 16,
+      "diversity": 16,
+      "bt_rank": 16,
+      "webnovel8": 18
     },
     "consensus_rank": 18,
-    "book_name": "限制级末日症候"
-  },
-  {
-    "total_borda": 82,
-    "dim_ranks": {
-      "signing": 10,
-      "retention": 30,
-      "diversity": 5,
-      "bt_rank": 27,
-      "webnovel8": 10
-    },
-    "consensus_rank": 19,
-    "book_name": "狩魔手记_烟雨江南"
+    "book_name": "《末日蟑螂》作者：伟岸蟑螂"
   },
   {
     "total_borda": 84,
     "dim_ranks": {
       "signing": 20,
-      "retention": 21,
-      "diversity": 3,
-      "bt_rank": 21,
-      "webnovel8": 19
+      "retention": 18,
+      "diversity": 8,
+      "bt_rank": 18,
+      "webnovel8": 20
     },
-    "consensus_rank": 20,
-    "book_name": "《重卡战车在末世》（校对版全本）作者：白雨涵"
+    "consensus_rank": 19,
+    "book_name": "《神秘尽头》-+黑山老鬼"
   },
   {
-    "total_borda": 91,
+    "total_borda": 87,
     "dim_ranks": {
-      "signing": 18,
-      "retention": 16,
-      "diversity": 23,
-      "bt_rank": 16,
-      "webnovel8": 18
+      "signing": 14,
+      "retention": 28,
+      "diversity": 1,
+      "bt_rank": 29,
+      "webnovel8": 15
+    },
+    "consensus_rank": 20,
+    "book_name": "黑暗文明_古羲"
+  },
+  {
+    "total_borda": 94,
+    "dim_ranks": {
+      "signing": 12,
+      "retention": 30,
+      "diversity": 13,
+      "bt_rank": 27,
+      "webnovel8": 12
     },
     "consensus_rank": 21,
-    "book_name": "《末日蟑螂》作者：伟岸蟑螂"
+    "book_name": "狩魔手记_烟雨江南"
+  },
+  {
+    "total_borda": 95,
+    "dim_ranks": {
+      "signing": 23,
+      "retention": 21,
+      "diversity": 6,
+      "bt_rank": 21,
+      "webnovel8": 24
+    },
+    "consensus_rank": 22,
+    "book_name": "《重卡战车在末世》（校对版全本）作者：白雨涵"
   },
   {
     "total_borda": 97,
     "dim_ranks": {
-      "signing": 14,
-      "retention": 28,
-      "diversity": 12,
-      "bt_rank": 29,
-      "webnovel8": 14
-    },
-    "consensus_rank": 22,
-    "book_name": "黑暗文明_古羲"
-  },
-  {
-    "total_borda": 99,
-    "dim_ranks": {
-      "signing": 28,
-      "retention": 17,
-      "diversity": 9,
-      "bt_rank": 17,
-      "webnovel8": 28
+      "signing": 7,
+      "retention": 27,
+      "diversity": 28,
+      "bt_rank": 28,
+      "webnovel8": 7
     },
     "consensus_rank": 23,
-    "book_name": "《灾厄纪元》（校对版全本）作者：妖的境界"
+    "book_name": "限制级末日症候"
   },
   {
-    "total_borda": 102,
+    "total_borda": 109,
     "dim_ranks": {
-      "signing": 23,
-      "retention": 26,
-      "diversity": 4,
-      "bt_rank": 26,
-      "webnovel8": 23
+      "signing": 30,
+      "retention": 19,
+      "diversity": 12,
+      "bt_rank": 19,
+      "webnovel8": 29
     },
     "consensus_rank": 24,
+    "book_name": "《第九特区》"
+  },
+  {
+    "total_borda": 113,
+    "dim_ranks": {
+      "signing": 21,
+      "retention": 26,
+      "diversity": 19,
+      "bt_rank": 26,
+      "webnovel8": 21
+    },
+    "consensus_rank": 25,
     "book_name": "末世超级商人"
   },
   {
-    "total_borda": 106,
+    "total_borda": 115,
     "dim_ranks": {
-      "signing": 15,
-      "retention": 29,
-      "diversity": 17,
-      "bt_rank": 30,
-      "webnovel8": 15
+      "signing": 27,
+      "retention": 17,
+      "diversity": 26,
+      "bt_rank": 17,
+      "webnovel8": 28
     },
-    "consensus_rank": 25,
-    "book_name": "黑暗血时代"
+    "consensus_rank": 26,
+    "book_name": "《灾厄纪元》（校对版全本）作者：妖的境界"
   },
   {
-    "total_borda": 106,
+    "total_borda": 116,
     "dim_ranks": {
       "signing": 24,
       "retention": 20,
-      "diversity": 18,
+      "diversity": 29,
       "bt_rank": 20,
-      "webnovel8": 24
+      "webnovel8": 23
     },
-    "consensus_rank": 26,
+    "consensus_rank": 27,
     "book_name": "《蹉跎》（校对版全本）作者：随风飘摇"
   },
   {
-    "total_borda": 114,
+    "total_borda": 119,
     "dim_ranks": {
-      "signing": 26,
-      "retention": 22,
-      "diversity": 19,
-      "bt_rank": 22,
-      "webnovel8": 25
-    },
-    "consensus_rank": 27,
-    "book_name": "《黑暗末日》（校对版全本）作者：我妻虚彩"
-  },
-  {
-    "total_borda": 114,
-    "dim_ranks": {
-      "signing": 30,
+      "signing": 29,
       "retention": 23,
-      "diversity": 8,
+      "diversity": 14,
       "bt_rank": 23,
       "webnovel8": 30
     },
@@ -336,27 +336,27 @@
     "book_name": "《黑暗王者》（校对版全本）作者：古羲"
   },
   {
-    "total_borda": 125,
+    "total_borda": 120,
     "dim_ranks": {
-      "signing": 29,
-      "retention": 19,
-      "diversity": 29,
-      "bt_rank": 19,
-      "webnovel8": 29
-    },
-    "consensus_rank": 29,
-    "book_name": "《第九特区》"
-  },
-  {
-    "total_borda": 131,
-    "dim_ranks": {
-      "signing": 27,
+      "signing": 28,
       "retention": 25,
-      "diversity": 27,
+      "diversity": 15,
       "bt_rank": 25,
       "webnovel8": 27
     },
-    "consensus_rank": 30,
+    "consensus_rank": 29,
     "book_name": "我在末世种个田"
+  },
+  {
+    "total_borda": 123,
+    "dim_ranks": {
+      "signing": 26,
+      "retention": 22,
+      "diversity": 27,
+      "bt_rank": 22,
+      "webnovel8": 26
+    },
+    "consensus_rank": 30,
+    "book_name": "《黑暗末日》（校对版全本）作者：我妻虚彩"
   }
 ]

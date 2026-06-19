@@ -8,14 +8,10 @@
 |------|------|---------|
 | `start_model.bat` | 启动 Qwen3.5-9B llama.cpp server (OpenAI API :8000) | 双击运行 |
 | `lint.bat` | 代码质量快速检查 (py_compile + import + 自检) | 每次改完 .py 后运行 |
-
-## 后续将添加
-
-| 计划脚本 | 用途 |
-|---------|------|
-| `start_model_webnovel.bat` | 启动 Qwen3-4B-WebNovel server (:8001) |
-| `start_model_logicpolice.bat` | 启动 DeepSeek-R1 逻辑警察 server (:8002) |
-| `p0_stress_test.bat` | P0-0 末日生存压力测试一键运行 |
+| `switch_model.py` | 模型切换 (端口/权重) | `python scripts/switch_model.py` |
+| `add_books.py` | 批量添加书籍到 books/in/ | `python scripts/add_books.py` |
+| `dedup.py` | 书籍去重 | `python scripts/dedup.py` |
+| `watch_books.py` | 监控 books/in/ 新书自动入库 | `python scripts/watch_books.py` |
 
 ## 依赖
 

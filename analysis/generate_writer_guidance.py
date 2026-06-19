@@ -1,0 +1,413 @@
+"""
+作家创作全流程系统性指导方案 (Phase B1)
+生成日期: 2026-06-10
+基于30本末世精品拆书数据 + 商业化评分体系的创作指导
+"""
+import json, statistics, csv
+from pathlib import Path
+from collections import Counter
+from datetime import datetime
+
+DATA_DIR = Path("data/processed/末世")
+RHYTHM_DIR = DATA_DIR / "rhythm"
+REPORTS_DIR = Path("data/reports/末世")
+
+def compute_percentile_benchmarks():
+    """Compute percentile benchmarks from 30 apocalypse novels."""
+    all_hooks = []
+    all_pleasure = []
+    all_conflict = []
+    all_dialogue = []
+    all_wc = []
+    all_sent_len = []  # v2: actual sentence lengths from data
+    
+    for fp in sorted(RHYTHM_DIR.glob("*.csv")):
+        with open(fp, encoding="utf-8-sig") as f:
+            for row in csv.DictReader(f):
+                try: all_hooks.append(float(row["hook_density"]))
+                except: pass
+                try: all_pleasure.append(float(row["pleasure_intensity"]))
+                except: pass
+                try: all_conflict.append(float(row["conflict_density"]))
+                except: pass
+                try: all_dialogue.append(float(row["dialogue_ratio"]))
+                except: pass
+                try: all_wc.append(int(row["wc"]))
+                except: pass
+                try:
+                    sl = float(row["avg_sentence_len"])
+                    if 0 < sl < 500:
+                        all_sent_len.append(sl)
+                except: pass
+    
+    benchmarks = {}
+    for name, data in [
+        ("hook_density", all_hooks),
+        ("pleasure_intensity", all_pleasure),
+        ("conflict_density", all_conflict),
+        ("dialogue_ratio", all_dialogue),
+        ("word_count", all_wc),
+        ("avg_sentence_len", all_sent_len),  # v2: real data
+    ]:
+        s = sorted(data)
+        n = len(s)
+        benchmarks[name] = {
+            "p10": s[int(n*0.10)],
+            "p30": s[int(n*0.30)],
+            "p50": s[int(n*0.50)],
+            "p70": s[int(n*0.70)],
+            "p80": s[int(n*0.80)],
+            "p90": s[int(n*0.90)],
+            "mean": round(statistics.mean(data), 3),
+            "std": round(statistics.stdev(data), 3),
+            "n": n,
+        }
+    return benchmarks
+
+
+def compute_book_level_benchmarks():
+    """Per-book averages for book-level comparisons."""
+    manifest = json.loads(Path(DATA_DIR / "quality_manifest.json").read_text("utf-8"))
+    
+    books_data = []
+    for b in manifest.get("approved", []):
+        fp = RHYTHM_DIR / f"rhythm_{b['file'].replace('.txt', '')}.csv"
+        if not fp.exists():
+            continue
+        hooks = []
+        pls = []
+        conflicts = []
+        with open(fp, encoding="utf-8-sig") as f:
+            for row in csv.DictReader(f):
+                try: hooks.append(float(row["hook_density"]))
+                except: pass
+                try: pls.append(float(row["pleasure_intensity"]))
+                except: pass
+                try: conflicts.append(float(row["conflict_density"]))
+                except: pass
+        
+        if hooks and pls:
+            books_data.append({
+                "name": b["stem"],
+                "avg_hook": statistics.mean(hooks),
+                "avg_pleasure": statistics.mean(pls),
+                "avg_conflict": statistics.mean(conflicts),
+                "commercial_score": b.get("commercial_score", 0),
+                "chapters": len(hooks),
+            })
+    
+    # Top performers
+    top_hook = sorted(books_data, key=lambda x: x["avg_hook"], reverse=True)[:5]
+    top_pleasure = sorted(books_data, key=lambda x: x["avg_pleasure"], reverse=True)[:5]
+    
+    return books_data, top_hook, top_pleasure
+
+
+def build_guidance():
+    benchmarks = compute_percentile_benchmarks()
+    books_data, top_hook, top_pleasure = compute_book_level_benchmarks()
+    
+    guidance = {
+        "meta": {
+            "title": "末世题材作家创作全流程指导方案",
+            "version": "v1.0",
+            "generated_at": datetime.now().isoformat(),
+            "data_basis": "30本末世精品(38738章)拆书数据 + Bayesian Stacking商业评分 + Borda多维度共识",
+            "target_user": "番茄小说作者 / 新人作者",
+            "note": "本方案基于已商业化验证的成功作品逆向工程, 提取共性规律而非规定性规则"
+        },
+        
+        "stage_1_worldbuilding": {
+            "name": "世界观构建",
+            "principles": [
+                "设定必须服务于冲突生成, 而非单纯展示想象力",
+                "核心矛盾(core conflict)应在第1章3000字内暗示",
+                "世界规则需有内在逻辑一致性, 不能前后矛盾",
+                "末日世界的历史纵深至少2层: 灾变前秩序 + 灾变后秩序",
+            ],
+            "data_insight": {
+                "key": "高商业分末世作品的世界观平均有3+层势力结构(人类幸存者/变异生物/其他幸存者阵营/外来威胁/隐藏势力)",
+                "source": "structure_comparator分析; 精品书中势力数>=3"
+            },
+            "standards": {
+                "completeness": [
+                    "物理规则: 灾变原因/传播方式/变异机制",
+                    "社会规则: 幸存者社会组织/资源分配/权力结构",
+                    "生物规则: 变异生物的等级/弱点/行为模式",
+                    "时间轴: 灾变前/灾变初始/当前/预期未来的4阶段"
+                ],
+                "uniqueness": [
+                    "灾变原因与常见套路(丧尸/病毒/核战)的差异化",
+                    "主角能力来源的创新性(非系统/非金手指优先)",
+                    '世界规则的「钩子价值」(是否每章能从中提取新矛盾)'
+                ]
+            },
+            "benchmark": {
+                "note": "基于30本精品的世界观复杂度启发式评估, 非精确数值",
+                "elite_min_complexity": "3个独立势力 + 2层历史纵深"
+            }
+        },
+        
+        "stage_2_characters": {
+            "name": "角色塑造",
+            "principles": [
+                "主角需有清晰的内在缺陷(Internal Flaw)驱动成长弧",
+                "每次能力升级都要付出对等代价(代价驱动进化)",
+                "配角功能明确: 盟友/对手/镜子/代价/知识源",
+                "角色关系必须有动态演变, 不能静止"
+            ],
+            "data_insight": {
+                "key": "rhythm数据中dominant_sub=羁绊/认知突破的章节占比最高, 说明关系演变和认知成长是末世题材核心爽点",
+                "detail": f"精品书中羁绊类章节占比较高, 平均冲突密度={benchmarks['conflict_density']['mean']}"
+            },
+            "standards": {
+                "dimensionality": [
+                    "主角至少有3个层次: 表层行为(pretense) + 真实渴望(need) + 恐惧核心(fear)",
+                    "每个重要角色存在至少1个内部矛盾(价值观冲突/身份认同/道德困境)",
+                    "至少1个角色存在隐藏身份/秘密(揭秘=钩子)"
+                ],
+                "consistency": [
+                    "行为动机可追溯到角色设定的核心恐惧/欲望",
+                    "能力成长曲线合理: 不能跳跃式升级",
+                    "情感反应符合角色设定的人格底层"
+                ]
+            },
+            "benchmark": {
+                "note": "关系网络密度: 精品书平均每10章引入或深化1个关键角色关系",
+                "dominant_sub_ref": "羁绊/认知突破/冲突/成长/牺牲 -> 5类角色驱动爽点"
+            }
+        },
+        
+        "stage_3_outline": {
+            "name": "故事粗纲(宏观结构)",
+            "principles": [
+                "全书必须有清晰的3幕或5卷结构",
+                "每卷结束必须有重大转折(不回头的剧情变更)",
+                "粗纲应包含至少3条线: 主线(生存/对抗) + 暗线(真相/阴谋) + 感情线(羁绊)",
+                "高潮点密度: 每卷至少2-3个关键高潮"
+            ],
+            "data_insight": {
+                "key": "分析30本精品的章节结构: 长篇幅(>1500章)的卷数约5-7卷, 每卷200-300章; 中篇幅(500-1000章)约3-5卷",
+                "rhythm_pattern": f"精品书平均冲突密度={benchmarks['conflict_density']['mean']:.3f}/千字, p80={benchmarks['conflict_density']['p80']:.3f}"
+            },
+            "standards": {
+                "logic": [
+                    "情节A->B->C有因果链, 不能靠巧合推进",
+                    "伏笔回收率>70%(设下的谜题/暗示要有对应解答)",
+                    "权力/资源/信息的不对称性是冲突的核心驱动力"
+                ],
+                "appeal": [
+                    "开篇3000字内必须有强钩子(首章hook_density>3.0为精品级)",
+                    "每卷结束设置cliffhanger(悬念/反转/升级预告)",
+                    f"钩子密度保持在P50({benchmarks['hook_density']['p50']:.1f}/千字)以上为佳"
+                ]
+            }
+        },
+        
+        "stage_4_chapter_outline": {
+            "name": "细纲(章节级设计)",
+            "principles": [
+                '每章必须有明确的「目标->障碍->结果」三段式结构',
+                "冲突应在章节开始500-800字内建立, 结束前100-200字解决(或升级)",
+                "爽点与钩子错峰排布: 不能连续多章平淡, 也不能每章都高潮(审美疲劳)"
+            ],
+            "data_insight": {
+                "pleasure_rhythm": f"精品书平均爽点强度={benchmarks['pleasure_intensity']['mean']:.3f}, p80={benchmarks['pleasure_intensity']['p80']:.3f}",
+                "hook_rhythm": f"精品书平均钩子密度={benchmarks['hook_density']['mean']:.3f}/千字, 每3000字章约5.2个钩子",
+                "dialogue_benchmark": f"对话比例中位数={benchmarks['dialogue_ratio']['p50']:.3f}, <0.10为纯叙事章, >0.35为对话驱动章"
+            },
+            "standards": {
+                "conflict_design": [
+                    "每章至少1个明确冲突(人物vs人物/人物vs环境/人物vs自我)",
+                    "冲突至少有1次升级(表面冲突->深层矛盾)",
+                    "解决方案不能是deus ex machina(机械降神)"
+                ],
+                "detail_richness": [
+                    "场景描写包含3种感官(视觉+听觉+其他)",
+                    "心理描写不少于章节字数的10%",
+                    "动作场面节奏快(短句, avg_sentence_len<15), 情感场面节奏慢(avg_sentence_len>25)"
+                ]
+            }
+        },
+        
+        "stage_5_prose": {
+            "name": "文本表达",
+            "principles": [
+                '网文追求「易读性」而非「文学性」: 句长15-25字为主',
+                "对话应推动剧情或揭示角色, 不能是空转对白",
+                "描写节奏控制: 动作场面用短句(5-10字), 环境描写用中句(15-30字)"
+            ],
+            "data_insight": {
+                "sentence_length": f"精品书avg_sentence_len中位数={int(benchmarks['avg_sentence_len']['p50'])} (实际数据n={benchmarks['avg_sentence_len']['n']})",
+                "readability_note": "v10修复: readability公式vd缩放因子10→3, 已适配中文vd分布(~0.15-0.25)"
+            },
+            "standards": {
+                "fluency": [
+                    "句长变异度(句长std/句长均值)保持在0.4-0.8区间",
+                    "避免连续5句以上相同句长(机械感)",
+                    "段落长度不超过5行手机屏(网文阅读场景)"
+                ],
+                "literariness": [
+                    "每章至少1处修辞点(比喻/排比/对比), 但不过度(影响易读)",
+                    "成语/四字词密度适度(每千字5-10个), 体现文采但不炫耀",
+                    '章节结尾句有「留白」效果(引发思考/期待)'
+                ]
+            }
+        },
+        
+        "stage_6_rhythm": {
+            "name": "叙事节奏",
+            "principles": [
+                "节奏=推进速度(pace) + 张力曲线(tension_arc) + 情绪变换(emotion_shift)",
+                "网文节奏模型: buildup(铺垫3-5章)->delay(延迟1-2章)->peak(高潮1章)->afterglow(余韵1章)",
+                '不能让读者连续5章感到「平淡」(零爽点零反转)'
+            ],
+            "data_insight": {
+                "pace_profile": "精品书pace分布: fast为主(95%+), 高分章节的ch_variability(节奏变率)较高",
+                "emotion_contrast": "高冲突章与情感章(日常/羁绊)交叉排布; 纯动作连续>3章会导致读者疲劳",
+                "commercial_correlation": "商业分与hook_density/pleasure_intensity正相关, 但与单变量相关性受精品池限制"
+            },
+            "standards": {
+                "pace_control": [
+                    f"钩子密度: 不低于p30({benchmarks['hook_density']['p30']:.1f}/千字)",
+                    f"爽点强度: 平均>p50({benchmarks['pleasure_intensity']['p50']:.1f}), 高潮章>p80({benchmarks['pleasure_intensity']['p80']:.1f})",
+                    "节奏变换: 连续同pace章节不超过3章(fast->medium->fast)"
+                ],
+                "tension_management": [
+                    "每卷内建3-4个张力波峰, 峰值递增(最后一波最强)",
+                    '在连续高张力后必须提供1-2章的「呼吸空间」',
+                    '每10章至少1个「打脸/反转/揭秘」级别的high moment'
+                ]
+            }
+        },
+        
+        # ==========================================
+        # QUANTITATIVE EVALUATION INDEX SYSTEM
+        # ==========================================
+        "quantitative_index": {
+            "description": "六维度量化评估指标体系, 各维度满分100, 加权总分=综合评价",
+            "dimensions": {
+                "worldbuilding": {
+                    "name": "世界观构建",
+                    "weight": 0.15,
+                    "sub_indicators": {
+                        "completeness": {"weight": 0.50, "description": "物理/社会/生物/时间轴四维度覆盖度"},
+                        "uniqueness": {"weight": 0.30, "description": "与同类作品的差异化程度"},
+                        "internal_logic": {"weight": 0.20, "description": "规则的一致性与无冲突"}
+                    },
+                    "scoring_rubric": {
+                        "90-100": "四维度全覆盖 + 独特创新 + 无逻辑漏洞",
+                        "75-89": "三维度覆盖 + 有差异化 + 轻微不一致",
+                        "60-74": "二维度覆盖 + 套路化设定 + 部分漏洞",
+                        "40-59": "单维度覆盖 + 严重套路化 + 逻辑问题多",
+                        "<40": "设定不完整 + 纯模板 + 自相矛盾"
+                    }
+                },
+                "characters": {
+                    "name": "角色塑造",
+                    "weight": 0.20,
+                    "sub_indicators": {
+                        "dimensionality": {"weight": 0.40, "description": "性格层次丰富度, 内在矛盾性"},
+                        "consistency": {"weight": 0.35, "description": "行为逻辑连贯性"},
+                        "relationship_dynamics": {"weight": 0.25, "description": "角色关系的动态演变质量"}
+                    },
+                    "scoring_rubric": {
+                        "90-100": "主角3层次 + 关键角色有内部矛盾 + 关系动态演化",
+                        "75-89": "主角有明确成长弧 + 主要角色性格鲜明 + 关系有变化",
+                        "60-74": "主角扁平但功能明确 + 配角工具化 + 关系静态",
+                        "40-59": "角色工具化 + 行为动机模糊",
+                        "<40": "无角色塑造意识 + 人物完全服务剧情"
+                    }
+                },
+                "outline": {
+                    "name": "故事粗纲",
+                    "weight": 0.15,
+                    "sub_indicators": {
+                        "logic": {"weight": 0.45, "description": "情节因果链, 伏笔回收率"},
+                        "appeal": {"weight": 0.35, "description": "读者兴趣激发能力, 钩子设计"},
+                        "structural_balance": {"weight": 0.20, "description": "三幕/五卷结构的完整性与比例"}
+                    },
+                    "scoring_rubric": {
+                        "90-100": "因果完备 + 伏笔>70%回收 + 结构平衡 + 开创性角度",
+                        "75-89": "因果基本完备 + 结构完整 + 有吸引力",
+                        "60-74": "有结构意识 + 部分因果链断裂 + 吸引力一般",
+                        "40-59": "结构混乱 + 依赖巧合推进",
+                        "<40": "无结构意识 + 纯粹事件堆砌"
+                    }
+                },
+                "chapter_design": {
+                    "name": "细纲设计",
+                    "weight": 0.15,
+                    "sub_indicators": {
+                        "conflict_design": {"weight": 0.40, "description": "每章冲突设置与解决质量"},
+                        "detail_richness": {"weight": 0.30, "description": "场景描写 + 心理描写的丰富度"},
+                        "pacing_within_chapter": {"weight": 0.30, "description": "章内节奏控制(目标->障碍->结果三段式)"}
+                    },
+                    "scoring_rubric": {
+                        "90-100": "每章三幕完整 + 冲突升级设计精妙 + 细节丰富",
+                        "75-89": "大部分章节三幕完整 + 冲突设计合格 + 细节足够",
+                        "60-74": "章节结构有意识但不稳定 + 部分章缺冲突",
+                        "40-59": "多数章节结构不完整 + 冲突乏力",
+                        "<40": "无章节设计意识"
+                    }
+                },
+                "prose": {
+                    "name": "文本表达",
+                    "weight": 0.15,
+                    "sub_indicators": {
+                        "fluency": {"weight": 0.55, "description": "语句通顺度, 句长段长适配移动阅读"},
+                        "literariness": {"weight": 0.25, "description": "修辞运用, 成语密度, 语言美感"},
+                        "dialogue_quality": {"weight": 0.20, "description": "对话自然度与信息密度"}
+                    },
+                    "scoring_rubric": {
+                        "90-100": "流畅无阻滞 + 有文学质感 + 对话自然推动剧情",
+                        "75-89": "流畅 + 偶有修辞亮点 + 对话功能正常",
+                        "60-74": "基本通顺 + 平实 + 对话偶有空转",
+                        "40-59": "有不通顺处 + 句式单调 + 对话信息量低",
+                        "<40": "大量不通顺 + 无修辞意识"
+                    }
+                },
+                "rhythm": {
+                    "name": "叙事节奏",
+                    "weight": 0.20,
+                    "sub_indicators": {
+                        "pace_control": {"weight": 0.35, "description": "情节推进速度把控"},
+                        "tension_arc": {"weight": 0.35, "description": "张力曲线的张弛度"},
+                        "emotion_variety": {"weight": 0.30, "description": "情绪类型的多样性与转换自然度"}
+                    },
+                    "scoring_rubric": {
+                        "90-100": f"钩子>p70({benchmarks['hook_density']['p70']:.1f}) + 爽点>p70({benchmarks['pleasure_intensity']['p70']:.1f}) + 情绪多变 + 张力曲线优秀",
+                        "75-89": f"钩子>p50({benchmarks['hook_density']['p50']:.1f}) + 爽点>p50({benchmarks['pleasure_intensity']['p50']:.1f}) + 节奏合理",
+                        "60-74": "节奏基本稳定 + 偶有平淡长段",
+                        "40-59": "节奏不稳 + 常见平淡章",
+                        "<40": "节奏混乱 + 大量平淡/疲劳段"
+                    }
+                }
+            },
+            "total_score_formula": "Total = 0.15*W + 0.20*C + 0.15*O + 0.15*Ch + 0.15*P + 0.20*R",
+            "grade_mapping": {
+                "S级(90-100)": "顶级: 可直接投稿签约",
+                "A级(80-89)": "优秀: 大概率签约, 有爆款潜力",
+                "B级(70-79)": "良好: 签约可期, 需局部优化",
+                "C级(60-69)": "及格: 达到网文基本要求, 需重点改进",
+                "D级(40-59)": "待提升: 存在明显短板, 需系统改进",
+                "E级(<40)": "需重构: 核心要素缺失, 建议大修或重写"
+            }
+        }
+    }
+    
+    return guidance
+
+
+if __name__ == "__main__":
+    guidance = build_guidance()
+    output_path = REPORTS_DIR / "writer_guidance_framework.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(guidance, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"[OK] Writer guidance framework saved to {output_path}")
+    
+    # Print key benchmark data
+    benchmarks = compute_percentile_benchmarks()
+    print(f"\n[KEY BENCHMARKS] (from 30 apocalypse novels, 38,738 chapters)")
+    for name, data in benchmarks.items():
+        print(f"  {name}: P50={data['p50']:.3f}, P80={data['p80']:.3f}, mean={data['mean']:.3f}")

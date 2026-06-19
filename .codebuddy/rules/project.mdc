@@ -1,5 +1,5 @@
 ---
-description: 番茄小说AI创作系统 v7.4 — 行为约束
+description: 番茄小说AI创作系统 v7.5 — 行为约束
 alwaysApply: true
 enabled: true
 updatedAt: 2026-06-05T02:03:00.000Z
@@ -23,6 +23,7 @@ provider:
 - `scripts/start_model.bat` — 启动 Qwen3.5-9B (native模板, enable_thinking=false, :8000)
 - `scripts/lint.bat` — 代码质量检查 (py_compile + import + 自检，仅 stdlib)
 - `scripts/check_encoding.py` — 🆕 检测 novels/ 下 txt 文件编码
+- `scripts/check_scores.py` — 🆕 LLM评分质量分布检查 (Hook/Intensity/排行)
 - `scripts/check_encoding.py` — 🆕 检测 novels/ 下 txt 文件编码
 - `scripts/convert_encoding.py` — 🆕 GBK→UTF-8 批量转码
 - `d:/Code/NovelDownloader/` — canyang2008/NovelDownloader小说下载工具 (手动URL批量下载)
@@ -40,10 +41,16 @@ provider:
   - `analysis/ai_reference.py` — 🆕 AI版本生成器: 本地LLM生成同章节AI版供对比
   - `analysis/creative_bridge.py` — 分析→创作桥接: 精品数据→8维渐进式创作指导(JSON+MD+摘要)
   - `analysis/comparison_engine.py` — 🆕 双文对比引擎: 三版对比+分段节奏+/千字归一化 (Phase ⑥)
-  - `analysis/writing_instructions.py` — 🆕 P0 三步"体检→处方"升级: 逐章指令+评分归因+写书指导手册
+  - `analysis/writing_instructions.py` — 🆕 四步"合同链→体检→处方": 合同审计+逐章指令+评分归因+写书指导手册 (v7.5 新增 contract_chain 集成)
+  - `analysis/contract_chain.py` — 🆕 合同链: 合同种子(canon/)→运行时合同(写前)→章节提交(写后)→债务看板(跨章) (灵感: webnovel-writer Story System)
+  - `analysis/recursive_summarize.py` — 🆕 递归摘要: L1章组→L2卷级→L3全书 (Map-Reduce模式, 解决长文伏笔追踪)
+  - `analysis/cross_book_synthesis.py` — 🆕 跨书关联发现: REM扫描30本L3→模式白皮书 (灵感: OpenClaw 梦境系统)
   - `analysis/deep_diagnosis.py` — 🆕 二阶段分层深拆: adaptive_keyframe()+Top3 LLM+Bottom3规则→对比诊断 (Phase ⑦b)
+  - `agents/cross_review.py` — 🆕 v7.5 迭代评审: previous_findings记忆积累 + cross_review_iterative() 多轮收敛
+  - `analysis/style_detection_loop.py` — 🆕 S4检测循环: 4层指标(L1PPL/L2突发/L3词共现/L4句变)→报告→复检→对比 (不生成改写)
 - `.codebuddy/skills/project-reviewer/` — 审视 (Level 1-3) · `.codebuddy/skills/exhaustive-search/` — 穷举收敛 (Ralph Loop) · `.codebuddy/skills/clarify-first/` — 生成前问清 · `.codebuddy/skills/rough-outline-evolution/` — 粗纲进化 · `.codebuddy/skills/chapter-evolution/` — 细纲进化 · `.codebuddy/skills/loop-evolution/` — 通用进化（🆕 含执行纪律8条）· `.codebuddy/skills/skill-evolution/` — Skill自身进化 · `.codebuddy/skills/marvis-review-handler/` — Marvis审查处理 (验证→搜索→修复→回执→归档5步闭环, v5)
 - 模型 server: `D:\miniconda3\envs\llm-shared\Library\bin\llama-server.exe`
+  - `analysis/score_validator.py` — 🆕 P1 评分验证: 作者Ground Truth + AI对抗样本混合方案 (穷举搜索5轮收敛 2026-06-10)
 - `agents/model_orchestrator.py` — 单模型路由 + 降级 + <think>清理
 - `agents/skill_loader.py` — AI_PROTOCOL.md 静态前缀 + 7种task动态拼接（S1/S2b/S3逻辑/编辑/质检/S4/M5a）
 - `agents/state_machine.py` — S0→S4+++ 10阶段状态机（转移表/熔断/重试限制/S2b解锁/每日LLM计数）

@@ -100,24 +100,38 @@ def check_server():
 
 
 # ── Rubric template (DRY: shared by single-pass and self-consistency scoring) ──
+
+def _normalize_hook(hook_val):
+    """Normalize hook field: LLM sometimes outputs numeric (e.g. '5.0') instead of category.
+    Map: >=7 → strong, >=4 → weak, <4 → none."""
+    if not hook_val:
+        return "none"
+    s = str(hook_val)
+    if s in ("none", "weak", "strong"):
+        return s
+    try:
+        v = float(s)
+        if v >= 7:
+            return "strong"
+        elif v >= 4:
+            return "weak"
+        else:
+            return "none"
+    except ValueError:
+        return "none"
+
 _RUBRIC_TEMPLATE = (
     "=== 你是专业网文编辑，对章节阅读体验独立评分 ===\n\n"
-    "第{ch_num}章:\n{chapter_text}\n\n"
+    "请对下方章节评分，大胆使用全量程(1-10)，不要挤在中段。\n\n"
     "### 评分量规 (Rubric) ###\n"
-    "1. 爽点强度 (1-10):\n"
-    "   1-2: 纯铺垫/日常，无任何情绪起伏\n"
-    "   3-4: 有微爽感（小收获/小反转）\n"
-    "   5-6: 明显爽感（打脸成功/突破/反杀）\n"
-    "   7-8: 强烈爽感（碾压对手/绝境翻盘/关键角色高光）\n"
-    "   9-10: 巅峰爽感（全书高潮/神级反转/读者拍案）\n\n"
+    "1. 爽点强度 (1-10): 1=平淡铺垫 3=小爽 5=明显爽感 7=强烈高光 10=巅峰神作\n"
+    "   [锚定] 普通过渡章=3 | 标准打脸成功=5 | 绝境翻盘=7 | 全书最佳高潮=9-10\n"
     "2. 冲突等级: none/low/medium/high\n"
-    "   none=零冲突 low=微小摩擦 medium=明显对抗 high=生死/极端冲突\n\n"
-    "3. 情绪氛围: 爽快/紧张/悲壮/悬疑/日常/温情/压抑\n\n"
-    "4. 节奏: fast/medium/slow\n\n"
+    "3. 情绪氛围: 爽快/紧张/悲壮/悬疑/日常/温情/压抑\n"
+    "4. 节奏: fast/medium/slow\n"
     "5. 钩子质量: none/weak/strong\n"
-    "   none=章末无悬念 weak=微悬念 strong=强悬念(读者必须看下一章)\n\n"
-    "6. 读者留存力 (1-10): 这章读完后读者有多大动力继续看?\n"
-    "   1-3=可能弃书 5=普通 7=想追 10=熬夜也要看\n\n"
+    "6. 读者留存力 (1-10): 1=可能弃书 5=普通 7=想追 10=熬夜也要看\n"
+    "   [锚定] 开篇铺垫=4 | 小高潮后=6 | 重大反转后=8 | 全书高潮=9-10\n\n"
     "输出纯JSON(只输出JSON，不要任何其他文字):\n"
     '{"intensity":5,"conflict":"medium","emotion":"日常","pace":"medium","hook":"weak","retention":5}'
 )
@@ -196,6 +210,8 @@ def llm_score_rubric(chapter_text, ch_num, conn=None):
                 try:
                     res = json.loads(m.group())
                     if "intensity" in res:
+                        if "hook" in res:
+                            res["hook"] = _normalize_hook(res["hook"])
                         return res
                 except:
                     continue
@@ -207,12 +223,13 @@ def llm_score_rubric(chapter_text, ch_num, conn=None):
         hq = re.search(r'"hook"\s*:\s*"([^"]+)"', raw)
         rt = re.search(r'"retention"\s*:\s*(\d+(?:\.\d+)?)', raw)
         if pi:
+            hook_raw = hq.group(1) if hq else "none"
             return {
                 "intensity": float(pi.group(1)),
                 "conflict": cl.group(1) if cl else "medium",
                 "emotion": em.group(1) if em else "日常",
                 "pace": pa.group(1) if pa else "medium",
-                "hook": hq.group(1) if hq else "none",
+                "hook": _normalize_hook(hook_raw),
                 "retention": float(rt.group(1)) if rt else 5,
             }
         return None
@@ -258,6 +275,8 @@ def llm_score_self_consistency(chapter_text, ch_num, n_samples=3, conn=None):
                     try:
                         res = json.loads(m.group())
                         if "intensity" in res:
+                            if "hook" in res:
+                                res["hook"] = _normalize_hook(res["hook"])
                             results.append(res)
                             break
                     except:
@@ -271,12 +290,13 @@ def llm_score_self_consistency(chapter_text, ch_num, n_samples=3, conn=None):
                 hq = re.search(r'"hook"\s*:\s*"([^"]+)"', raw)
                 rt = re.search(r'"retention"\s*:\s*(\d+(?:\.\d+)?)', raw)
                 if pi:
+                    hook_raw = hq.group(1) if hq else "none"
                     results.append({
                         "intensity": float(pi.group(1)),
                         "conflict": cl.group(1) if cl else "medium",
                         "emotion": em.group(1) if em else "日常",
                         "pace": pa.group(1) if pa else "medium",
-                        "hook": hq.group(1) if hq else "none",
+                        "hook": _normalize_hook(hook_raw),
                         "retention": float(rt.group(1)) if rt else 5,
                     })
         except:
@@ -312,31 +332,76 @@ def batch_book(txt_path, csv_path, max_chapters=None, sc_samples=1):
             for r in csv.DictReader(f):
                 rule_rows[int(r["ch_num"])] = r
 
+    # v7.5: Check existing LLM scores to skip already-scored chapters
+    already_scored = set()
+    genre = Path(txt_path).parent.name  # derive from path: data/raw/novels/{genre}/book.txt
+    llm_csv_path = _llm_dir(genre) / f"{Path(txt_path).stem}_llm.csv"
+    if llm_csv_path.exists():
+        with open(llm_csv_path, 'r', encoding='utf-8-sig') as f:
+            for r in csv.DictReader(f):
+                already_scored.add(int(r.get("ch_num", 0)))
+
     # Determine sample rate: all chapters if max=None, else evenly spaced
     if max_chapters and len(chapters) > max_chapters:
         step = max(1, len(chapters) // max_chapters)
-        idx_to_score = list(range(0, len(chapters), step))[:max_chapters]
+        idx_to_score_all = list(range(0, len(chapters), step))[:max_chapters]
     else:
+        idx_to_score_all = list(range(len(chapters)))
         idx_to_score = list(range(len(chapters)))
 
+    # v7.5: skip already-scored chapters
+    idx_to_score = [i for i in idx_to_score_all if chapters[i].get("num", 0) not in already_scored]
     name = Path(txt_path).stem
     n = len(idx_to_score)
-    print(f"  Scoring {n}/{len(chapters)} chapters (parallel x2)...")
+    if n == 0:
+        print(f"  [CACHE] All {len(idx_to_score_all)} chapters already scored, skip")
+        return
+    print(f"  Scoring {n}/{len(idx_to_score_all)} chapters (parallel x{LLM_PARALLEL})...")
 
-    # v8: Parallel scoring with ThreadPoolExecutor (uses server --parallel 2)
+    # v8: Parallel scoring with ThreadPoolExecutor (uses server --parallel)
+    def _score_chunk(body, ch_num, part_tag):
+        """Score one chunk of a chapter."""
+        text = f"[第{ch_num}章 {part_tag}]\n{body[:1500]}"
+        return llm_score_rubric(text, ch_num)
+
+    def _merge_chunk_scores(chunk_results):
+        """Merge scores from multiple chunks: average numerics, vote categoricals."""
+        valid = [r for r in chunk_results if r]
+        if not valid:
+            return None
+        merged = {}
+        for key in ["intensity", "retention"]:
+            vals = []
+            for r in valid:
+                try: vals.append(float(r[key]))
+                except: pass
+            merged[key] = round(sum(vals) / len(vals), 1) if vals else 5.0
+        for key in ["conflict", "emotion", "pace", "hook"]:
+            cats = [str(r[key]) for r in valid if key in r and r[key]]
+            merged[key] = max(set(cats), key=cats.count) if cats else ("medium" if key != "emotion" and key != "hook" else ("日常" if key == "emotion" else "none"))
+        return merged
+
     def _score_chapter(packed):
         i, idx = packed
         ch = chapters[idx]
         ch_num = ch.get("num", i + 1)
-        # Each thread gets its own HTTP connection (not thread-safe shared)
-        t_conn = http.client.HTTPConnection(LLAMA_HOST, timeout=45)
-        try:
-            if sc_samples > 1:
-                llm = llm_score_self_consistency(ch["raw_body"], ch_num, sc_samples, t_conn)
-            else:
-                llm = llm_score_rubric(ch["raw_body"], ch_num, t_conn)
-        finally:
-            t_conn.close()
+        full_body = ch["raw_body"]
+
+        # v7.5: chunked scoring — split long chapters, score each chunk, merge
+        CHUNK_SIZE = 1500
+        if len(full_body) > CHUNK_SIZE:
+            chunks = [full_body[j:j+CHUNK_SIZE] for j in range(0, len(full_body), CHUNK_SIZE)]
+            chunk_results = [_score_chunk(chunk, ch_num, f"part{ci+1}/{len(chunks)}") for ci, chunk in enumerate(chunks[:3])]
+            llm = _merge_chunk_scores(chunk_results)
+        else:
+            t_conn = http.client.HTTPConnection(LLAMA_HOST, timeout=45)
+            try:
+                if sc_samples > 1:
+                    llm = llm_score_self_consistency(full_body, ch_num, sc_samples, t_conn)
+                else:
+                    llm = llm_score_rubric(full_body, ch_num, t_conn)
+            finally:
+                t_conn.close()
         rule = rule_rows.get(ch_num, {})
         if llm is None:
             return (i, ch_num, None)
@@ -358,6 +423,7 @@ def batch_book(txt_path, csv_path, max_chapters=None, sc_samples=1):
             except Exception as e:
                 i = futures[fut]
                 ch_num = idx_to_score[i] + 1
+                rest = [None]
                 print(f"    Ch{ch_num} [FAIL] {type(e).__name__}", flush=True)
                 ordered[i] = (ch_num, [None])
             completed += 1
@@ -376,15 +442,22 @@ def batch_book(txt_path, csv_path, max_chapters=None, sc_samples=1):
             ch = chapters[idx]
             ch_num_actual = ch.get("num", idx + 1)
             rule = rule_rows.get(ch_num_actual, {})
-            # Serial: no ThreadPool, direct call with fresh connection
-            conn = http.client.HTTPConnection(LLAMA_HOST, timeout=60)
-            try:
-                if sc_samples > 1:
-                    llm = llm_score_self_consistency(ch["raw_body"], ch_num_actual, sc_samples, conn)
-                else:
-                    llm = llm_score_rubric(ch["raw_body"], ch_num_actual, conn)
-            finally:
-                conn.close()
+            full_body = ch["raw_body"]
+            # Serial retry: also use chunked scoring if long
+            CHUNK_SIZE = 1500
+            if len(full_body) > CHUNK_SIZE:
+                chunks = [full_body[j:j+CHUNK_SIZE] for j in range(0, len(full_body), CHUNK_SIZE)]
+                chunk_results = [_score_chunk(chunk, ch_num_actual, f"retry-p{ci+1}") for ci, chunk in enumerate(chunks[:3])]
+                llm = _merge_chunk_scores(chunk_results)
+            else:
+                conn = http.client.HTTPConnection(LLAMA_HOST, timeout=60)
+                try:
+                    if sc_samples > 1:
+                        llm = llm_score_self_consistency(full_body, ch_num_actual, sc_samples, conn)
+                    else:
+                        llm = llm_score_rubric(full_body, ch_num_actual, conn)
+                finally:
+                    conn.close()
             if llm is not None:
                 ordered[i] = (ch_num_actual, [llm, rule, ch["wc"]])
                 retry_success += 1

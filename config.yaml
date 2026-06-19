@@ -1,5 +1,5 @@
 # ============================================================================
-# config.yaml — 番茄小说 AI 辅助创作系统 v7.3
+# config.yaml — 番茄小说 AI 辅助创作系统 v7.5
 #
 # ── 文件定位 ──
 # 系统唯一配置文件。所有模块的运行时行为由本文件控制。
@@ -46,7 +46,7 @@ model_orchestration:
       gguf: "D:/DaMoXing/Qwen3.5-9B-Q4_K_M.gguf"
       quant: "Q4_K_M"                    # 实测 5.68GB；备选 IQ4_XS 5.17GB
       port: 8000                         # llama.cpp server 端口
-      n_ctx: 4096                        # 上下文窗口。实测 8GB 下 32K 需额外优化 KV 压缩
+      n_ctx: 8192                        # 上下文窗口。实测 8GB 下 KV q8_0 安全上限 (v7.5 从4096提升)
       n_gpu_layers: 35                   # 全部 35 层 offload 到 GPU
       chat_format: "chatml"              # Qwen 系列用 ChatML 格式
       estimated_vram: "6.2GB"            # 模型 5.68 + KV Cache ~0.5GB
@@ -74,6 +74,42 @@ model_orchestration:
       estimated_vram: "4.3GB"            # 仅 P0-2 评估用，不常驻
       role: "logic_cop_only"
       enabled: false                     # P0-2: Qwen3.5单模型方案, R1仅作备份
+
+    # ── 外部API: DeepSeek 独立评分 + 硅基流动备用 ──
+    # v7.5: DS做主评(85%), Qwen fallback(15%), api_key在 secrets.yaml
+    external_api:
+      deepseek:
+        provider: "deepseek"
+        enabled: false                  # CodeBuddy 调用前会请求你改为 true
+        base_url: "https://api.deepseek.com"
+        model: "deepseek-chat"
+        max_tokens: 80
+        temperature: 0.0
+        timeout: 30
+      siliconflow:                      # 备用通道（官方高峰期自动切换）
+        provider: "siliconflow"
+        enabled: false                  # 注册 https://siliconflow.cn 后改 true
+        api_key: "sk-PLACEHOLDER"
+        model: "deepseek-ai/DeepSeek-V3"
+        base_url: "https://api.siliconflow.cn"
+        timeout: 30
+
+  # ── 评分混合策略 v7.5 ──
+  scoring:
+    llm_source_priority: ["deepseek", "qwen"]
+    llm_weight: 0.85
+    rule_weight: 0.15
+    calibration_enabled: true           # OLS线性回归校准 (替代旧-22 offset)
+    cache_ttl_days: 7
+    llm_text_max_chars: 4000           # 传给 LLM 的最大章节文本长度
+    llm_sample_chapters: 5             # 每本采样章节数
+    novel_source_dir: "data/raw/novels"  # 原始小说 txt 目录（相对于项目根）
+    grades:
+      s_plus: 80                       # S+ 神作
+      a: 70                            # A 精品
+      b: 60                            # B 普通需优化
+      c: 50                            # C 扑街风险
+      d: 0                             # D 不建议发
 
   # ── 任务→模型 路由表 ──
   # model_orchestrator.py 根据 task_type 自动选择目标模型
@@ -379,7 +415,7 @@ analysis:
   quality_gate:
     min_rhythm_chapters: 10              # Gate A: 最少章节数 (<10→FAIL)
     max_zero_hook_streak: 5              # Gate B: 零钩子上限 (>5→QUARANTINE)
-    min_commercial_score: 0              # Gate B: 商业评分下限 (P0: 0=percentile纯排名,不用绝对阈值)
+    min_commercial_score: 70             # v7.5: Gate B 商业评分下限 (70=动态阈值 P50-10, 非精品应低于此)
     auto_demote: true                    # FAIL 自动移回 books/review/
     quarantine_days: 7                   # QUARANTINE 天数(无人工→自动FAIL)
     # known_quality_list: 从 book_filter 继承, 已知精品永不 FAIL
@@ -393,7 +429,39 @@ analysis:
 
   # ── LLM 端口 (rhythm_analyzer.py llm_verify) ──
   llm_port: 8000                        # 从 model_orchestration.models.main_model.port 同步
-  llm_parallel: 2                       # LLM评分并行worker数 (匹配 start_model.bat --parallel)
+  llm_parallel: 3                       # LLM评分并行worker数 (匹配 start_model.bat --parallel)
+
+  # ── 评分验证 (score_validator.py, P1启用) ──
+  validation:
+    enabled: false                       # P1: 穷举搜索验证方案(2026-06-10)确认后启用
+    test_set_dir: "data/processed/{genre}/validation/"
+    quality_levels: ["excellent", "good", "mediocre", "below_average", "poor"]
+    ground_truth_source: "author_handwritten"  # author_handwritten | ai_adversarial | mixed
+    human_annotated_count: 10            # 人类标注章节数
+    adversarial_count: 5                 # AI对抗样本数
+    generation_model_port: 8001          # 独立端口，不与评分共用模型(防循环自评)
+    min_spearman_for_pass: 0.7           # Spearman r >= 0.7 → 评分验证通过
+
+# ============================================================
+# 合同链 — 合同种子→运行时合同→章节提交→事件审计
+# 模块: contract_chain.py → writing_instructions.py ⓪步
+# 灵感: webnovel-writer Story System (lingfengQAQ, v5.4.2)
+# ============================================================
+contract_chain:
+  enabled: true
+  canon_dir: "assets/canon"              # 合同种子来源 (characters/rules/world/timeline)
+  contracts_dir: "data/contracts"        # 运行时合同 + 债务看板存储
+  debt_board:
+    max_debts: 200                       # 债务上限 (超出后归档旧已兑现项)
+    overdue_gap: 10                      # 逾期阈值: >N章未兑现 → 标记逾期
+    severity_weights:                    # 债务严重度在审计中的权重
+      CRITICAL: 5
+      HIGH: 3
+      MED: 1
+      LOW: 0
+  pre_write_checklist: true              # 写前生成运行时合同 (需 canon/ 已填入)
+  post_write_audit: true                 # 写后自动审计 + 注册新债务
+  batch_retrospective: true              # 对已有 rhythm CSV 做反向债务分析
 
 # ============================================================
 # 创作指导文档生成 (creative_bridge.py)

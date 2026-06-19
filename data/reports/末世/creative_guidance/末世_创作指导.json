@@ -3,44 +3,44 @@
   "book_count": 30,
   "total_chapters": 38738,
   "sample_confidence": "medium",
-  "generated": "2026-06-10T00:47:48.067322",
+  "generated": "2026-06-19T11:11:39.900108",
   "disclaimer": "以下指标基于精品书统计关联(相关,非因果)。优先保证情节强度,量化指标仅作辅助检查。",
   "worldbuilding": {
     "summary": "基于30本精品书(置信度:medium)的世界观指导",
     "confidence": "medium",
     "top_books": [
-      "全球变异，从灾厄降临开始",
-      "《地球游戏场》（校对版全本）",
+      "《末世大回炉》（校对版全本）",
+      "《神秘尽头》-+黑山老鬼",
       "《末世之深渊召唤师》（校对版全本）"
     ],
     "dominant_conflict_types": [
       {
+        "type": "策略",
+        "pct": 52
+      },
+      {
+        "type": "资源",
+        "pct": 17
+      },
+      {
         "type": "羁绊",
-        "pct": 43
-      },
-      {
-        "type": "打脸",
-        "pct": 28
-      },
-      {
-        "type": "突破",
-        "pct": 10
+        "pct": 17
       }
     ],
     "arc_distribution": {
-      "下降弧": 14,
+      "下降弧": 15,
       "上升弧": 12,
-      "O型弧": 4
+      "O型弧": 3
     },
-    "opening_hook_benchmark": 2.671,
+    "opening_hook_benchmark": 3.057,
     "rule": "每章≥1个钩子, 每4章1个强钩子(平台建议:每300字1爽点/每500字1钩子)",
-    "action": "钩子密度低于2.67→在章末增加悬念或反转",
+    "action": "钩子密度低于3.06→在章末增加悬念或反转",
     "disclaimer": "⚠ 冲突类型分布为统计相关,非因果律",
     "guidance": [
-      "核心冲突: 羁绊(43.0%)——世界观从此类冲突切入",
-      "爽点高频: 羁绊(43.0%), 打脸(28.5%), 突破(10.3%)——世界规则应能催生这3类爽点",
-      "弧线分布: 下降弧(14本), 上升弧(12本), O型弧(4本)——选择主流弧型作主角轨迹",
-      "翻译规则: 每章≥1个钩子, 每4章1个强钩子(平台建议:每300字1爽点/每500字1钩子) → 钩子密度低于2.67→在章末增加悬念或反转"
+      "核心冲突: 策略(51.7%)——世界观从此类冲突切入",
+      "爽点高频: 策略(51.7%), 资源(17.5%), 羁绊(17.5%)——世界规则应能催生这3类爽点",
+      "弧线分布: 下降弧(15本), 上升弧(12本), O型弧(3本)——选择主流弧型作主角轨迹",
+      "翻译规则: 每章≥1个钩子, 每4章1个强钩子(平台建议:每300字1爽点/每500字1钩子) → 钩子密度低于3.06→在章末增加悬念或反转"
     ]
   },
   "rough_outline": {
@@ -49,72 +49,72 @@
     "chapter_avg": 1291,
     "pct_benchmarks": {
       "0%": {
-        "hook_mean": 1.746,
-        "conflict_mean": 0.938,
-        "pleasure_mean": 1.992,
+        "hook_mean": 1.664,
+        "conflict_mean": 0.555,
+        "pleasure_mean": 1.617,
         "dialogue_mean": 0.257,
         "n_books": 30
       },
       "10%": {
-        "hook_mean": 1.773,
-        "conflict_mean": 0.965,
-        "pleasure_mean": 2.029,
+        "hook_mean": 1.699,
+        "conflict_mean": 0.54,
+        "pleasure_mean": 1.626,
         "dialogue_mean": 0.271,
         "n_books": 30
       },
       "20%": {
-        "hook_mean": 1.739,
-        "conflict_mean": 1.004,
-        "pleasure_mean": 2.059,
+        "hook_mean": 1.643,
+        "conflict_mean": 0.546,
+        "pleasure_mean": 1.61,
         "dialogue_mean": 0.281,
         "n_books": 30
       },
       "30%": {
-        "hook_mean": 1.821,
-        "conflict_mean": 1.005,
-        "pleasure_mean": 2.094,
+        "hook_mean": 1.693,
+        "conflict_mean": 0.551,
+        "pleasure_mean": 1.633,
         "dialogue_mean": 0.272,
         "n_books": 30
       },
       "40%": {
-        "hook_mean": 1.858,
-        "conflict_mean": 1.057,
-        "pleasure_mean": 2.134,
+        "hook_mean": 1.663,
+        "conflict_mean": 0.543,
+        "pleasure_mean": 1.602,
         "dialogue_mean": 0.256,
         "n_books": 30
       },
       "50%": {
-        "hook_mean": 1.711,
-        "conflict_mean": 1.053,
-        "pleasure_mean": 2.075,
+        "hook_mean": 1.616,
+        "conflict_mean": 0.548,
+        "pleasure_mean": 1.572,
         "dialogue_mean": 0.258,
         "n_books": 30
       },
       "60%": {
-        "hook_mean": 1.799,
-        "conflict_mean": 1.074,
-        "pleasure_mean": 2.112,
+        "hook_mean": 1.661,
+        "conflict_mean": 0.556,
+        "pleasure_mean": 1.579,
         "dialogue_mean": 0.248,
         "n_books": 30
       },
       "70%": {
-        "hook_mean": 1.793,
-        "conflict_mean": 1.065,
-        "pleasure_mean": 2.104,
+        "hook_mean": 1.661,
+        "conflict_mean": 0.551,
+        "pleasure_mean": 1.585,
         "dialogue_mean": 0.268,
         "n_books": 30
       },
       "80%": {
-        "hook_mean": 1.863,
-        "conflict_mean": 1.129,
-        "pleasure_mean": 2.192,
+        "hook_mean": 1.741,
+        "conflict_mean": 0.583,
+        "pleasure_mean": 1.634,
         "dialogue_mean": 0.26,
         "n_books": 30
       },
       "90%": {
-        "hook_mean": 1.936,
-        "conflict_mean": 1.13,
-        "pleasure_mean": 2.215,
+        "hook_mean": 1.844,
+        "conflict_mean": 0.593,
+        "pleasure_mean": 1.698,
         "dialogue_mean": 0.237,
         "n_books": 30
       }
@@ -122,8 +122,8 @@
     "disclaimer": "⚠ 分段基准为统计均值, 不同类型书籍节奏差异大",
     "guidance": [
       "总章均1291章——规划总纲参考",
-      "开篇(0-10%): hook≥1.773, conflict≥0.965——黄金三章达标",
-      "中期(40-60%): conflict峰值1.057, pleasure≥2.134——卷级高潮",
+      "开篇(0-10%): hook≥1.699, conflict≥0.54——黄金三章达标",
+      "中期(40-60%): conflict峰值0.543, pleasure≥1.602——卷级高潮",
       "每卷20-50章→参照outline_builder.py"
     ]
   },
@@ -131,16 +131,16 @@
     "summary": "逐章节奏指导",
     "confidence": "medium",
     "hook_type_distribution": {
-      "none": 62.2,
-      "悬念式": 33.3,
-      "反转式": 3.9,
-      "信息投放": 0.3,
-      "情绪炸弹": 0.3
+      "none": 55.0,
+      "悬念式": 35.3,
+      "反转式": 4.9,
+      "系统提示": 2.8,
+      "疑问式": 1.4
     },
     "pleasure_level_distribution": {
-      "none": 6.0,
-      "small": 92.2,
-      "medium": 1.7,
+      "none": 8.6,
+      "small": 91.3,
+      "medium": 0.1,
       "large": 0.0
     },
     "slap_frequency": {
@@ -148,70 +148,70 @@
       "sweet_spot": "打脸流:0.25-0.50次/章"
     },
     "zero_hook_limit": {
-      "avg_streak": 2.414,
+      "avg_streak": 2.724,
       "max_safe": 2,
       "red_line": "连续≥3章→读者弃书风险30%+"
     },
     "rule": "连续≤2章无钩子是红线",
-    "action": "连续2.414章零钩子→立即在第3.414章插入强钩子(情绪炸弹/悬念反转)",
+    "action": "连续2.724章零钩子→立即在第3.724章插入强钩子(情绪炸弹/悬念反转)",
     "conflict_escalation": [
       {
         "from_ch": 1,
-        "conflict_avg": 0.952,
-        "pleasure_avg": 1.948
+        "conflict_avg": 0.485,
+        "pleasure_avg": 1.467
       },
       {
         "from_ch": 32,
-        "conflict_avg": 1.109,
-        "pleasure_avg": 2.158
+        "conflict_avg": 0.58,
+        "pleasure_avg": 1.631
       },
       {
         "from_ch": 107,
-        "conflict_avg": 0.993,
-        "pleasure_avg": 2.052
+        "conflict_avg": 0.556,
+        "pleasure_avg": 1.63
       },
       {
         "from_ch": 217,
-        "conflict_avg": 0.989,
-        "pleasure_avg": 2.03
+        "conflict_avg": 0.542,
+        "pleasure_avg": 1.594
       },
       {
         "from_ch": 371,
-        "conflict_avg": 1.043,
-        "pleasure_avg": 2.132
+        "conflict_avg": 0.547,
+        "pleasure_avg": 1.647
       },
       {
         "from_ch": 555,
-        "conflict_avg": 1.028,
-        "pleasure_avg": 2.137
+        "conflict_avg": 0.539,
+        "pleasure_avg": 1.615
       },
       {
         "from_ch": 743,
-        "conflict_avg": 1.021,
-        "pleasure_avg": 2.133
+        "conflict_avg": 0.553,
+        "pleasure_avg": 1.639
       },
       {
         "from_ch": 958,
-        "conflict_avg": 1.058,
-        "pleasure_avg": 2.164
+        "conflict_avg": 0.535,
+        "pleasure_avg": 1.618
       },
       {
         "from_ch": 1217,
-        "conflict_avg": 1.102,
-        "pleasure_avg": 2.181
+        "conflict_avg": 0.556,
+        "pleasure_avg": 1.599
       },
       {
         "from_ch": 1540,
-        "conflict_avg": 1.116,
-        "pleasure_avg": 1.971
+        "conflict_avg": 0.607,
+        "pleasure_avg": 1.512
       }
     ],
     "disclaimer": "⚠ 钩子类型分布基于关键词正则(漏检率~30%),LLM标注可提升精度",
     "guidance": [
-      "钩子分布: none(62.2%), 悬念式(33.3%), 反转式(3.9%), 信息投放(0.3%), 情绪炸弹(0.3%)——每章结尾必选一种",
-      "爽点层级: small(92.2%), none(6.0%), medium(1.7%)——large≥10%健康,中爽点每3-5章1个",
+      "钩子分布: none(55.0%), 悬念式(35.3%), 反转式(4.9%), 系统提示(2.8%), 疑问式(1.4%)——每章结尾必选一种",
+      "爽点层级: small(91.3%), none(8.6%), medium(0.1%)——large≥10%健康,中爽点每3-5章1个",
       "打脸频率: 均值1.255次/章",
-      "红线: 连续≤2章无钩子是红线 → 连续2.414章零钩子→立即在第3.414章插入强钩子(情绪炸弹/悬念反转)",
+      "红线: 连续≤2章无钩子是红线 → 连续2.724章零钩子→立即在第3.724章插入强钩子(情绪炸弹/悬念反转)",
       "章模板(起承转爽):起500字→承800字→转300字→爽400字+钩子"
     ]
   },
@@ -223,19 +223,19 @@
       "range": "0.08-0.60"
     },
     "readability": {
-      "mean": -0.096,
-      "range": "-0.56-0.50"
+      "mean": 0.37,
+      "range": "0.25-0.85"
     },
     "chapter_variability": {
-      "mean": 2.55
+      "mean": 2.348
     },
     "rule": "对话占比0.26基准(±0.05)",
     "action": "对话比0.26→合理范围",
     "disclaimer": "⚠ 对话比与爆款是相关关系;优先保证情节强度,对话比作为辅助检查",
     "guidance": [
       "对话比: 0.26(精品均值),保持±0.05",
-      "文笔定位: readability -0.10——末世文建议0.0附近(通俗不白)",
-      "章变异度: 2.5——平稳中制造高峰",
+      "文笔定位: readability 0.37——末世文建议0.0附近(通俗不白)",
+      "章变异度: 2.3——平稳中制造高峰",
       "规则: 对话占比0.26基准(±0.05) → 对话比0.26→合理范围"
     ]
   },
@@ -243,21 +243,21 @@
     "summary": "人物塑造指导(置信度:medium)",
     "confidence": "medium",
     "arc_types": {
-      "下降弧": 14,
+      "下降弧": 15,
       "上升弧": 12,
-      "O型弧": 4
+      "O型弧": 3
     },
     "emotional_range": {
-      "V_start_mean": -0.295,
-      "V_end_mean": -0.332,
-      "V_swing": 0.037
+      "V_start_mean": -0.263,
+      "V_end_mean": -0.305,
+      "V_swing": 0.042
     },
-    "bond_ratio": 39.6,
+    "bond_ratio": 15.7,
     "disclaimer": "⚠ 人物弧线分布为统计相关;写作风格各有千秋",
     "guidance": [
       "主流弧: 下降弧——弧型决定主角情感走向",
-      "V摆动: 0.037——摆动越大情感旅程越强烈",
-      "羁绊爽点: 39.6%——末世中守护/并肩/牺牲是重要爽点源",
+      "V摆动: 0.042——摆动越大情感旅程越强烈",
+      "羁绊爽点: 15.7%——末世中守护/并肩/牺牲是重要爽点源",
       "每卷≥1次身份揭示/关系重置,保持V波动"
     ]
   },
@@ -266,24 +266,24 @@
     "current_genre": "末世",
     "sub_genre_distribution": [
       {
+        "type": "策略",
+        "pct": 47
+      },
+      {
+        "type": "资源",
+        "pct": 16
+      },
+      {
         "type": "羁绊",
-        "pct": 40
+        "pct": 16
       },
       {
         "type": "打脸",
-        "pct": 26
+        "pct": 8
       },
       {
         "type": "突破",
-        "pct": 10
-      },
-      {
-        "type": "认知突破",
-        "pct": 9
-      },
-      {
-        "type": "牺牲",
-        "pct": 8
+        "pct": 4
       }
     ],
     "multi_genre_overview": {
@@ -340,13 +340,13 @@
       }
     },
     "top_performing": {
-      "book": "全球变异，从灾厄降临开始",
-      "avg_pleasure": 3.412
+      "book": "《末世大回炉》（校对版全本）",
+      "avg_pleasure": 2.379
     },
     "disclaimer": "⚠ 题材选择基于现有样本统计;市场趋势变化快",
     "guidance": [
-      "子类型: 羁绊(40%), 打脸(26%), 突破(10%)——高占比降低试错成本",
-      "最佳对标: 全球变异，从灾厄降临开始(爽点3.412)"
+      "子类型: 策略(47%), 资源(16%), 羁绊(16%)——高占比降低试错成本",
+      "最佳对标: 《末世大回炉》（校对版全本）(爽点2.379)"
     ]
   },
   "plot_progression": {
@@ -355,95 +355,99 @@
     "plot_waves": [
       {
         "phase": 1,
-        "conflict": 0.987,
-        "pleasure": 1.985,
-        "hook": 1.467
+        "conflict": 0.507,
+        "pleasure": 1.496,
+        "hook": 1.354
       },
       {
         "phase": 2,
-        "conflict": 1.058,
-        "pleasure": 2.125,
-        "hook": 1.707
+        "conflict": 0.566,
+        "pleasure": 1.64,
+        "hook": 1.597
       },
       {
         "phase": 3,
-        "conflict": 0.986,
-        "pleasure": 2.031,
-        "hook": 1.783
+        "conflict": 0.547,
+        "pleasure": 1.599,
+        "hook": 1.659
       },
       {
         "phase": 4,
-        "conflict": 1.039,
-        "pleasure": 2.115,
-        "hook": 1.849
+        "conflict": 0.549,
+        "pleasure": 1.64,
+        "hook": 1.761
       },
       {
         "phase": 5,
-        "conflict": 1.035,
-        "pleasure": 2.137,
-        "hook": 1.852
+        "conflict": 0.548,
+        "pleasure": 1.619,
+        "hook": 1.659
       },
       {
         "phase": 6,
-        "conflict": 1.024,
-        "pleasure": 2.133,
-        "hook": 1.907
+        "conflict": 0.534,
+        "pleasure": 1.616,
+        "hook": 1.736
       },
       {
         "phase": 7,
-        "conflict": 1.087,
-        "pleasure": 2.189,
-        "hook": 1.921
+        "conflict": 0.55,
+        "pleasure": 1.617,
+        "hook": 1.722
       },
       {
         "phase": 8,
-        "conflict": 1.115,
-        "pleasure": 2.011,
-        "hook": 1.47
+        "conflict": 0.6,
+        "pleasure": 1.534,
+        "hook": 1.453
       }
     ],
     "turning_count": 0,
     "peak_interval": {
-      "avg_chapters_between": -222.4,
+      "avg_chapters_between": 0,
       "recommendation": "3-5章"
     },
     "disclaimer": "⚠ 波次分析基于章节混合,不同长度书节奏差异大;建议按篇幅分桶",
     "guidance": [
       "波次: 9段——冲突整体递增",
       "转折: 0处——读者情绪切换节点",
-      "爽点间隔: -222章——太密审美疲劳,太疏流失",
+      "爽点间隔: 0章——太密审美疲劳,太疏流失",
       "推动公式:铺垫(低冲突)→激化(+30%)→高潮(大爽点)→释放→新钩子"
     ]
   },
   "anti_homogenization": {
     "summary": "反同质化分析——你的书跟爆款太像了吗？(差异度检测)",
     "kl_divergence": {
-      "sub_types": 0.4651,
-      "hook_types": 0.787
+      "sub_types": 0.7511,
+      "hook_types": 1.1535
     },
     "low_freq_opportunities": {
       "sub_types": [
         [
-          "扮猪吃虎",
-          722
+          "突破",
+          1490
         ],
         [
-          "绝地反击",
-          133
+          "牺牲",
+          1182
+        ],
+        [
+          "社交",
+          963
         ]
       ],
       "hook_types": [
         [
           "反转式",
-          1494
+          1903
         ],
         [
-          "信息投放",
-          134
+          "系统提示",
+          1091
         ],
         [
-          "情绪炸弹",
-          103
+          "疑问式",
+          535
         ]
       ]
     },
@@ -454,7 +458,8 @@
     },
     "disclaimer": "⚠ 以上基于统计低频;爆款套路本身是经过市场验证的。是否偏离主流套路，需要你自己的创作判断",
     "suggestions": [
-      "钩子类型高度集中(KL=0.79)——尝试低频钩子: 反转式, 信息投放, 情绪炸弹"
+      "爽点类型高度集中(KL=0.75)——考虑引入低频类型差异化: 突破, 牺牲, 社交",
+      "钩子类型高度集中(KL=1.15)——尝试低频钩子: 反转式, 系统提示, 疑问式"
     ]
   }
 }

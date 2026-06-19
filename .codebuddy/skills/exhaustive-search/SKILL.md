@@ -2,164 +2,177 @@
 name: exhaustive-search
 description: |
   Use this skill when the user says "穷举搜索" "穷举搜搜" or "exhaustive search".
-  Execute a Ralph Loop: review code → search → fix → verify → repeat until no new findings for 2 consecutive rounds.
-  Never stop after just one round. Output [Round N] format to track convergence.
-  This is the automatic cyclic version of project-reviewer Level 3.
+  v3: Multi-turn Ralph Loop. Phase 0 parses input → selects relevant roles.
+  One round per assistant turn. State persists to state.json.
 allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebSearch, WebFetch
 ---
 
-# 穷举搜索 v2 (Ralph Loop + 12角色 + 防偷懒)
+# 穷举搜索 v3 (Multi-Turn Ralph Loop)
 
-本 Skill = project-reviewer Level 3 的全自动循环版本。
+v2 致命缺陷：12 轮 × 每轮 5 工具调用 = 60+ 次操作 → 单回合上下文溢出，中断。
+v3 修复：Phase 0 解析输入 → 动态选角色 → 多回合执行 → 状态持久化。
 
-与 project-reviewer 的关系:
-- `project-reviewer`: 默认 Level 1 (0 token), 失败自动升级; Level 3 委托给本 Skill
-- `exhaustive-search`: **直接 Level 3 + 12角色轮换收敛**, 不需用户催
+---
 
-```
-审视代码 → [角色]搜索 → 找问题 → 修复 → 验证
-→ 切换角色 → 再审 → 再搜 → 再修复 → 再验证
-→ 切换角色 → ...
-→ 连续2轮 C+H+M=0 → 停止
-```
+## 中断诊断（教训归档）
 
-## 触发提醒: 用户说"穷举搜索/穷举搜搜/exhaustive"时
+| 根因 | v2 表现 | v3 修复 |
+|------|---------|----------|
+| 单回合物理上限 | 全自动12轮跑到底 ≡ 60+工具调用 | **多回合**: 每回合1轮, `→ continue` 信号 |
+| 无状态持久化 | 中断后无法恢复 | **state.json**: 记录当前轮次/角色队列/发现汇总 |
+| 全12角色无筛选 | 方法论问题也跑代码审查角色 | **Phase 0 解析**: 按领域动态选 3-5 角色 |
+| 每轮5次搜索过高 | 方法论问题不需要3+2 | **快速模式**: 1-2搜索/轮 |
 
-**你必须用 use_skill 工具加载本 Skill。不可凭记忆模仿。**
-这是本 Skill 不生效的 #1 原因: AI 凭记忆做了"类似动作"但没加载协议。
+## v3 实战验证 (2026-06-10)
 
-**关键**: 即使触发词嵌入在复合指令中间(如"请穷举搜索XXX方法论"/"穷举搜索可以继续进化吗"),
-也必须先调 use_skill。不要把主任务优先级置于 Skill 协议之上。
-**反例**: 用户说"审视当前skill, 穷举搜索可以继续进化吗"→ AI 只加载 project-reviewer 而跳过 exhaustive-search → 触发遗漏。
+成功完成两次独立穷举搜索：
+- Search 1: "评分验证方案" — 5轮(R1+R2+R3+R5+R9+R12, 含R1提前执行), 产出: 作者GT+AI对抗样本混合方案
+- Search 2: "9缺陷修复方案" — 5轮全快读模式(R2+R3+R5+R9+R12), 产出的P0×4+P1×5路径
 
-## 致命反模式
+**v3优于v2的关键证据**：
+- 两次搜索均在5轮内收敛，未出现中断
+- 动态角色选择避免了7个不相关角色（R4/R6/R7/R8/R10/R11）的浪费
+- 快速模式每轮1-2次搜索，比v2的3+2节省60%工具调用
+- state.json 使跨回合上下文保留成为可能
 
-**⚠️ 致命反模式 #1**: R2+ 复用 R1 的思考框架 → 必然假收敛。
-修复: 每轮强制分配一个唯一的分析角色，该角色与其他轮次不可互相替代。
+---
 
-**⚠️ 致命反模式 #2**: R4+ 凭记忆输出 `found:0` 而不做实际搜索/审查 → 假收敛。
-修复: 每轮必须产出不可伪装的 3 项证据。
+## Phase 0: 输入解析（必须第一轮执行）
 
-## 每轮必须产出的证据（v2新增: 借鉴 outline-evolution 防偷懒机制，缺一即本轮无效）
-
-```
-① 5项检查单: 填满当前角色的全部 5 项标准, 每项 ✅ 或 ❌ + 一句话依据(文件:行号)
-② 外部来源: >=3次WebSearch + >=2次WebFetch 来自外部的具体引用（至少1条原句, 不可自创）
-③ 取样证据: 从审查文件中引用至少 3 处具体行号/变量名/函数名作为检查依据
-```
-
-**注意**: ①②③ 全部满足 → 本轮有效。缺任一项 → 本轮无效, 不计数。
-
-## 12 轮角色 + 每轮 5 项检查单
-
-**角色定义、人格注入、方法论 → `roles/` 目录**（每个角色审查前按需加载当前角色文件）
-
-角色轮换顺序: 代码审查员→用户体验→市场合规→边界测试→反向论证→安全合规→性能分析→架构一致性→配置SSOT→跨模块依赖→API兼容→综合验收
-
-## 执行协议 (不可跳过)
-
-**你必须显式跟踪每轮的发现数。不输出[Round N]格式=未执行本协议。**
-
-### Round 1..12 (循环直到收敛)
+收到穷举搜索指令后，**第一回合只做 Phase 0**，不进入任何角色轮：
 
 ```
-0. ROLE-LOAD: 从 roles/r{N}-{name}.md 宣读当前角色注入提示词
-1. READ: 读取所有相关文件 (R2+必须从零重读, 不可依赖前轮记忆)
-2. REVIEW: 以当前轮次的角色视角, 填满5项检查单
-3. SEARCH: >=3次WebSearch + >=2次WebFetch — 搜索词必须体现当前角色视角
-   - 禁止: 跳过搜索直接 found:0
-   - 禁止: 搜索词与最近3轮完全相同（允许同角色换角度搜索, 如"安全编码规范 2026" + "Python安全最佳实践 2026" 不同）
-4. QUOTE: 从外部来源引用至少 1 条原句
-5. SAMPLE: 从审查文件中取样≥3处具体行号/函数名/变量名
-6. FIX: 修复已确认问题（C+H+M必须修）
-7. VERIFY: python -m py_compile + python novel.py test
-8. OUTPUT: 格式见下
-9. zero计数: C+H+M>0 → zero=0 → 回到步骤1 | C+H+M=0 → zero+=1
-10. EXIT: zero>=2 且 N>=8 → [收敛] | N>=12 → [截断]
+1. 解析用户查询 → 判断领域类型 (code / methodology / design / mixed)
+2. 按领域动态选择 3-5 个角色
+3. 确定模式: standard (代码审计, >=8轮) / fast (方法论/设计, 3-5轮)
+4. 写入 state.json
+5. 输出选角结果 + 预期轮数, 等待用户确认或"继续"
 ```
 
-**执行模式**: 全自动（12轮跑到底，收敛或截断后输出报告，中间不暂停）
+### 领域→角色映射表
 
-**严重等级 (Chuanxilu, 2026.4)**:
-- C(Critical): 根本性错误，交付物不可用 → 必须立即修复
-- H(High): 重大缺陷 → 本轮必须修复
-- M(Major): 违反需求或最佳实践 → 交付前必须修复
-- L(Low): 轻微改进 → 可选
+| 领域类型 | 示例查询 | 推荐角色 |
+|----------|----------|----------|
+| **code** | "审查代码质量/修复bug/找硬编码" | R1(代码审查) + R4(边界测试) + R7(性能) + R8(架构) + R12(验收) |
+| **methodology** | "评分验证方案/方法论选型/技术选型" | R2(UX视角) + R3(市场合规) + R5(反向论证) + R9(SSOT) + R12(验收) |
+| **design** | "审查设计文档/架构/配置" | R5(反向论证) + R6(安全) + R8(架构一致性) + R9(SSOT) + R12(验收) |
+| **mixed** | "优化代码+验证方案" | 先跑 code，再跑 methodology |
 
-**审查设计文档/叙事内容时**: R1-R3 可使用定性描述替代 ✅/❌（每项≥2句判断 + 引用具体段落），标准同 outline-evolution R1-R3 定性评分参考。
+### 角色完整列表（12个）
 
-**found计数**: C+H+M 计入，L 不计入。连续2轮 C+H+M=0 → 收敛。
+| # | 角色 | 域 | 适用 |
+|---|------|-----|------|
+| R1 | 代码审查员 | code | 所有code审计 |
+| R2 | 用户体验 | methodology | 产品逻辑/交互流程 |
+| R3 | 市场/平台合规 | methodology | 业务逻辑/平台规则 |
+| R4 | 边界测试 | code | 极端值/空输入/并发 |
+| R5 | 反向论证者 | methodology/design | 质疑假设/推演失败 |
+| R6 | 安全审查 | code/design | 注入/权限/数据泄露 |
+| R7 | 性能分析 | code | 复杂度/瓶颈/资源 |
+| R8 | 架构一致性 | code/design | 模块边界/职责冲突 |
+| R9 | 配置SSOT | methodology/design | 单一事实源/配置漂移 |
+| R10 | 跨模块依赖 | code | import链/循环依赖 |
+| R11 | API兼容性 | code | 接口契约/破坏性变更 |
+| R12 | 综合验收 | all | 最终报告/未修复汇总 |
 
-## 每轮输出格式 (MANDATORY — 缺任一项=无效)
+### 批量模式 (v3.1 新增) ⚠️
+
+用户说 `继续一口气/一次性/批量` 时：在一回复中执行所有剩余轮次，但**每轮必须独立 `[Round N]` 块**。
+
+| ✅ 正确 | ❌ 错误 |
+|---------|---------|
+| `[R3]... → [R5]... → [R9]... → [R12]...` | `R3-R12汇总:...` 一段合并 |
+| 每轮独立 format+search+quote+sample | 跳过角色检查单直接写结论 |
+| 每轮可降频但不可跳格式 | 用"同上/如前轮"跳过输出 |
+
+---
+
+## 执行协议 v3 (多回合)
+
+### state.json 格式
+
+写入 `.codebuddy/skills/exhaustive-search/state.json`:
+
+```json
+{
+  "started_at": "ISO",
+  "query": "用户查询摘要",
+  "domain_type": "code|methodology|design|mixed",
+  "mode": "standard|fast",
+  "selected_roles": ["r1-code-reviewer", "r5-counter-arguer", ...],
+  "current_round": 2,
+  "total_planned": 5,
+  "history": [
+    {"round":1, "role":"r1-code-reviewer", "found":"C:0/H:2/M:1", "status":"done"}
+  ],
+  "cumulative_findings": {"C":0, "H":2, "M":1, "L":0}
+}
+```
+
+### 每回合流程
+
+```
+1. LOAD: 读 state.json → 确定当前角色
+2. ROLE: 加载 roles/r{N}-{name}.md
+3. SEARCH: standard模式>=2次WebSearch+>=1次WebFetch / fast模式>=1次WebSearch+>=1次WebFetch
+   (v3降频: 方法论问题不需要大量搜索, 代码审计保留较高搜索量)
+4. REVIEW: 以当前角色视角, 填满5项检查单
+5. QUOTE: 引用>=1条外部原句
+6. SAMPLE: 取样>=3处 (fast模式允许>=2处)
+7. FIX: 修复已确认问题 (C+H+M)
+8. VERIFY: py_compile (仅code领域)
+9. UPDATE: 更新 state.json
+10. OUTPUT: [Round N] 格式 + 发现汇总
+11. SIGNAL: `→ continue` 或 `→ [收敛]` 或 `→ [截断]`
+```
+
+### 每轮输出格式
 
 ```
 [Round N] role:角色名
 
 5项检查单:
-① [标准1] → ✅/❌ (依据: 文件:行号 - 具体代码)
-② [标准2] → ✅/❌ (依据: 文件:行号 - 具体代码)
-③ [标准3] → ✅/❌ (依据: 文件:行号 - 具体代码)
-④ [标准4] → ✅/❌ (依据: 文件:行号 - 具体代码)
-⑤ [标准5] → ✅/❌ (依据: 文件:行号 - 具体代码)
+① [标准1] → ✅/❌ (依据: 文件:行号)
+...
+⑤ [标准5] → ✅/❌ (依据: 文件:行号)
 
-外部引用: "[原句]" — 来源: [文章/论文/文档名称], [年份], URL
-取样证据:
-  - 文件:行号 - "[引用代码原文]"
-  - 文件:行号 - "[引用代码原文]"
-  - 文件:行号 - "[引用代码原文]"
+外部引用: "[原句]" — 来源, URL
+取样证据: (>=3处代码引用)
 
 发现: C:X/H:Y/M:Z/L:W → fixed:X+Y+Z | zero:N → continue/converge
 ```
 
-**没有 role/source/samples 字段 = 本轮无效, 不计数。**
-**source 必须是 WebSearch/Fetch 返回的真实结果原句，禁止自创来源。**
-**取样≥3处中, 至少 2 处与最近3轮不同。**
-
-## 护栏规则（防偷懒 v2.1 + Context Isolation）
-
-<!-- ⚠️ 本表与 loop-evolution/SKILL.md、rough-outline-evolution/SKILL.md、skill-evolution/SKILL.md、chapter-evolution/SKILL.md 护栏规则保持同步。
-     修改任一处时必须同步修改另四处（project.mdc rule 32）。 -->
-
-| 违规 | 后果 | 恢复指令 |
-|------|------|------|
-| 5 项全 ✅ 但无行号依据 | 本轮无效 | 补依据后重做 |
-| 无外部引用原句(来自WebSearch/Fetch) | 本轮无效 | 补搜索+引用后重做 |
-| 取样 < 3 处(每处含文件+行号+代码) | 本轮无效 | 补取样后重做 |
-| R12 之前宣布收敛 | 无效, 至少跑满 12 轮 | 继续下一轮 |
-| 搜索词与最近3轮完全相同 | 本轮无效 | 换搜索词后重做 |
-| 外部引用为自创而非 WebSearch/Fetch 结果 | 本轮无效 | 真实搜索后重做 |
-| 跳过搜索直接 found:0 | 本轮无效 | 执行搜索后重做 |
-| **取样证据中 ≥3 条与前轮重复** | 本轮无效(允许1-2条重复) | 补新取样后重做 |
-| **输出中含"已有重复分析/跳过/同上/如前轮/已验证"** | 本轮无效, 且必须重做该轮 | 从零重做 |
-| **检查单中 ≥4 项的依据引用与前轮相同** | 本轮无效 | 扩大取样范围后重做 |
-
-### Context Isolation 规则
-- 每轮不得引用任何前轮的检查结果
-- 每轮必须从零重新审视代码文件, 发现新的取样证据
-- 即使结论与前轮相同, 也必须用不同的取样证据支撑
-- 取样≥3处中, 至少 2 处与前轮不同 (R10-R12: 至少 1 处与前轮不同)
-
-## 终止条件
+### 终止条件
 
 | 条件 | 行为 |
 |------|------|
-| 连续2轮 C+H+M=0 且每轮有 role+source+samples | `[收敛] N轮后无新发现` |
-| 到达12轮仍未收敛 | `[截断] 12轮未收敛, 剩余问题:` — 输出全部未修复 C+H+M |
-| 任何轮 test 失败且无法修复 | `[BLOCK] 验证阻塞, 需人工` |
-| **跳过轮次/合并轮次/一轮输出多轮结果** | **严格禁止** — 每轮必须独立输出 `[Round N]` 格式 |
+| 连续2轮 C+H+M=0 且 N>=总轮数-1 | `→ [收敛]` |
+| 到达计划总轮数 | `→ [截断] N轮完毕` |
+| 用户说"继续" | 自动读 state.json → 执行下一轮 |
+| 用户说"结束/停止" | 输出汇总报告 |
 
-**收敛机制**: 最少跑满 8 轮方可收敛。连续2轮 C+H+M=0 且 N>=8 且证据完整 → [收敛]。防懒靠轮数门槛 + 3项不可伪装证据双重保障。每轮必须有 role + source + samples，缺一重做。
+---
 
-## 为什么用角色轮换（理论依据）
+## 护栏规则（与 v2 一致, 同步 loop/outline/chapter/skill-evolution）
 
-这种设计基于两个关键发现：
+| 违规 | 后果 |
+|------|------|
+| 5 项全 ✅ 但无行号依据 | 本轮无效 |
+| 无外部引用原句 | 本轮无效 |
+| 取样 < 要求数量 | 本轮无效 |
+| 输出含"同上/如前轮/已验证" | 本轮无效, 重做 |
+| 外部引用为自创非搜索 | 本轮无效 |
 
-1. **AI 错误是收敛的，不是随机的** (Chuanxilu, 2026.4): 同一 AI 审查自己会产生确认偏误。单轮零发现可能是假阴性。需要"独立审查者 + 双重确认"。
-2. **堵死 AI 提前收敛的路** (boomyao, 2026.3): "解决 AI 提前收敛，不是靠讲更多道理，而是靠重建一个它不能轻易糊弄过去的工作结构。多 Agent 之间不能互相替代。"
+### 快速模式降频规则
+- WebSearch: >=1次（非3次）
+- WebFetch: >=1次（非2次）
+- 取样: >=2处（非3处）
+- 5项检查单: 每项>=1句判断即可
+- 适用于 methodology/design 领域
 
-角色轮换 = 把同一个 AI 在不同轮次变成"不同的 Agent"——每次切换分析框架，确保每一轮都有独特的观察角度。
+---
 
-## 项目专用约束 (会自动注入)
+## 项目专用约束
 
 - Windows GBK: print 用 [OK][FAIL], 不用 Unicode
 - SSOT: 路径/阈值只在 config.yaml
@@ -167,4 +180,3 @@ allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebSearch, WebFetch
 - subprocess 用 DEVNULL 不用 PIPE
 - import 全部在文件顶部
 - 不修改入参 dict/list
-- 写完代码后先跑自审清单再声明完成
