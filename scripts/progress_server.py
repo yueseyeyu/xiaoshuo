@@ -45,7 +45,7 @@ from xiaoshuo.infra.hardware_guardian import (
     _read_vram_used_smi,
     _read_fan_speed_smi,
 )
-from xiaoshuo.infra.pipeline_state import mark_error
+from xiaoshuo.infra.pipeline_state import clear_stage, mark_error
 from xiaoshuo.pipeline.scoring.commercial_engine import analyze_single_novel
 
 
@@ -468,26 +468,53 @@ def _log_analysis_exit():
         mark_error("analyze_all", msg, stage_num=0, total=8)
     else:
         logging.info("拆书流程正常结束 (PID %s)", pid)
+        clear_stage()
     analyze_process = None
 
 
+def _kill_process_tree(pid):
+    """Recursively kill a process and all its children using psutil."""
+    try:
+        parent = psutil.Process(pid)
+        children = parent.children(recursive=True)
+        for child in children:
+            try:
+                child.terminate()
+            except psutil.NoSuchProcess:
+                pass
+        parent.terminate()
+        # Wait for children
+        gone, alive = psutil.wait_procs(children + [parent], timeout=10)
+        for p in alive:
+            try:
+                p.kill()
+            except psutil.NoSuchProcess:
+                pass
+        if alive:
+            psutil.wait_procs(alive, timeout=5)
+        return True
+    except psutil.NoSuchProcess:
+        return True
+    except Exception as e:
+        logging.warning("Process tree kill failed for pid=%s: %s", pid, e)
+        return False
+
+
 def stop_analysis():
-    """停止拆书子进程。返回 (ok, message)。"""
+    """停止拆书子进程及其所有子进程。返回 (ok, message)。"""
     global analyze_process
     with analyze_lock:
         if analyze_process is None or analyze_process.poll() is not None:
             analyze_process = None
+            # Clean up stale pipeline state file even if no process is running
+            clear_stage()
             return False, "没有运行中的拆书流程"
 
         pid = analyze_process.pid
         try:
-            analyze_process.terminate()
-            try:
-                analyze_process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                analyze_process.kill()
-                analyze_process.wait(timeout=5)
+            _kill_process_tree(pid)
             logging.info("拆书流程已停止: pid=%s", pid)
+            clear_stage()
             return True, f"已停止拆书流程 (PID {pid})"
         except Exception as e:
             return False, f"停止失败: {e}"
