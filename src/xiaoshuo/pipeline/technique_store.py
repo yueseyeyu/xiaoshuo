@@ -49,7 +49,7 @@ def _report_dir(genre):
 
 
 def _cards_path(genre):
-    return _data_dir(genre) / "technique_cards.json"
+    return _data_dir(genre) / "quality" / "technique_cards.json"
 
 
 # ── 提取 ──

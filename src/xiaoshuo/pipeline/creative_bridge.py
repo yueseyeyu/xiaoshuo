@@ -39,7 +39,7 @@ def _rhythm_dir(genre):
 
 
 def _manifest_path(genre):
-    return PROJECT_ROOT / "data" / "processed" / genre / "quality_manifest.json"
+    return PROJECT_ROOT / "data" / "processed" / genre / "quality" / "quality_manifest.json"
 
 
 def _output_dir(genre):

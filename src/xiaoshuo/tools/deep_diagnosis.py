@@ -511,7 +511,7 @@ def run_deep(genre="末世", top_n=3, bottom_n=3, n_key=30):
     print("=" * 60)
 
     # Load manifest for stem→file mapping
-    manifest_path = PROJECT_ROOT / "data" / "processed" / genre / "quality_manifest.json"
+    manifest_path = PROJECT_ROOT / "data" / "processed" / genre / "quality" / "quality_manifest.json"
     stem_map = {}
     if manifest_path.exists():
         with open(manifest_path, 'r', encoding='utf-8') as f:

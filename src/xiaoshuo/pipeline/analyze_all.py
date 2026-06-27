@@ -287,7 +287,7 @@ def _run_parallel(genre_arg, books_arg, skip_gate, skip_bridge, with_llm):
     print(f"\n[DONE] Full pipeline complete ({'LLM enhanced' if with_llm else 'rule-only'}).")
     print(f"  Reports:     data/reports/")
     print(f"  Guidance:    data/reports/{{genre}}/creative_guidance/")
-    print(f"  Manifest:    data/processed/{{genre}}/quality_manifest.json")
+    print(f"  Manifest:    data/processed/{{genre}}/quality/quality_manifest.json")
     print(f"  Review:      books/review/ (退回审查的书)")
     if not with_llm:
         print(f"\n  Tip: --with-llm 启用 LLM 增强分析 (评分更精准,需约 10min)")
@@ -372,7 +372,7 @@ def _run_sequential(genre_arg, books_arg, skip_gate, skip_bridge, with_llm):
     print(f"\n[DONE] Full pipeline complete ({'LLM enhanced' if with_llm else 'rule-only'}).")
     print(f"  Reports:     data/reports/")
     print(f"  Guidance:    data/reports/{{genre}}/creative_guidance/")
-    print(f"  Manifest:    data/processed/{{genre}}/quality_manifest.json")
+    print(f"  Manifest:    data/processed/{{genre}}/quality/quality_manifest.json")
     print(f"  Review:      books/review/ (退回审查的书)")
     if not with_llm:
         print(f"\n  Tip: --with-llm 启用 LLM 增强分析 (评分更精准,需约 10min)")

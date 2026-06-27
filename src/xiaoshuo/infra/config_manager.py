@@ -68,3 +68,38 @@ def get_config_section(*keys: str, default=None):
         if cfg is None:
             return default
     return cfg
+
+
+def get_deepseek_config() -> dict | None:
+    """Read DeepSeek API config from config.yaml + secrets.yaml (SSOT).
+    Returns merged dict with api_key injected, or None if disabled/key missing.
+    v11: 提取为公共函数，避免 commercial_engine / pro_genre_guide 重复实现。
+    """
+    try:
+        cfg = get_config()
+        apis = cfg.get("model_orchestration", {}).get("models", {}).get("external_api", {})
+        ds = apis.get("deepseek", {})
+        if not ds.get("enabled"):
+            return None
+        from xiaoshuo import PROJECT_ROOT
+        secrets_path = PROJECT_ROOT / "secrets.yaml"
+        api_key = None
+        if secrets_path.exists():
+            with open(secrets_path, "r", encoding="utf-8") as f:
+                secrets = yaml.safe_load(f) or {}
+            api_key = secrets.get("deepseek", {}).get("api_key")
+        if not api_key:
+            return None
+        ds = dict(ds)  # shallow copy to avoid mutating cache
+        ds["api_key"] = api_key
+        # Merge siliconflow backup config
+        sf = apis.get("siliconflow", {})
+        if sf.get("enabled"):
+            sf_key = secrets.get("siliconflow", {}).get("api_key") if secrets_path.exists() else None
+            if sf_key and "PLACEHOLDER" not in sf_key:
+                sf = dict(sf)
+                sf["api_key"] = sf_key
+                ds["siliconflow"] = sf
+        return ds
+    except Exception:
+        return None

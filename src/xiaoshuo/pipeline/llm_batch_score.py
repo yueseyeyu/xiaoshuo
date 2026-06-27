@@ -57,7 +57,7 @@ def _rhythm_dir(genre):
 
 
 def _llm_dir(genre):
-    return PROJECT_ROOT / "data" / "processed" / genre / "llm_scores"
+    return PROJECT_ROOT / "data" / "processed" / genre / "scores"
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
 

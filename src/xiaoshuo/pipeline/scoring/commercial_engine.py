@@ -34,7 +34,7 @@ from pathlib import Path
 from collections import Counter
 
 from xiaoshuo import PROJECT_ROOT
-from xiaoshuo.infra.config_manager import get_config, get_config_section
+from xiaoshuo.infra.config_manager import get_config, get_config_section, get_deepseek_config
 
 # ── Sub-module imports (for analyze_single_novel) ──
 from xiaoshuo.pipeline.scoring.vad_analyzer import compute_vad
@@ -44,8 +44,8 @@ from xiaoshuo.pipeline.scoring.technique_tagger import compute_tags
 # ── Genre-aware directory helpers ──
 
 def _llm_dir(genre):
-    """Genre-aware LLM scores dir: data/processed/{genre}/llm_scores/"""
-    return PROJECT_ROOT / "data" / "processed" / genre / "llm_scores"
+    """Genre-aware LLM scores dir: data/processed/{genre}/scores/"""
+    return PROJECT_ROOT / "data" / "processed" / genre / "scores"
 
 
 def _calib_dir(genre):
@@ -121,7 +121,7 @@ def _load_all_llm_scores():
     _conflict_map = {"none": 0.0, "low": 3.0, "medium": 6.0, "high": 9.0}
     all_scores = {}
     for genre_sub in (PROJECT_ROOT / "data" / "processed").iterdir():
-        llm_sub = genre_sub / "llm_scores"
+        llm_sub = genre_sub / "scores"
         if not llm_sub.is_dir(): continue
         for fp in llm_sub.glob("*_llm.csv"):
             stem = fp.stem.replace("_llm", "")
@@ -219,7 +219,7 @@ def get_firebook_pool(genre="末世", exclude_name=None):
 
     novels = load_genre_novels(genre)
     # P1 pool isolation: only include PASS books from quality_manifest
-    manifest_path = PROJECT_ROOT / "data" / "processed" / genre / "quality_manifest.json"
+    manifest_path = PROJECT_ROOT / "data" / "processed" / genre / "quality" / "quality_manifest.json"
     pass_stems = set()
     if manifest_path.exists():
         try:
@@ -377,6 +377,119 @@ def _grade(overall):
     else:              return "D 不建议发"
 
 
+# ── Cached decision thresholds ──
+_decision_thresholds_cache = None
+
+
+def _decision(overall, risks=None):
+    """v7.6: Actionable decision from decision_thresholds in config.
+    Returns (decision, recommendation, color) tuple.
+    Inspired by "邪修" 500-subscription quantitative standard."""
+    global _decision_thresholds_cache
+    if _decision_thresholds_cache is None:
+        try:
+            dt = get_config_section("analysis", "decision_thresholds", default={})
+            _decision_thresholds_cache = (
+                dt.get("hit_potential", 75),
+                dt.get("worth_investing", 60),
+                dt.get("keep_observing", 40),
+            )
+        except Exception:
+            _decision_thresholds_cache = (75, 60, 40)
+    hp, wi, ko = _decision_thresholds_cache
+    risk_count = len(risks) if risks else 0
+    if overall >= hp:
+        decision = "爆款潜力"
+        recommendation = "500订标准达成，建议全力投入写长篇"
+        color = "green"
+    elif overall >= wi:
+        decision = "值得投入"
+        recommendation = "可写长篇，但需持续监控。建议每10章重评一次"
+        color = "blue"
+    elif overall >= ko:
+        decision = "继续观察"
+        if risk_count >= 3:
+            recommendation = "有潜力但风险较多，建议调整大纲后重测。重点关注: 冲突密度、钩子回收率"
+        else:
+            recommendation = "有潜力但需优化，建议调整大纲后重测"
+        color = "yellow"
+    else:
+        decision = "建议切书"
+        recommendation = "综合评分过低，建议放弃当前方向，用拆书数据重新构思大纲"
+        color = "red"
+    return decision, recommendation, color
+
+
+# ── Cached zone weights ──
+_zone_weights_cache = None
+
+
+def get_chapter_zone_weight(chapter_num: int, total_chapters: int = None) -> float:
+    """v7.6: 返回章节分区权重（借鉴"邪修"前50章重点分析）。
+
+    前50章: 2.0x（决定签约/留存/推荐）
+    中间章: 1.0x
+    结尾章: 1.5x（决定完读率，最后15%）
+
+    权重从 config.yaml analysis.chapter_zone_weights 读取。
+    """
+    global _zone_weights_cache
+    if _zone_weights_cache is None:
+        try:
+            cw = get_config_section("analysis", "chapter_zone_weights", default={})
+            _zone_weights_cache = (
+                cw.get("front_50", 2.0),
+                cw.get("middle", 1.0),
+                cw.get("ending", 1.5),
+                cw.get("front_50_boundary", 50),
+                cw.get("ending_boundary_pct", 0.85),
+            )
+        except Exception:
+            _zone_weights_cache = (2.0, 1.0, 1.5, 50, 0.85)
+
+    front_w, mid_w, end_w, front_boundary, end_pct = _zone_weights_cache
+
+    if total_chapters is None:
+        # When total_chapters unknown, only apply front_50 rule
+        if chapter_num <= front_boundary:
+            return front_w
+        return mid_w
+
+    if chapter_num <= front_boundary:
+        return front_w
+    elif chapter_num >= total_chapters * end_pct:
+        return end_w
+    else:
+        return mid_w
+
+
+def compute_zone_weighted_average(chapter_values: list[tuple[int, float]],
+                                   total_chapters: int = None) -> float:
+    """v7.6: 计算带章节分区权重的加权平均值。
+
+    Args:
+        chapter_values: [(chapter_num, value), ...] 列表
+        total_chapters: 总章节数（默认从数据推断）
+
+    Returns:
+        加权平均值
+    """
+    if not chapter_values:
+        return 0.0
+
+    if total_chapters is None:
+        total_chapters = max(ch for ch, _ in chapter_values)
+
+    weighted_sum = 0.0
+    weight_sum = 0.0
+    for ch, val in chapter_values:
+        w = get_chapter_zone_weight(ch, total_chapters)
+        weighted_sum += val * w
+        weight_sum += w
+
+    return weighted_sum / max(weight_sum, 0.001)
+
+
 def percentile_score(value, pool, metric):
     """v7.5: Bayesian shrinkage instead of hard cutoff.
     When n < 30, raw percentile is shrunk toward 50 proportionally.
@@ -481,7 +594,7 @@ def classify_all_sub_genres(genre, novels):
     if classified > 0:
         print(f"[OK] LLM sub-genre: {classified} books classified")
     # Save cache to JSON for inspection
-    cache_path = PROJECT_ROOT / "data" / "processed" / genre / "sub_genre_llm.json"
+    cache_path = PROJECT_ROOT / "data" / "processed" / genre / "quality" / "sub_genre_llm.json"
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     cache_path.write_text(json.dumps(_llm_sub_genre_cache, ensure_ascii=False, indent=2), encoding='utf-8')
 
@@ -531,33 +644,9 @@ def _load_scoring_config():
 
 
 def _load_deepseek_config():
-    """Read DeepSeek API config from config.yaml + secrets.yaml (gitignored).
-    Returns dict or None if disabled or key missing."""
-    try:
-        cfg = get_config()
-        apis = cfg.get("model_orchestration", {}).get("models", {}).get("external_api", {})
-        ds = apis.get("deepseek", {})
-        if not ds.get("enabled"):
-            return None
-        secrets_path = PROJECT_ROOT / "secrets.yaml"
-        api_key = None
-        if secrets_path.exists():
-            with open(secrets_path, 'r', encoding='utf-8') as f:
-                secrets = yaml.safe_load(f) or {}
-            api_key = secrets.get("deepseek", {}).get("api_key")
-        if not api_key:
-            return None
-        ds["api_key"] = api_key
-        # Merge siliconflow backup config
-        sf = apis.get("siliconflow", {})
-        if sf.get("enabled"):
-            sf_key = secrets.get("siliconflow", {}).get("api_key") if secrets_path.exists() else None
-            if sf_key and "PLACEHOLDER" not in sf_key:
-                sf["api_key"] = sf_key
-                ds["siliconflow"] = sf
-        return ds
-    except Exception:
-        return None
+    """Read DeepSeek API config via SSOT (config_manager.get_deepseek_config).
+    v11: delegated to shared function to avoid code duplication."""
+    return get_deepseek_config()
 
 
 # ── v7.5: DeepSeek score cache ──
@@ -1008,7 +1097,7 @@ def compute_commercial_score(rows, genre="末世", book_name=None):
     large_rate = pleasure_levels.get("large", 0) / max(total, 1)
 
     # -- P0-3: Read annotation reliability -> adjust weights for low-F1 metrics --
-    rel_path = PROJECT_ROOT / "data" / "processed" / genre / "annotation_reliability.json"
+    rel_path = PROJECT_ROOT / "data" / "processed" / genre / "quality" / "annotation_reliability.json"
     f1_weights = {"pleasure": 1.0, "hook": 1.0, "conflict": 1.0}
     if rel_path.exists():
         try:
@@ -1288,8 +1377,13 @@ def compute_commercial_score(rows, genre="末世", book_name=None):
             "note": bias_note,
         }
 
+    # -- v7.6: Actionable decision recommendation --
+    decision, recommendation, decision_color = _decision(overall, risks)
+
     return {
         "overall": overall, "overall_raw": overall_raw, "grade": grade,
+        "decision": decision, "recommendation": recommendation,
+        "decision_color": decision_color,
         "llm_source": llm_source,
         "calibrated": calib_enabled,
         "slow_burn": is_slow_burn,

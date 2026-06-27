@@ -31,7 +31,7 @@ NOVELS_DIR = PROJECT_ROOT / "data" / "raw" / "novels"
 
 
 def _labels_dir(genre):
-    return PROJECT_ROOT / "data" / "processed" / genre / "llm_labels"
+    return PROJECT_ROOT / "data" / "processed" / genre / "labels"
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
 
@@ -340,7 +340,7 @@ def run_labeling(book_name="all", sample_rate=0.1, dry_run=False, genre=None):
         "sample_chapters": total_llm_calls,
         "timestamp": datetime.now().isoformat(),
     }
-    rel_path = PROJECT_ROOT / "data" / "processed" / _g / "annotation_reliability.json"
+    rel_path = PROJECT_ROOT / "data" / "processed" / _g / "quality" / "annotation_reliability.json"
     rel_path.write_text(json.dumps(reliability, ensure_ascii=False, indent=2), encoding='utf-8')
 
     print(f"\n{'='*60}")

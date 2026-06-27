@@ -1427,6 +1427,89 @@ def cmd_compare(args) -> None:
 
 
 # ============================================================================
+# 命令: memory — 行为回溯备忘录
+# ============================================================================
+
+def cmd_memory(args) -> None:
+    """结构化行为回溯备忘录: 添加/检索/导出经验卡片。"""
+    from xiaoshuo.agents.memory_store import MemoryStore
+
+    store = MemoryStore()
+
+    if args.memory_cmd == "add":
+        tags = [t.strip() for t in args.tags.split(",") if t.strip()] if args.tags else []
+        cid = store.add(
+            goal=args.goal,
+            solution=args.solution,
+            result=args.result,
+            pain_point=args.pain_point,
+            tags=tags,
+            source=args.source,
+        )
+        print(f"[OK] 记忆卡片 #{cid} 已添加")
+        print(f"  Goal: {args.goal[:60]}")
+        print(f"  Tags: {tags}")
+
+    elif args.memory_cmd == "query":
+        tags = [t.strip() for t in args.tags.split(",") if t.strip()]
+        cards = store.query_by_tags(tags, match_all=args.match_all, limit=args.limit)
+        if not cards:
+            print("[INFO] 未找到匹配的记忆卡片")
+            return
+        print(f"[OK] 找到 {len(cards)} 张卡片:")
+        for c in cards:
+            print(f"  #{c['id']} | {c['date'][:10]} | {c['goal'][:50]}")
+            print(f"         Tags: {', '.join(c['tags'])}")
+            pain = c['pain_point'][:60] if c['pain_point'] else "(无)"
+            print(f"         Pain: {pain}")
+            print()
+
+    elif args.memory_cmd == "search":
+        cards = store.search_text(args.keyword, limit=args.limit)
+        if not cards:
+            print("[INFO] 未找到匹配内容")
+            return
+        print(f"[OK] 找到 {len(cards)} 张卡片:")
+        for c in cards:
+            print(f"  #{c['id']} | {c['date'][:10]} | {c['goal'][:50]}")
+            if c['pain_point']:
+                hit = c['pain_point'][:80]
+                print(f"         Pain: {hit}")
+            print()
+
+    elif args.memory_cmd == "list":
+        cards = store.list_recent(limit=15)
+        if not cards:
+            print("[INFO] 记忆库为空")
+            return
+        print(f"[OK] 最近 {len(cards)} 张记忆卡片:")
+        print(f"  {'ID':>4} | {'日期':<12} | {'来源':<12} | {'目标'}")
+        print(f"  {'-'*4}-+-{'-'*12}-+-{'-'*12}-+-{'-'*40}")
+        for c in cards:
+            goal_short = c['goal'][:38]
+            print(f"  {c['id']:>4} | {c['date'][:10]} | {c['source']:<12} | {goal_short}")
+
+    elif args.memory_cmd == "export":
+        paths = store.export_markdown()
+        print(f"[OK] 导出 {len(paths)} 张卡片:")
+        for p in paths:
+            print(f"  {p}")
+        print(f"\n  目录: {paths[0].parent}" if paths else "")
+
+    elif args.memory_cmd == "count":
+        total = store.count()
+        print(f"[OK] 记忆库总计 {total} 张卡片")
+        # 按来源统计
+        for src in ["manual", "s4_pass", "s4_fail", "pipeline"]:
+            n = store.count_by_source(src)
+            if n > 0:
+                print(f"  - {src}: {n}")
+
+    else:
+        print("[FAIL] 未知子命令. 可用: add / query / search / list / export / count")
+
+
+# ============================================================================
 # CLI 入口 — argparse 路由
 # ============================================================================
 
@@ -1546,6 +1629,43 @@ def main() -> None:
     # outline — 大纲生成
     sub.add_parser("outline", help="S0 大纲生成: 基于世界观生成三层大纲")
 
+    # memory — 行为回溯备忘录
+    p_memory = sub.add_parser("memory", help="Agent记忆系统: 结构化行为回溯备忘录 (SQLite)",
+        epilog="Example: python novel.py memory add --goal \"拆书\" ...\n"
+               "         python novel.py memory query --tags 拆书,爽点\n"
+               "         python novel.py memory list\n"
+               "         python novel.py memory export")
+    p_memory_sub = p_memory.add_subparsers(dest="memory_cmd", help="记忆子命令")
+
+    # memory add
+    p_mem_add = p_memory_sub.add_parser("add", help="添加记忆卡片")
+    p_mem_add.add_argument("--goal", type=str, required=True, help="任务目标")
+    p_mem_add.add_argument("--solution", type=str, default="", help="解决方案")
+    p_mem_add.add_argument("--result", type=str, default="", help="执行结果")
+    p_mem_add.add_argument("--pain-point", type=str, default="", help="遇到的困难")
+    p_mem_add.add_argument("--tags", type=str, default="", help="逗号分隔的标签")
+    p_mem_add.add_argument("--source", type=str, default="manual", help="来源标识")
+
+    # memory query
+    p_mem_q = p_memory_sub.add_parser("query", help="按标签检索记忆卡片")
+    p_mem_q.add_argument("--tags", type=str, required=True, help="逗号分隔的标签")
+    p_mem_q.add_argument("--match-all", action="store_true", help="必须匹配所有标签")
+    p_mem_q.add_argument("--limit", type=int, default=10, help="最大返回条数")
+
+    # memory search
+    p_mem_s = p_memory_sub.add_parser("search", help="全文搜索记忆卡片")
+    p_mem_s.add_argument("--keyword", type=str, required=True, help="搜索关键词")
+    p_mem_s.add_argument("--limit", type=int, default=10, help="最大返回条数")
+
+    # memory list
+    p_memory_sub.add_parser("list", help="列出最近记忆卡片")
+
+    # memory export
+    p_memory_sub.add_parser("export", help="导出所有卡片为 Markdown (Obsidian 友好)")
+
+    # memory count
+    p_memory_sub.add_parser("count", help="统计记忆卡片总数")
+
     # compare — 结构层对比
     p_compare = sub.add_parser("compare", help="结构层对比: 新人世界观/大纲/角色 vs 精品基准",
         epilog="Example: python novel.py compare --file my_world.md --mode worldbuild\n"
@@ -1584,6 +1704,7 @@ def main() -> None:
         "decisions":  cmd_decisions,
         "characters": cmd_characters,
         "outline":    cmd_outline,
+        "memory":     cmd_memory,
         "compare":    cmd_compare,
     }
 

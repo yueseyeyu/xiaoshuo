@@ -31,6 +31,7 @@ import urllib.error
 import urllib.request
 import yaml
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -58,6 +59,17 @@ def _llm_port():
     except Exception:
         pass
     return 8000
+
+
+def _llm_parallel():
+    """Read LLM parallelism from config.yaml. Falls back to 2."""
+    try:
+        if CONFIG_PATH.exists():
+            cfg = yaml.safe_load(open(CONFIG_PATH, encoding="utf-8"))
+            return cfg.get("analysis", {}).get("llm_parallel", 2)
+    except Exception:
+        pass
+    return 2
 
 
 def _llm_call(prompt, max_tokens=600, temperature=0.0, timeout=90):
@@ -401,7 +413,7 @@ class RecursiveSummarizer:
             }, ensure_ascii=False) + "\n")
 
     def _run_l1_if_needed(self, completed_books=None, book_index=1, total_books=1):
-        """L1 with checkpoint resume (serial — local GPU saturates at 1 concurrent)."""
+        """L1 with checkpoint resume (2-way concurrent — model parallel=2)."""
         results = []
         chunks = self._chunk_list(self.chapters, self.chapters_per_group)
         n_total = len(chunks)
@@ -411,33 +423,47 @@ class RecursiveSummarizer:
         chunk_times = []
         t0 = time.time()
 
+        # Phase A: collect already-done chunks from checkpoint
         for ci, chunk in enumerate(chunks):
             chunk_label = str(ci)
             if chunk_label in done_set and chunk_label in l1_data:
                 results.append(l1_data[chunk_label])
                 self._progress_bar(ci + 1, n_total, chunk_times, t0, completed_books, book_index, total_books)
-                continue
-            elif chunk_label in done_set:
-                pass  # backward compat: re-run
 
+        # Phase B: process remaining chunks with 2-way concurrency
+        pending = [(ci, chunk) for ci, chunk in enumerate(chunks)
+                   if str(ci) not in done_set or str(ci) not in l1_data]
+        if not pending:
+            return results
+
+        parallel = _llm_parallel()
+        print(f"  L1: {len(pending)}/{n_total} chunks to process ({parallel} concurrent)...")
+
+        def _worker(pair):
+            ci, chunk = pair
             t_chunk = time.time()
             parsed = self._process_l1_chunk(chunk, ci)
-            dt = time.time() - t_chunk
-            if dt > 0.1:
-                chunk_times.append(dt)
+            return ci, chunk, parsed, time.time() - t_chunk
 
-            if parsed:
+        with ThreadPoolExecutor(max_workers=parallel) as pool:
+            for ci, chunk, parsed, dt in pool.map(_worker, pending):
+                if dt > 0.1:
+                    chunk_times.append(dt)
+
+                if parsed:
+                    l1_data[str(ci)] = parsed
+                    if str(ci) not in self._checkpoint["l1_done"]:
+                        self._checkpoint["l1_done"].append(str(ci))
+                    self._checkpoint["l1_data"] = l1_data
+                    self._save_checkpoint()
+                    self._save_partial([r for r in results + [parsed] if r is not None])
+                else:
+                    self._log_failed(str(ci), "LLM returned None after retries")
+                    parsed = self._fallback_l1(chunk, ci)
+
                 results.append(parsed)
-                self._checkpoint.setdefault("l1_data", {})[chunk_label] = parsed
-                if chunk_label not in self._checkpoint["l1_done"]:
-                    self._checkpoint["l1_done"].append(chunk_label)
-                self._save_checkpoint()
-                self._save_partial(results)
-            else:
-                self._log_failed(chunk_label, "LLM returned None after retries")
-                results.append(self._fallback_l1(chunk, ci))
+                self._progress_bar(len(results), n_total, chunk_times, t0, completed_books, book_index, total_books)
 
-            self._progress_bar(ci + 1, n_total, chunk_times, t0, completed_books, book_index, total_books)
         return results
 
     def _progress_bar(self, done, total, chunk_times, t0, completed_books=None, book_index=1, total_books=1):
@@ -657,6 +683,14 @@ class RecursiveSummarizer:
                     "rhythm_pattern": "(LLM unavailable)",
                     "volume_summary": f"第{start}-{end}章 (分析未完成)",
                 })
+            # Save to checkpoint: L2 group completed
+            l2_key = f"{start}-{end}"
+            l2_done = self._checkpoint.get("l2_done", [])
+            if l2_key not in l2_done:
+                l2_done.append(l2_key)
+            self._checkpoint["l2_done"] = l2_done
+            self._save_checkpoint()
+
             # Overwritable L2 progress (single line)
             pct = (gi + 1) / n_total * 100
             dt = time.time() - t0

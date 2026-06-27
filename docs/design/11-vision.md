@@ -151,7 +151,7 @@ agents/author_style_emergence.py — 作者风格涌现引擎
 | 子系统 | 对齐度 | 说明 |
 |--------|:---:|------|
 | 数据分析管线 (analysis/) | 🟢 90% | ①-⑤全通，仅L3深度拆书待实现 |
-| 模型编排 (model_orchestrator) | 🟢 80% | 单模型路由就绪，双模型P0验证中 |
+| 模型编排 (model_orchestrator) | 🟢 90% | 单模型路由 + swap_to 顺序切换就绪，交叉审查全流程已验证 |
 | 创作骨架 (agents/) | 🟢 70% | ✅ world_builder/outline_builder/character_designer 已接通 CLI |
 | 写作交互 | 🟢 60% | ✅ session_manager REPL + write/review/decisions 已实现 |
 | 对比引擎 | 🟢 75% | comparison_engine v3: 精品百分位对标+签约概率+LLM对照已可用，LoRA蒸馏可进一步提升 |

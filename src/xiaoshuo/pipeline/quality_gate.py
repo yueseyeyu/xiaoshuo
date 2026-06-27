@@ -43,11 +43,11 @@ def _rhythm_dir(genre):
 
 
 def _llm_dir(genre):
-    return PROJECT_ROOT / "data" / "processed" / genre / "llm_scores"
+    return PROJECT_ROOT / "data" / "processed" / genre / "scores"
 
 
 def _manifest_path(genre):
-    return PROJECT_ROOT / "data" / "processed" / genre / "quality_manifest.json"
+    return PROJECT_ROOT / "data" / "processed" / genre / "quality" / "quality_manifest.json"
 
 
 # ── Module-level config cache (avoid re-reading config.yaml per book) ──
@@ -226,7 +226,7 @@ def _load_commercial_scores():
 
     # Source 3: commercial_scores.json — most authoritative (direct from genre_synthesizer)
     processed_dir = PROJECT_ROOT / "data" / "processed"
-    for cs_file in processed_dir.glob("*/commercial_scores.json"):
+    for cs_file in processed_dir.glob("*/quality/commercial_scores.json"):
         try:
             with open(cs_file, 'r', encoding='utf-8') as f:
                 cs_data = json.load(f)

@@ -50,6 +50,12 @@ from xiaoshuo.pipeline.scoring.borda_ranker import (
     main,
 )
 
+# ── pro_genre_guide (v11) ──
+from xiaoshuo.pipeline.scoring.pro_genre_guide import (
+    generate_genre_guide,
+    generate_all_genres,
+)
+
 __all__ = [
     # vad_analyzer
     "compute_vad",
@@ -75,4 +81,7 @@ __all__ = [
     "evaluate_loocv",
     "process_genre",
     "main",
+    # pro_genre_guide (v11)
+    "generate_genre_guide",
+    "generate_all_genres",
 ]

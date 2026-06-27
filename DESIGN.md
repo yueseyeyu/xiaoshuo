@@ -1,9 +1,11 @@
 # 番茄小说 AI 辅助创作系统 -- 系统架构设计文档
 
 > **文档版本**: v7.5
-> **实际代码**: analysis/ 7步管线 + agents/ 9模块 + novel.py 15命令
+> **实际代码**: analysis/ 7步管线 + agents/ 10模块 + novel.py 15命令
 > **关联文档**: [AI_PROTOCOL.md](AI_PROTOCOL.md) | [config.yaml](config.yaml)
 > **v7.5 审视修复**: 2026-06-19 — 13项架构优化落地（P0安全/P1并行+拆分+重构/P2基础设施）
+> **v7.5 交叉审查升级**: 2026-06-21 — 双模型顺序切换（swap_to）+ 交叉模型升级至 DeepSeek-R1-0528-Qwen3-8B + S3 评审角色深层 TASK_TEMPLATES + AI 指纹词密度/风格漂移 detection 配置
+> **v7.5 Agent 记忆系统**: 2026-06-21 — 结构化行为回溯备忘录 (SQLite + 精准Tag) + CLI 命令 + pipeline 集成钩子 (add_from_pipeline)
 
 ---
 
@@ -36,6 +38,18 @@
 | 10 | [附录 + 架构重构说明](docs/design/10-appendix.md) | 设计决策记录、关键文件清单、版本历史、审视方法论 | ✅ |
 | 11 | [15. 完整创作愿景与实现路径](docs/design/11-vision.md) | 十阶段创作辅助闭环、各阶段现状、风格涌现、蒸馏进化 | ⚠️ |
 
+### 前端设计系统
+
+前端设计方案统一归档在 `设计方案/` 目录，支持旧版与新版并排对比预览：
+
+| 文档 | 内容 | 状态 |
+|------|------|:---:|
+| [设计方案对比入口](../设计方案/index.html) | 旧版 V1 / 新版 v2.1 单页预览与并排对比 | ✅ |
+| [旧版 V1 版本说明](../设计方案/设计归档_20250621_V1/版本说明.md) | 玻璃拟态工作站设计说明 | ✅ |
+| [新版 v2.1 界面优化设计稿](../设计方案/界面优化设计稿.md) | 色彩/字体/组件/布局/动效规范 | ✅ |
+| [新版 v2.1 测试验证文档](../设计方案/测试验证文档.md) | 问题清单、修复验证、性能/兼容性报告 | ✅ |
+| [新版 v2.1 功能测试用例库](../设计方案/功能测试用例库.md) | 可回归功能测试用例 | ✅ |
+
 ### v7.5 基础设施新增
 
 | 模块 | 路径 | 用途 |
@@ -47,6 +61,8 @@
 | 评分拆分 | `src/xiaoshuo/pipeline/scoring/` | genre_synthesizer 拆分为 6 子模块 |
 | 冒烟测试 | `tests/smoke_test.py` | 集成冒烟测试（无 LLM 依赖） |
 | 并行管线 | `analyze_all.py --parallel` | 阶段并行执行（~40% 加速） |
+| 交叉审查 | `agents/cross_review.py` + `agents/model_orchestrator.swap_to()` | 双模型顺序切换交叉审查（Qwen3.5-9B → DeepSeek-R1-0528-Qwen3-8B） |
+| Agent记忆 | `agents/memory_store.py` | 结构化行为回溯备忘录 (SQLite + 精准Tag, 零向量依赖) |
 
 ---
 

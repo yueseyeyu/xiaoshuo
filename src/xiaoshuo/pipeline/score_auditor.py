@@ -56,10 +56,10 @@ def run_audit(genre="末世"):
     reports_dir = PROJECT_ROOT / "data" / "reports" / genre / "synthesis"
 
     # ── Load data sources ──
-    comm_path = base / "commercial_scores.json"
+    comm_path = base / "quality" / "commercial_scores.json"
     borda_path = reports_dir / f"{genre}_borda_ranking.json"
-    manifest_path = base / "quality_manifest.json"
-    reliability_path = base / "annotation_reliability.json"
+    manifest_path = base / "quality" / "quality_manifest.json"
+    reliability_path = base / "quality" / "annotation_reliability.json"
 
     checks = {}
     issues = []
@@ -330,7 +330,7 @@ def run_audit(genre="末世"):
         "dimension_profiles": dim_profiles[:10] if dim_profiles else [],
     }
 
-    out_path = base / "score_audit.json"
+    out_path = base / "quality" / "score_audit.json"
     out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
 
     print(f"\n  [RESULT] Status: {status} ({fail_count} issues)")

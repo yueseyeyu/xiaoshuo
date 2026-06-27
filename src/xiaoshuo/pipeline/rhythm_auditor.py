@@ -241,7 +241,7 @@ def run_audit(genre="末世"):
         "books": results,
     }
 
-    out_path = PROJECT_ROOT / "data" / "processed" / genre / "rhythm_audit.json"
+    out_path = PROJECT_ROOT / "data" / "processed" / genre / "quality" / "rhythm_audit.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
 

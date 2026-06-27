@@ -19,6 +19,8 @@ import csv
 import json
 import logging
 import logging.handlers
+import os
+import re
 import signal
 import subprocess
 import sys
@@ -93,6 +95,10 @@ hardware_running = False
 MAX_LOGS = 500
 log_records = []
 log_lock = threading.Lock()
+
+# 事件流尾随线程
+event_tail_thread = None
+event_tail_running = False
 
 
 # ====================== 日志处理器 ======================
@@ -406,8 +412,12 @@ def _do_start_analysis(genre, books):
             cwd=str(XS_ROOT),
             stdout=subprocess.DEVNULL,
             stderr=err_handle,
+            env={**os.environ, "PYTHONPATH": str(XS_ROOT / "src")},
             creationflags=subprocess.CREATE_NO_WINDOW,
         )
+        # Close our copy of the fd — subprocess has its own
+        if err_handle is not subprocess.DEVNULL:
+            err_handle.close()
         selected = books or []
         logging.info(
             "拆书流程已启动: genre=%s selected=%s pid=%s",
@@ -418,6 +428,8 @@ def _do_start_analysis(genre, books):
             msg += f", 选中 {len(selected)} 本"
         msg += ")"
         _startup_state = {"status": "running", "message": msg, "progress": 100, "error": ""}
+        # P3: start event tail for real-time pipeline logging
+        _start_event_tail(err_file)
     except Exception as e:
         _startup_state = {"status": "error", "message": f"启动异常: {e}", "progress": 0, "error": str(e)}
         logging.error("启动异常: %s", e)
@@ -469,7 +481,77 @@ def _log_analysis_exit():
     else:
         logging.info("拆书流程正常结束 (PID %s)", pid)
         clear_stage()
+    # P3: 拆书完成后释放 LLM 模型服务，释放 VRAM
+    _cleanup_llm_process()
+    _llm_ready = False
     analyze_process = None
+    _stop_event_tail()
+
+
+def _start_event_tail(err_file):
+    """Start background thread that tails analyze_all.err and pushes events to memory log."""
+    global event_tail_thread, event_tail_running
+    _stop_event_tail()
+    event_tail_running = True
+
+    def _tail():
+        # Wait for file to exist
+        waited = 0
+        while event_tail_running and not err_file.exists() and waited < 10:
+            time.sleep(0.5)
+            waited += 0.5
+        if not err_file.exists():
+            return
+
+        with open(err_file, "r", encoding="utf-8", errors="replace") as f:
+            # Seek to end initially — only show new events
+            f.seek(0, 2)
+            while event_tail_running:
+                line = f.readline()
+                if line:
+                    line = line.strip()
+                    if line:
+                        # Parse pipeline stage events
+                        _parse_and_log_pipeline_event(line)
+                else:
+                    time.sleep(0.3)
+
+    event_tail_thread = threading.Thread(
+        target=_tail, daemon=True, name="event-tail",
+    )
+    event_tail_thread.start()
+    logging.info("事件流尾随已启动: %s", err_file)
+
+
+def _parse_and_log_pipeline_event(line):
+    """Parse a pipeline event line and push to memory log with appropriate level."""
+    level = "INFO"
+    # Detect error patterns
+    if any(kw in line.lower() for kw in ("[error]", "traceback", "exception", "fail", "crash")):
+        level = "ERROR"
+    elif any(kw in line.lower() for kw in ("[warn]", "warning")):
+        level = "WARNING"
+    elif any(kw in line for kw in ("[OK]", "[SKIP]", "[DONE]")):
+        level = "INFO"
+
+    with log_lock:
+        log_records.append({
+            "time": time.strftime("%H:%M:%S"),
+            "level": level,
+            "message": line[:500],
+        })
+        if len(log_records) > MAX_LOGS:
+            log_records.pop(0)
+
+
+def _stop_event_tail():
+    """Stop the event tail thread."""
+    global event_tail_thread, event_tail_running
+    event_tail_running = False
+    if event_tail_thread is not None:
+        if event_tail_thread.is_alive():
+            event_tail_thread.join(timeout=2.0)
+        event_tail_thread = None
 
 
 def _kill_process_tree(pid):
@@ -527,6 +609,43 @@ def stop_analysis():
             return False, f"停止失败: {e}"
         finally:
             analyze_process = None
+            _stop_event_tail()
+            # P3: attempt to kill any lingering llama-server processes (belt-and-suspenders)
+            _kill_orphan_llama_servers()
+
+
+def _kill_orphan_llama_servers():
+    """Kill any orphan llama-server.exe processes that may have been spawned
+    by the analyze subprocess (not tracked by _llm_process)."""
+    killed = 0
+    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+        try:
+            name = proc.info.get("name", "")
+            cmdline = proc.info.get("cmdline", [])
+            if name and "llama-server" in name.lower():
+                # Check if it's the one we track — skip if so
+                if _llm_process is not None and proc.pid == _llm_process.pid:
+                    continue
+                # P3: only kill processes working in our project directory
+                try:
+                    cwd = proc.cwd()
+                except Exception:
+                    cwd = ""
+                if cwd and str(XS_ROOT).lower() not in str(cwd).lower():
+                    continue
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except psutil.TimeoutExpired:
+                    proc.kill()
+                killed += 1
+                logging.info("清理孤立 llama-server: PID %s", proc.pid)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    if killed > 0:
+        logging.info("已清理 %d 个孤立 llama-server 进程，VRAM 将在数秒内释放", killed)
+    elif killed == 0:
+        logging.info("未发现孤立 llama-server 进程")
 
 
 def analysis_is_running():
@@ -541,21 +660,6 @@ def analysis_is_running():
 
 
 # ====================== 进度扫描 ======================
-
-def _chapter_count_from_rhythm(book_name, genre="末世"):
-    """Read actual chapter count from pre-computed rhythm CSV."""
-    rhythm_dir = XS_ROOT / "data" / "processed" / genre / "rhythm"
-    for csv_path in sorted(rhythm_dir.glob("rhythm_*.csv")):
-        stem = csv_path.stem.replace("rhythm_", "")
-        if book_name[:15] in stem or stem[:15] in book_name:
-            try:
-                reader = csv.DictReader(open(csv_path, "r", encoding="utf-8-sig"))
-                return sum(1 for _ in reader)
-            except Exception:
-                pass
-            break
-    return None
-
 
 def _find_rhythm_csv(book_name, genre="末世"):
     """Find rhythm CSV filename for a book."""
@@ -644,8 +748,9 @@ def _load_book_recursive(book_name, genre="末世"):
 
 
 def scan_progress(genre="末世"):
-    """Scan all books' checkpoint files and return progress data."""
+    """Scan all books' checkpoint files and return progress data with metadata."""
     summaries_dir = XS_ROOT / "data" / "processed" / genre / "summaries"
+    txt_dir = XS_ROOT / "data" / "raw" / "novels" / genre
     books = []
 
     for cp_path in sorted(summaries_dir.glob("*_checkpoint.json")):
@@ -656,42 +761,59 @@ def scan_progress(genre="末世"):
             continue
 
         l1_done = len(cp.get("l1_data", {}))
-        l2_done = len(cp.get("l2_done", []))
         l3_done = cp.get("l3_done", False)
 
-        l1_total = cp.get("l1_total", 0)
-        if not l1_total:
-            ch_count = _chapter_count_from_rhythm(book_name, genre)
-            l1_total = max(1, (ch_count + 7) // 8) if ch_count else "?"
+        # P3: L2 progress from checkpoint (now properly populated)
+        l2_done_raw = cp.get("l2_done", [])
+        l2_done = len(l2_done_raw) if isinstance(l2_done_raw, list) else 0
 
-        # P2: derive L2 total from L1 total (5 L1 groups -> 1 L2 volume)
-        l2_total = "?"
-        if isinstance(l1_total, int):
+        # L1 total: from checkpoint or derive from rhythm CSV
+        l1_total = cp.get("l1_total", 0)
+        meta = _get_book_metadata(book_name, genre)
+        ch_count = meta["chapters"]
+        if not l1_total and ch_count:
+            l1_total = max(1, (ch_count + 7) // 8)
+
+        # L2 total: from checkpoint l1_total or derive
+        l2_total = 0
+        if l1_total and isinstance(l1_total, int):
             l2_total = max(1, (l1_total + 4) // 5)
 
         json_path = summaries_dir / f"{book_name}_recursive.json"
         has_output = json_path.exists()
 
-        # P2: is_complete must reflect real parse progress, not just output file presence
+        # P3: completion detection — must satisfy all L1/L2/L3 + output validation
         is_complete = False
-        if isinstance(l1_total, int) and isinstance(l2_total, int) and has_output:
+        if l1_total and l2_total and has_output:
+            l1_ok = l1_done >= l1_total
+            l2_ok = l2_done >= l2_total
+            l3_ok = l3_done
             output_valid = False
-            try:
-                data = json.loads(json_path.read_text(encoding="utf-8"))
-                l3 = data.get("l3_analysis", {})
-                output_valid = bool(
-                    l3.get("book_summary")
-                    and l3.get("structure_pattern")
-                    and l3["book_summary"] not in ("(LLM unavailable)", "(checkpoint resume)", "")
-                    and l3["structure_pattern"] != "N/A"
-                )
-            except (json.JSONDecodeError, IOError):
-                pass
-            is_complete = (l1_done >= l1_total) and (l2_done >= l2_total) and l3_done and output_valid
+            if l1_ok and l2_ok and l3_ok:
+                try:
+                    data = json.loads(json_path.read_text(encoding="utf-8"))
+                    l3 = data.get("l3_analysis", {})
+                    output_valid = bool(
+                        l3.get("book_summary")
+                        and l3.get("structure_pattern")
+                        and l3["book_summary"] not in ("(LLM unavailable)", "(checkpoint resume)", "")
+                        and l3["structure_pattern"] != "N/A"
+                    )
+                except (json.JSONDecodeError, IOError):
+                    pass
+            is_complete = l1_ok and l2_ok and l3_ok and output_valid
 
+        # Status text: show current stage
         if is_complete:
             status = "done"
             status_text = "已完成"
+        elif l3_done:
+            # L3 done but output validation failed? Rare edge case
+            status = "running"
+            status_text = "L3 完成，待验证"
+        elif l2_done > 0:
+            status = "running"
+            status_text = f"进行中 L2 {l2_done}/{l2_total} ({_pct(l2_done, l2_total)}%)"
         elif l1_done > 0:
             status = "running"
             status_text = f"进行中 L1 {l1_done}/{l1_total}"
@@ -704,18 +826,22 @@ def scan_progress(genre="末世"):
             "status": status,
             "status_text": status_text,
             "l1_done": l1_done,
-            "l1_total": l1_total,
+            "l1_total": l1_total or "?",
             "l2_done": l2_done,
-            "l2_total": l2_total,
+            "l2_total": l2_total or "?",
             "l3_done": l3_done,
             "is_complete": is_complete,
+            # P3: book metadata
+            "chapters": ch_count or 0,
+            "file_size": meta["file_size"],
+            "word_count": meta["word_count"],
         })
 
     seen_names = {b["name"] for b in books}
-    txt_dir = XS_ROOT / "data" / "raw" / "novels" / genre
     for txt in sorted(txt_dir.glob("*.txt")):
         name = txt.stem[:40]
         if name not in seen_names:
+            meta = _get_book_metadata(name, genre)
             books.append({
                 "name": name,
                 "status": "pending",
@@ -723,11 +849,57 @@ def scan_progress(genre="末世"):
                 "l1_done": 0,
                 "l1_total": "?",
                 "l2_done": 0,
+                "l2_total": "?",
                 "l3_done": False,
                 "is_complete": False,
+                "chapters": meta["chapters"] or 0,
+                "file_size": meta["file_size"],
+                "word_count": meta["word_count"],
             })
 
     return books
+
+
+def _pct(done, total):
+    """Safe percentage calculation."""
+    if not isinstance(total, (int, float)) or total <= 0:
+        return 0
+    return min(100, int(done / total * 100))
+
+
+def _get_book_metadata(book_name, genre="末世"):
+    """Get book metadata: chapter count, file size, word count.
+    Uses fast path (checkpoint derivation + file size estimation) when possible.
+    Only falls back to CSV parsing for exact word count when needed.
+    """
+    meta = {"chapters": 0, "file_size": 0, "word_count": 0}
+    # File size from txt — fuzzy match (same as _find_rhythm_csv)
+    txt_dir = XS_ROOT / "data" / "raw" / "novels" / genre
+    for txt in txt_dir.glob("*.txt"):
+        stem = txt.stem
+        if book_name[:15] in stem or stem[:15] in book_name:
+            try:
+                meta["file_size"] = txt.stat().st_size
+            except OSError:
+                pass
+            break
+
+    # Fast path: derive from checkpoint (no CSV I/O)
+    cp_path = XS_ROOT / "data" / "processed" / genre / "summaries" / f"{book_name}_checkpoint.json"
+    if cp_path.exists():
+        try:
+            cp = json.loads(cp_path.read_text(encoding="utf-8"))
+            l1_total = cp.get("l1_total", 0)
+            if l1_total and isinstance(l1_total, (int, float)) and l1_total > 0:
+                meta["chapters"] = l1_total * 8  # approximate, sufficient for UI
+        except (json.JSONDecodeError, IOError):
+            pass
+
+    # Word count: estimate from file size (Chinese ~2.5 bytes/char)
+    if meta["file_size"] and not meta["word_count"]:
+        meta["word_count"] = int(meta["file_size"] / 2.5)
+
+    return meta
 
 
 # ====================== HTTP 处理器 ======================
@@ -742,14 +914,184 @@ def _send_json(handler, data, status=200):
 
 
 def _read_body(handler):
+    """Read and parse request body. Supports JSON and multipart/form-data."""
     length = int(handler.headers.get("Content-Length", 0))
     if length == 0:
         return {}
-    body = handler.rfile.read(length).decode("utf-8")
+    content_type = handler.headers.get("Content-Type", "")
+    raw = handler.rfile.read(length)
+
+    if "multipart/form-data" in content_type:
+        return _parse_multipart(raw, content_type)
     try:
-        return json.loads(body)
+        return json.loads(raw.decode("utf-8"))
     except Exception:
         return {}
+
+
+def _parse_multipart(raw, content_type):
+    """Parse multipart/form-data manually (no cgi module dependency)."""
+    # Extract boundary
+    boundary = None
+    for part in content_type.split(";"):
+        part = part.strip()
+        if part.startswith("boundary="):
+            boundary = part[len("boundary="):].strip('"')
+            break
+    if not boundary:
+        return {}
+
+    result = {}
+    boundary_bytes = ("--" + boundary).encode("utf-8")
+    end_boundary = ("--" + boundary + "--").encode("utf-8")
+
+    # Split by boundary
+    parts = raw.split(boundary_bytes)
+    for part in parts[1:]:  # skip preamble
+        if part.startswith(b"--"):
+            continue  # end boundary
+        # Split headers from body
+        header_end = part.find(b"\r\n\r\n")
+        if header_end == -1:
+            continue
+        headers_section = part[:header_end].decode("utf-8", errors="replace")
+        body = part[header_end + 4:]
+        # Remove trailing \r\n before next boundary
+        if body.endswith(b"\r\n"):
+            body = body[:-2]
+
+        # Extract field name from Content-Disposition
+        name_match = re.search(r'name="([^"]+)"', headers_section)
+        filename_match = re.search(r'filename="([^"]+)"', headers_section)
+        field_name = name_match.group(1) if name_match else None
+        if not field_name:
+            continue
+
+        if filename_match:
+            # File field: store filename + content
+            result[field_name] = body.decode("utf-8", errors="replace")
+            result["_filename"] = filename_match.group(1)
+        else:
+            result[field_name] = body.decode("utf-8", errors="replace")
+    return result
+
+
+# ====================== 文件上传 (v3) ======================
+
+def _handle_upload(body):
+    """上传书籍文件到 data/raw/novels/{genre}/。
+    支持 JSON body: {filename, content, genre}
+    支持 FormData: {file: <content>, _filename: <name>, genre: <genre>}
+    """
+    genre = body.get("genre", "末世")
+    # FormData 模式：file 字段 + _filename
+    if "file" in body and "_filename" in body:
+        filename = body["_filename"]
+        content = body["file"]
+    # JSON 模式：filename + content
+    else:
+        filename = body.get("filename", "")
+        content = body.get("content", "")
+    if not filename or not content:
+        return False, "filename 和 content 不能为空"
+    if not filename.endswith(".txt"):
+        return False, "仅支持 .txt 文件"
+    # 安全校验：文件名不能含路径穿越
+    safe_name = Path(filename).name
+    if safe_name != filename:
+        return False, "文件名非法"
+    dest_dir = XS_ROOT / "data" / "raw" / "novels" / genre
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_path = dest_dir / safe_name
+    dest_path.write_text(content, encoding="utf-8")
+    logging.info("[Upload] %s → %s", safe_name, dest_path)
+    return True, str(dest_path)
+
+
+# ====================== Pro 类型指导 (v3) ======================
+
+def _handle_pro_guide(body):
+    """触发 Pro 类型指导生成。body: {genre, force}"""
+    genre = body.get("genre", "末世")
+    force = body.get("force", False)
+    try:
+        from xiaoshuo.pipeline.scoring.pro_genre_guide import generate_genre_guide
+        result = generate_genre_guide(genre, force=force)
+        if result:
+            return True, f"Pro 类型指导已生成: {result}"
+        return False, "生成失败（可能 API 未配置或数据不足）"
+    except Exception as e:
+        logging.error("[Pro Guide] %s", e)
+        return False, str(e)
+
+
+# ====================== 报告浏览 (v3) ======================
+
+def _list_reports(genre=None):
+    """列出 data/reports/ 下的报告目录树。"""
+    reports_dir = XS_ROOT / "data" / "reports"
+    if not reports_dir.exists():
+        return []
+    result = []
+    # 遍历报告目录
+    for genre_dir in sorted(reports_dir.iterdir()):
+        if not genre_dir.is_dir():
+            continue
+        if genre and genre_dir.name != genre:
+            continue
+        genre_entry = {"name": genre_dir.name, "type": "dir", "children": []}
+        for sub_dir in sorted(genre_dir.iterdir()):
+            if not sub_dir.is_dir():
+                continue
+            sub_entry = {"name": sub_dir.name, "type": "dir", "children": []}
+            for f in sorted(sub_dir.iterdir()):
+                if f.suffix in (".md", ".json", ".csv", ".txt"):
+                    sub_entry["children"].append({
+                        "name": f.name,
+                        "type": "file",
+                        "path": str(f.relative_to(XS_ROOT)),
+                        "size": f.stat().st_size,
+                    })
+            if sub_entry["children"]:
+                genre_entry["children"].append(sub_entry)
+        if genre_entry["children"]:
+            result.append(genre_entry)
+    return result
+
+
+def _read_report(rel_path):
+    """读取报告文件内容。"""
+    safe_path = (XS_ROOT / rel_path).resolve()
+    if not str(safe_path).startswith(str(XS_ROOT / "data" / "reports")):
+        return None, "路径非法"
+    if not safe_path.exists() or not safe_path.is_file():
+        return None, "文件不存在"
+    content = safe_path.read_text(encoding="utf-8", errors="replace")
+    return content, safe_path.suffix
+
+
+# ====================== 缓存管理 (v3) ======================
+
+def _cache_status():
+    """扫描所有 .version 文件，返回缓存统计。"""
+    version_files = list(XS_ROOT.rglob(".version"))
+    total_size = sum(f.stat().st_size for f in version_files if f.is_file())
+    return {
+        "version_count": len(version_files),
+        "total_size_kb": round(total_size / 1024, 1),
+        "files": [str(f.relative_to(XS_ROOT)) for f in sorted(version_files)],
+    }
+
+
+def _clear_cache():
+    """清除所有 .version 缓存文件。"""
+    deleted = 0
+    for f in XS_ROOT.rglob(".version"):
+        if f.is_file():
+            f.unlink()
+            deleted += 1
+    logging.info("[Cache] Cleared %d .version files", deleted)
+    return True, f"已清除 {deleted} 个缓存文件"
 
 
 class ProgressHandler(BaseHTTPRequestHandler):
@@ -869,6 +1211,27 @@ class ProgressHandler(BaseHTTPRequestHandler):
                 else:
                     _send_json(self, {"ok": True, "data": result})
                 return
+            elif path == "/api/reports":
+                qs = parse_qs(parsed.query)
+                genre = qs.get("genre", [None])[0]
+                tree = _list_reports(genre)
+                _send_json(self, {"ok": True, "data": tree})
+                return
+            elif path.startswith("/api/report/"):
+                rel_path = path[len("/api/report/"):]
+                try:
+                    rel_path = unquote(rel_path)
+                except Exception:
+                    pass
+                content, suffix = _read_report(rel_path)
+                if content is None:
+                    _send_json(self, {"ok": False, "error": suffix}, 404)
+                else:
+                    _send_json(self, {"ok": True, "data": {"content": content, "suffix": suffix}})
+                return
+            elif path == "/api/cache/status":
+                _send_json(self, {"ok": True, "data": _cache_status()})
+                return
             elif path.startswith("/css/") or path.startswith("/js/") or path.startswith("/assets/"):
                 self._serve_static(path.strip("/"))
                 return
@@ -891,6 +1254,20 @@ class ProgressHandler(BaseHTTPRequestHandler):
             elif self.path == "/api/stop":
                 ok, message = stop_analysis()
                 _send_json(self, {"ok": ok, "message": message}, 200 if ok else 409)
+            elif self.path == "/api/upload":
+                ok, message = _handle_upload(body)
+                _send_json(self, {"ok": ok, "message": message}, 200 if ok else 400)
+            elif self.path == "/api/pro-guide":
+                ok, message = _handle_pro_guide(body)
+                _send_json(self, {"ok": ok, "message": message}, 200 if ok else 500)
+            elif self.path == "/api/cache/clear":
+                ok, message = _clear_cache()
+                _send_json(self, {"ok": ok, "message": message}, 200 if ok else 500)
+            elif self.path == "/api/stop-llm":
+                _cleanup_llm_process()
+                global _llm_ready
+                _llm_ready = False
+                _send_json(self, {"ok": True, "message": "LLM 模型服务已关闭"})
             else:
                 self.send_error(404)
         except Exception as e:
@@ -909,6 +1286,7 @@ def main():
 
     print(f"[Progress Server] http://localhost:{PORT}")
     print(f"  API: /api/progress /api/hardware /api/start /api/stop /api/logs /api/status /api/startup-status")
+    print(f"       /api/upload /api/pro-guide /api/reports /api/report /api/cache")
     print(f"  Press Ctrl+C to stop")
 
     server = HTTPServer(("127.0.0.1", PORT), ProgressHandler)

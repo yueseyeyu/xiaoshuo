@@ -123,8 +123,8 @@ def audit_commercial():
     print("AUDIT 2: Commercial Score Data Quality")
     print("=" * 60)
     
-    scores = json.loads(Path(DATA_DIR / "commercial_scores.json").read_text("utf-8"))
-    manifest = json.loads(Path(DATA_DIR / "quality_manifest.json").read_text("utf-8"))
+    scores = json.loads(Path(DATA_DIR / "quality" / "commercial_scores.json").read_text("utf-8"))
+    manifest = json.loads(Path(DATA_DIR / "quality" / "quality_manifest.json").read_text("utf-8"))
     
     # Basic stats
     overalls = [v["overall"] for v in scores.values()]
@@ -176,7 +176,7 @@ def audit_commercial():
     
     # Annotation reliability
     try:
-        ann = json.loads(Path(DATA_DIR / "annotation_reliability.json").read_text("utf-8"))
+        ann = json.loads(Path(DATA_DIR / "quality" / "annotation_reliability.json").read_text("utf-8"))
         print(f"\n  Annotation reliability (regex vs LLM):")
         print(f"    Global F1: {ann['global_f1']:.3f}")
         print(f"    Pleasure F1: {ann['pleasure_f1']:.3f}")

@@ -1,0 +1,822 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>番茄小说 AI 辅助创作系统 v7.17</title>
+  <link rel="stylesheet" href="styles.css?v=717">
+</head>
+<body data-theme="midnight">
+<div id="app-shell" class="app-shell no-detail">
+<header class="topbar">
+  <div class="brand">
+    <button class="hamburger" aria-label="菜单" onclick="toggleMobileSidebar()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+    </button>
+    <div class="brand-logo">小</div>
+    <span class="brand-text">番茄小说 AI 辅助创作</span>
+    <span class="topbar-project-name" id="topbar-project-name"></span>
+    <span class="version-badge" id="version-badge">v7.17</span>
+  </div>
+  <div class="topbar-right">
+    <div class="system-status" id="system-status">
+      <div class="hw-monitor" id="hw-monitor">
+        <button class="hw-status-pill" id="hw-status-pill" onclick="toggleHardwareDropdown(event)" aria-haspopup="true" aria-expanded="false">
+          <span class="hw-status-dot" id="hw-status-dot"></span>
+          <span class="hw-status-text" id="hw-status-text">系统正常</span>
+          <svg class="hw-status-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </button>
+        <div class="hw-dropdown" id="hw-dropdown" aria-hidden="true">
+        <div class="hw-dropdown-header">
+          <span class="hw-dropdown-title">硬件状态</span>
+          <span class="hw-dropdown-subtitle" id="hw-dropdown-subtitle">运行正常</span>
+        </div>
+        <div class="hw-dropdown-body">
+          <div class="hw-metric hw-metric-primary" data-key="gpu">
+            <div class="hw-metric-meta"><span class="hw-metric-name">GPU 温度</span><span class="hw-metric-status" id="hw-gpu-status">正常</span></div>
+            <div class="hw-metric-value" id="hw-gpu-value">--</div>
+          </div>
+          <div class="hw-metric hw-metric-primary" data-key="vram">
+            <div class="hw-metric-meta"><span class="hw-metric-name">VRAM 占用</span><span class="hw-metric-status" id="hw-vram-status">正常</span></div>
+            <div class="hw-metric-value" id="hw-vram-value">--</div>
+          </div>
+          <div class="hw-divider"></div>
+          <div class="hw-metric hw-metric-secondary" data-key="cpu">
+            <span class="hw-metric-name">CPU 负载</span>
+            <span class="hw-metric-value-sm" id="hw-cpu-value">--</span>
+          </div>
+          <div class="hw-metric hw-metric-secondary" data-key="ram">
+            <span class="hw-metric-name">RAM 占用</span>
+            <span class="hw-metric-value-sm" id="hw-ram-value">--</span>
+          </div>
+        </div>
+        <div class="hw-dropdown-footer">
+          <button class="hw-to-page" onclick="navigate('hardware'); closeHardwareDropdown();">查看完整监控</button>
+        </div>
+      </div>
+      </div>
+      <div class="model-status-pill" id="model-status-pill" title="本地大模型状态">
+        <span class="model-status-dot" id="model-status-dot"></span>
+        <span id="model-status-text">本地模型未启用</span>
+      </div>
+    </div>
+    <span class="save-status" id="save-status"></span>
+    <div class="topbar-accent-switcher" id="topbar-accent-switcher">
+      <button class="preset-dot" data-preset="sky" aria-label="天蓝" onclick="setAccentPreset('sky')"></button>
+      <button class="preset-dot" data-preset="tomato" aria-label="番茄红" onclick="setAccentPreset('tomato')"></button>
+    </div>
+    <button class="icon-btn settings-btn" aria-label="设置" onclick="navigate('settings')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+    </button>
+  </div>
+</header>
+<aside class="sidebar">
+  <nav class="nav-top"><button class="nav-item active" data-page="dashboard" data-title="工作台" onclick="navigate('dashboard')" aria-label="工作台">
+      <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3zM7 7h4v4H7zM7 15h4v4H7zM15 7h4v4h-4zM15 15h4v4h-4z"></path></svg>
+      <span>工作台</span>
+      <span class="nav-tooltip">工作台</span>
+    </button>
+<button aria-label="书库" class="nav-item" data-page="library" data-title="书库" onclick="navigate('library')">
+      <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h7v2H4zm0 5h7v2H4zm0 5h7v2H4zm9-10h7v2h-7zm0 5h7v2h-7zm0 5h7v2h-7z"></path></svg>
+      <span>书库</span>
+      <span class="nav-tooltip">书库</span>
+    </button>
+<button aria-label="拆书" class="nav-item" data-page="disassembly" data-title="拆书" onclick="navigate('disassembly')">
+      <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.08-3.08a6 6 0 0 1-7.06 7.06l-6.36 6.36a2.5 2.5 0 1 1-3.54-3.54l6.36-6.36a6 6 0 0 1 7.06-7.06l-2.08 2.08z"></path></svg>
+      <span>拆书</span>
+      <span class="nav-tooltip">拆书</span>
+    </button>
+<button aria-label="报告" class="nav-item" data-page="reports" data-title="报告" onclick="navigate('reports')">
+      <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 17v-2H4.5A2.5 2.5 0 0 1 2 12.5v-9A2.5 2.5 0 0 1 4.5 1h9A2.5 2.5 0 0 1 16 3.5V9h-2V3.5a.5.5 0 0 0-.5-.5h-9a.5.5 0 0 0-.5.5v9a.5.5 0 0 0 .5.5H9zm9.5 7h-9a2.5 2.5 0 0 1-2.5-2.5v-9a2.5 2.5 0 0 1 2.5-2.5h9a2.5 2.5 0 0 1 2.5 2.5v9a2.5 2.5 0 0 1-2.5 2.5zM11 14.5a.5.5 0 0 0 .5.5h6a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-6a.5.5 0 0 0-.5.5v1zm0 4a.5.5 0 0 0 .5.5h6a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-6a.5.5 0 0 0-.5.5v1z"></path></svg>
+      <span>报告</span>
+      <span class="nav-tooltip">报告</span>
+    </button>
+<button aria-label="设计" class="nav-item" data-page="design" data-title="设计" onclick="navigate('design')">
+      <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path></svg>
+      <span>设计</span>
+      <span class="nav-tooltip">设计</span>
+    </button>
+<button aria-label="写作" class="nav-item" data-page="writing" data-title="写作" onclick="navigate('writing')">
+      <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+      <span>写作</span>
+      <span class="nav-tooltip">写作</span>
+    </button></nav>
+  <div class="nav-divider"></div>
+  <nav class="nav-bottom"><button aria-label="硬件" class="nav-item" data-page="hardware" data-title="硬件" onclick="navigate('hardware')">
+      <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v12H4zM9 20h6M12 16v4"></path></svg>
+      <span>硬件</span>
+      <span class="nav-badge" id="nav-badge-hardware"></span>
+      <span class="nav-tooltip">硬件</span>
+    </button>
+<button aria-label="设置" class="nav-item" data-page="settings" data-title="设置" onclick="navigate('settings')">
+      <svg class="nav-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm0 2a5 5 0 1 1 0-10 5 5 0 0 1 0 10z"></path></svg>
+      <span>设置</span>
+      <span class="nav-badge" id="nav-badge-settings"></span>
+      <span class="nav-tooltip">设置</span>
+    </button></nav>
+</aside>
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="closeMobileSidebar()"></div>
+<main class="main" id="main">
+<section id="page-dashboard" class="page active">
+  <div class="page-header"><h2>工作台 · 《末日模拟器》</h2><span class="text-muted" id="dashboard-subtitle">当前无进行中的项目</span></div>
+  <div class="dashboard-workstation" id="dashboard-workstation">
+    <div class="dashboard-main" id="dashboard-main">
+      <div id="hero-has-project" class="hero-station">
+        <div class="hero-station-left">
+          <div class="hero-greeting" id="hero-greeting">下午好，作者</div>
+          <h1 class="hero-title" id="hero-title">《末日模拟器》</h1>
+          <div class="hero-meta"><span id="hero-volumes">5</span>卷 · <span id="hero-chapters">300</span>章 · 当前处理题材：<span class="hero-genre" id="hero-genre">末世</span></div>
+          <div class="hero-actions">
+            <button class="btn btn-primary" onclick="navigate('writing')">继续写作</button>
+            <button class="btn btn-secondary" onclick="navigate('design')">查看大纲</button>
+            <button class="btn btn-secondary" onclick="navigate('library')">进入书库</button>
+          </div>
+        </div>
+        <div class="hero-station-right">
+          <div class="hero-stat kpi-indigo"><span class="hero-stat-value" id="hero-stat-chapters">127</span><span class="hero-stat-label">已写章节</span></div>
+          <div class="hero-stat kpi-dynamic"><span class="hero-stat-value" id="hero-stat-progress">42%</span><span class="hero-stat-label">总进度</span></div>
+          <div class="hero-stat kpi-amber"><span class="hero-stat-value" id="hero-stat-cards">156</span><span class="hero-stat-label">技法卡</span></div>
+        </div>
+      </div>
+      <div id="hero-empty-state" class="empty-state" style="display:none;">
+        <div class="empty-state-icon">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+        </div>
+        <h1 class="empty-state-title">开始你的第一部作品</h1>
+        <p class="empty-state-desc">拆书、节奏分析、技法提取与写作辅助，全部围绕你的创作流程。</p>
+        <div class="empty-state-actions">
+          <button class="btn btn-primary" onclick="createProject()">创建新作品</button>
+          <button class="btn btn-secondary" onclick="navigate('library')">导入参考书籍</button>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="loadDemoProject()">查看示例项目</button>
+        <div class="empty-state-features">
+          <button class="empty-state-feature" onclick="navigate('disassembly')">
+            <div class="feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h7v2H4zm0 5h7v2H4zm0 5h7v2H4zm9-10h7v2h-7zm0 5h7v2h-7zm0 5h7v2h-7z"/></svg></div>
+            <div><b>拆书分析</b><span>自动拆解节奏、人设与爽点</span></div>
+          </button>
+          <button class="empty-state-feature" onclick="navigate('rhythm')">
+            <div class="feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
+            <div><b>节奏曲线</b><span>可视化章节的节奏与张力</span></div>
+          </button>
+          <button class="empty-state-feature" onclick="navigate('reports')">
+            <div class="feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg></div>
+            <div><b>技法卡片</b><span>沉淀 reusable 的创作技法</span></div>
+          </button>
+          <button class="empty-state-feature" onclick="navigate('writing')">
+            <div class="feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg></div>
+            <div><b>AI 写作</b><span>本地模型辅助分析与建议</span></div>
+          </button>
+        </div>
+      </div>
+      <div class="library-kpi-row">
+        <div class="library-kpi-card kpi-indigo">
+          <div><div class="library-kpi-value">52</div><div class="library-kpi-label">已入库</div></div>
+          <div class="library-kpi-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h7v2H4zm0 5h7v2H4zm0 5h7v2H4zm9-10h7v2h-7zm0 5h7v2h-7zm0 5h7v2h-7z"/></svg></div>
+        </div>
+        <div class="library-kpi-card kpi-violet">
+          <div><div class="library-kpi-value">10</div><div class="library-kpi-label">题材类型</div></div>
+          <div class="library-kpi-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></div>
+        </div>
+        <div class="library-kpi-card kpi-amber">
+          <div><div class="library-kpi-value">156</div><div class="library-kpi-label">技法卡片</div></div>
+          <div class="library-kpi-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg></div>
+        </div>
+        <div class="library-kpi-card kpi-dynamic">
+          <div><div class="library-kpi-value">8/10</div><div class="library-kpi-label">管线进度</div></div>
+          <div class="library-kpi-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+        </div>
+      </div>
+      <div class="pipeline-station">
+        <div class="pipeline-header"><h3>末世管线</h3><span class="pipeline-status">跨书合成运行中 · 7/9 · 末世题材</span></div>
+        <div class="pipeline-track">
+          <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8M1 3h22v5H1z"/><path d="M12 12v8"/></svg><div class="stage-dot completed"></div><div class="stage-name">①入库</div></div>
+          <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg><div class="stage-dot completed"></div><div class="stage-name">②拆书</div></div>
+          <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg><div class="stage-dot completed"></div><div class="stage-name">①评分</div></div>
+          <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg><div class="stage-dot completed"></div><div class="stage-name">④关卡</div></div>
+          <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg><div class="stage-dot completed"></div><div class="stage-name">⑤桥接</div></div>
+          <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg><div class="stage-dot completed"></div><div class="stage-name">⑥摘要</div></div>
+          <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg><div class="stage-dot running"></div><div class="stage-name running">⑧跨书</div></div>
+          <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg><div class="stage-dot pending"></div><div class="stage-name">⑨技法</div></div>
+          <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg><div class="stage-dot pending"></div><div class="stage-name">⑨指导</div></div>
+        </div>
+      </div>
+      <div class="dashboard-section">
+        <h3>最近动态</h3>
+        <div class="activity-list">
+          <div class="activity-item">
+            <div class="activity-status completed"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <div class="activity-body"><div class="activity-title">完成了27章《暴雨前的寂静》初稿</div><div class="activity-desc">字数 2,340 · 节奏评分 8.2 · 耗时 42 分钟</div></div>
+            <div class="activity-time">2小时前</div>
+          </div>
+          <div class="activity-item">
+            <div class="activity-status completed"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <div class="activity-body"><div class="activity-title">拆书分析完成《全球高武》</div><div class="activity-desc">提炼技法卡片 12 张 · 节奏曲线已生成 · 耗时 12 分钟</div></div>
+            <div class="activity-time">5小时前</div>
+          </div>
+          <div class="activity-item">
+            <div class="activity-status running"></div>
+            <div class="activity-body"><div class="activity-title">跨书合成发现末世题材新趋势</div><div class="activity-desc">「团体生存」「种田」组合出现频率最高 · 已运行 8 分钟</div></div>
+            <div class="activity-time">昨天</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <aside class="dashboard-sidebar">
+      <div class="side-card">
+        <div class="side-card-title">系统健康</div>
+        <div class="side-card-body compact">
+          <div class="health-list" id="dashboard-health-list">
+            <div class="health-row" data-key="gpu" title="阈值：注意 75°C / 危险 85°C">
+              <span class="health-key">GPU</span>
+              <div class="health-bar-wrap"><div class="health-bar"><span style="width:68%" id="dash-gpu-bar"></span></div></div>
+              <span class="health-value" id="dash-gpu-value">68°C</span>
+            </div>
+            <div class="health-row" data-key="vram" title="8GB 显存 · 阈值：注意 80% / 危险 90%">
+              <span class="health-key">VRAM</span>
+              <div class="health-bar-wrap"><div class="health-bar"><span style="width:72%" id="dash-vram-bar"></span></div></div>
+              <span class="health-value" id="dash-vram-value">72%</span>
+            </div>
+            <div class="health-row" data-key="ram" title="阈值：注意 85% / 危险 94%">
+              <span class="health-key">RAM</span>
+              <div class="health-bar-wrap"><div class="health-bar"><span style="width:55%" id="dash-ram-bar"></span></div></div>
+              <span class="health-value" id="dash-ram-value">55%</span>
+            </div>
+            <div class="health-row" data-key="cpu" title="阈值：注意 80% / 危险 92%">
+              <span class="health-key">CPU</span>
+              <div class="health-bar-wrap"><div class="health-bar"><span style="width:41%" id="dash-cpu-bar"></span></div></div>
+              <span class="health-value" id="dash-cpu-value">41%</span>
+            </div>
+          </div>
+          <div class="model-status"><span class="mini-status completed"></span><span id="dash-model-name">Qwen3.5-9B</span><span id="dash-model-status">在线</span></div>
+        </div>
+      </div>
+      <div class="side-card">
+        <div class="side-card-title">写作进度</div>
+        <div class="writing-progress-card">
+          <div class="progress-ring-lg"><span>42%</span></div>
+          <div class="progress-info"><b>第27章</b><span>共2700字 · 剩余173字</span><span class="progress-extra">今日 1,240 字 · 预计 12 分钟</span></div>
+        </div>
+      </div>
+      <div class="side-card">
+        <div class="side-card-title">快捷入口</div>
+        <div class="quick-links-list">
+          <button class="quick-link-row" onclick="navigate('library')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h7v2H4zm0 5h7v2H4zm0 5h7v2H4zm9-10h7v2h-7zm0 5h7v2h-7zm0 5h7v2h-7z"/></svg>书库</button>
+          <button class="quick-link-row" onclick="navigate('writing')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>写作</button>
+          <button class="quick-link-row" onclick="navigate('hardware')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v12H4zM9 20h6M12 16v4"/></svg>硬件</button>
+          <button class="quick-link-row" onclick="navigate('settings')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>设置</button>
+        </div>
+        <div class="side-card-subtitle">待处理任务</div>
+        <div class="mini-task-list" id="dash-pending-tasks">
+          <div class="mini-task"><span class="mini-status running"></span><span class="mini-task-name">跨书合成 · 末世题材</span><span class="mini-progress">7/9</span></div>
+          <div class="mini-task"><span class="mini-status pending"></span><span class="mini-task-name">技法卡片整理</span><span class="mini-progress">等待中</span></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+</section>
+<section id="page-library" class="page">
+  <div class="page-header"><h2>书库</h2><button class="btn btn-primary" onclick="importBook()">导入书籍</button><input type="file" id="book-file-input" accept=".txt" style="display:none" onchange="handleBookFileSelect(event)"></div>
+  <div class="library-toolbar">
+    <div class="genre-tabs" id="genre-tabs"></div>
+    <input type="text" class="library-search" id="library-search" placeholder="搜索书名、作者、题材.." oninput="renderLibrary()">
+  </div>
+  <div class="kpi-row">
+    <div class="kpi-card kpi-indigo"><div class="kpi-value" id="lib-kpi-count">52</div><div class="kpi-label">总书籍</div></div>
+    <div class="kpi-card kpi-indigo"><div class="kpi-value" id="lib-kpi-imported">52</div><div class="kpi-label">已入库</div></div>
+    <div class="kpi-card"><div class="kpi-value" id="lib-kpi-pending">0</div><div class="kpi-label">待处理</div></div>
+    <div class="kpi-card kpi-violet"><div class="kpi-value" id="lib-kpi-genres">10</div><div class="kpi-label">题材数</div></div>
+  </div>
+  <div class="library-layout">
+    <div class="library-main">
+      <div class="book-grid" id="book-grid"></div>
+    </div>
+    <aside class="detail-panel" id="detail-panel">
+      <div class="detail-empty" id="detail-empty">选择一本书查看详情</div>
+      <div class="detail-content" id="detail-content" style="display:none;">
+        <button class="detail-close icon-btn" onclick="closeDetail()">&times;</button>
+        <div class="detail-cover" id="detail-cover"></div>
+        <h3 class="detail-title" id="detail-title"></h3>
+        <div class="detail-meta" id="detail-meta"></div>
+        <div class="detail-tags" id="detail-tags"></div>
+        <div class="detail-files" id="detail-files"></div>
+        <button class="btn btn-primary detail-action" onclick="startAnalysisFromDetail()">开始分析</button>
+      </div>
+    </aside>
+    <div class="detail-overlay" id="detail-overlay" onclick="closeDetail()"></div>
+  </div>
+</section>
+<section id="page-disassembly" class="page">
+  <div class="page-header"><h2>拆书</h2><button class="btn btn-primary" onclick="openTaskModal()">新建任务</button></div>
+  <div class="kpi-row">
+    <div class="kpi-card"><div class="kpi-value">3</div><div class="kpi-label">总任务</div></div>
+    <div class="kpi-card"><div class="kpi-value">1</div><div class="kpi-label">进行中</div></div>
+    <div class="kpi-card"><div class="kpi-value">1</div><div class="kpi-label">已完成</div></div>
+    <div class="kpi-card"><div class="kpi-value">1</div><div class="kpi-label">失败</div></div>
+  </div>
+  <div class="disassembly-layout">
+    <div class="disassembly-main">
+      <div class="pipeline-station">
+        <div class="pipeline-header"><h3>拆书管线</h3><span class="pipeline-status">正在处理 · 3/9</span></div>
+        <div class="pipeline-track">
+          <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8v13H3V8M1 3h22v5H1z"/><path d="M12 12v8"/></svg><div class="stage-dot completed"></div><div class="stage-name">①入库</div></div>
+          <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><line x1="4" y1="9" x2="20" y2="9"/><line x1="9" y1="4" x2="9" y2="20"/></svg><div class="stage-dot completed"></div><div class="stage-name">②拆书</div></div>
+          <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg><div class="stage-dot running"></div><div class="stage-name running">①评分</div></div>
+          <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg><div class="stage-dot pending"></div><div class="stage-name">④关卡</div></div>
+          <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg><div class="stage-dot pending"></div><div class="stage-name">⑤桥接</div></div>
+          <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg><div class="stage-dot pending"></div><div class="stage-name">⑥摘要</div></div>
+          <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg><div class="stage-dot pending"></div><div class="stage-name">⑧跨书</div></div>
+          <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg><div class="stage-dot pending"></div><div class="stage-name">⑨技法</div></div>
+          <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg><div class="stage-dot pending"></div><div class="stage-name">⑨指导</div></div>
+        </div>
+      </div>
+      <div class="filter-tabs" id="task-filter-tabs"><button class="filter-tab active" data-filter="all" onclick="filterTasks('all')">全部</button>
+<button class="filter-tab" data-filter="running" onclick="filterTasks('running')">进行中</button>
+<button class="filter-tab" data-filter="completed" onclick="filterTasks('completed')">已完成</button>
+<button class="filter-tab" data-filter="failed" onclick="filterTasks('failed')">失败</button></div>
+      <div class="task-grid" id="task-grid"></div>
+    </div>
+    <aside class="disassembly-sidebar">
+      <div class="side-card">
+        <div class="side-card-title">待拆书队列</div>
+        <div class="side-card-body">
+          <div class="queue-item"><span class="queue-name">《狩魔手记_烟雨江南》</span><span class="queue-status">等待拆分</span></div>
+          <div class="queue-item"><span class="queue-name">《黑暗血时代》</span><span class="queue-status">等待拆分</span></div>
+          <div class="queue-item"><span class="queue-name">《末日乐园》</span><span class="queue-status">等待分析</span></div>
+          <div class="queue-item"><span class="queue-name">《全球进化》</span><span class="queue-status">等待分析</span></div>
+        </div>
+      </div>
+      <div class="side-card">
+        <div class="side-card-title">最近完成</div>
+        <div class="side-card-body">
+          <div class="mini-task"><span class="mini-status completed"></span><span class="mini-task-name">《全球高武》拆书完成</span><span class="mini-progress">156 张</span></div>
+          <div class="mini-task"><span class="mini-status completed"></span><span class="mini-task-name">《神秘复苏》节奏分析</span><span class="mini-progress">98%</span></div>
+          <div class="mini-task"><span class="mini-status completed"></span><span class="mini-task-name">《诡秘之主》技法提炼</span><span class="mini-progress">203 张</span></div>
+        </div>
+      </div>
+      <div class="side-card">
+        <div class="side-card-title">拆书统计</div>
+        <div class="side-card-body">
+          <div class="stat-row"><span>已拆章节</span><span class="stat-row-value">12,847</span></div>
+          <div class="stat-row"><span>提炼技法卡</span><span class="stat-row-value">1,247</span></div>
+          <div class="stat-row"><span>平均爽点密度</span><span class="stat-row-value">8.3/10</span></div>
+          <div class="stat-row"><span>平均节奏评分</span><span class="stat-row-value">7.6</span></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+</section>
+<section id="page-reports" class="page">
+  <div class="page-header"><h2>报告</h2><button class="btn btn-primary" onclick="showToast('已重新生成全部报告')">重新生成</button></div>
+  <div class="report-toolbar">
+    <div class="report-filters">
+      <button class="report-filter active" data-report-filter="all" onclick="filterReports('all')">全部</button>
+      <button class="report-filter" data-report-filter="writing" onclick="filterReports('writing')">写作指导</button>
+      <button class="report-filter" data-report-filter="market" onclick="filterReports('market')">市场分析</button>
+      <button class="report-filter" data-report-filter="character" onclick="filterReports('character')">人物分析</button>
+      <button class="report-filter" data-report-filter="rhythm" onclick="filterReports('rhythm')">节奏拆解</button>
+      <button class="report-filter" data-report-filter="tech" onclick="filterReports('tech')">技法提炼</button>
+    </div>
+    <span class="text-muted" id="report-count">共 6 份报告</span>
+  </div>
+  <div class="report-layout">
+    <div class="report-main">
+      <div class="report-grid" id="report-grid">
+        <div class="report-card" data-report-type="writing" onclick="openReportDetail(0)">
+          <div class="report-header"><span class="lifecycle-dot green"></span><h3>创作指导摘要</h3></div>
+          <p class="report-insight">当前卷需要强化主角动机转折，建议在第三章加入外部压力事件，以提升节奏张力。</p>
+          <div class="report-meta"><span>2026-06-21 · 12 条洞察</span><div class="report-tags"><span class="report-tag">写作</span><span class="report-tag">节奏</span></div></div>
+        </div>
+        <div class="report-card" data-report-type="market" onclick="openReportDetail(1)">
+          <div class="report-header"><span class="lifecycle-dot blue"></span><h3>跨书合成发现</h3></div>
+          <p class="report-insight">末世题材中“团体生存”与“种田”组合出现频率最高，可作为下一卷世界观锚点。</p>
+          <div class="report-meta"><span>覆盖 52 本书 · 8 个题材</span><div class="report-tags"><span class="report-tag">市场</span><span class="report-tag">末世</span></div></div>
+        </div>
+        <div class="report-card" data-report-type="tech" onclick="openReportDetail(2)">
+          <div class="report-header"><span class="lifecycle-dot amber"></span><h3>技法卡片库</h3></div>
+          <p class="report-insight">已提炼 156 张技法卡片，其中“悬念铺设”类占比 23%，可直接插入写作指导。</p>
+          <div class="report-meta"><span>156 张卡片 · 24 个标签</span><div class="report-tags"><span class="report-tag">技法</span><span class="report-tag">卡片</span></div></div>
+        </div>
+        <div class="report-card" data-report-type="rhythm" onclick="openReportDetail(3)">
+          <div class="report-header"><span class="lifecycle-dot purple"></span><h3>第27章节奏分析</h3></div>
+          <p class="report-insight">本章爽点密度偏低，结尾悬念不足。建议增加一个突发事件或情绪反转。</p>
+          <div class="report-meta"><span>2026-06-20 · 节奏评分 7.1</span><div class="report-tags"><span class="report-tag">节奏</span><span class="report-tag">章节</span></div></div>
+        </div>
+        <div class="report-card" data-report-type="character" onclick="openReportDetail(4)">
+          <div class="report-header"><span class="lifecycle-dot green"></span><h3>主角成长弧线</h3></div>
+          <p class="report-insight">主角从被动求生到主动领导过渡自然，但中期缺乏一次重大失败来加深人物厚度。</p>
+          <div class="report-meta"><span>2026-06-19 · 5 个角色</span><div class="report-tags"><span class="report-tag">人物</span><span class="report-tag">成长</span></div></div>
+        </div>
+        <div class="report-card" data-report-type="market" onclick="openReportDetail(5)">
+          <div class="report-header"><span class="lifecycle-dot blue"></span><h3>末世题材热度趋势</h3></div>
+          <p class="report-insight">“丧尸种田”“异兽团队”两类开篇完读率最高，可作为新书开篇参考。</p>
+          <div class="report-meta"><span>2026-06-18 · 28 本样本</span><div class="report-tags"><span class="report-tag">市场</span><span class="report-tag">趋势</span></div></div>
+        </div>
+      </div>
+    </div>
+    <aside class="report-sidebar">
+      <div class="report-summary-card">
+        <h3>报告统计</h3>
+        <div id="report-sidebar-stats">
+          <div class="summary-row"><span>写作指导</span><span class="summary-row-value">1</span></div>
+          <div class="summary-row"><span>市场分析</span><span class="summary-row-value">2</span></div>
+          <div class="summary-row"><span>人物分析</span><span class="summary-row-value">1</span></div>
+          <div class="summary-row"><span>节奏拆解</span><span class="summary-row-value">1</span></div>
+          <div class="summary-row"><span>技法提炼</span><span class="summary-row-value">1</span></div>
+        </div>
+      </div>
+      <div class="report-summary-card" id="report-api-stats" style="display:none">
+        <h3>后端数据统计</h3>
+        <div class="summary-row"><span>分析书籍</span><span class="summary-row-value" id="rs-api-books">-</span></div>
+        <div class="summary-row"><span>分析章节</span><span class="summary-row-value" id="rs-api-chapters">-</span></div>
+        <div class="summary-row"><span>题材聚焦</span><span class="summary-row-value" id="rs-api-genre">-</span></div>
+        <div class="summary-row"><span>钩子基准</span><span class="summary-row-value" id="rs-api-hook">-</span></div>
+      </div>
+      <div class="report-summary-card">
+        <h3>最近生成</h3>
+        <div class="summary-row"><span>创作指导摘要</span><span class="summary-row-value">今天</span></div>
+        <div class="summary-row"><span>第27章节奏分析</span><span class="summary-row-value">昨天</span></div>
+        <div class="summary-row"><span>主角成长弧线</span><span class="summary-row-value">2天前</span></div>
+      </div>
+      <div class="report-summary-card">
+        <h3>待处理洞察</h3>
+        <div class="summary-row"><span>未读高优建议</span><span class="summary-row-value" style="color:var(--warning)">3</span></div>
+        <div class="summary-row"><span>已采纳建议</span><span class="summary-row-value" style="color:var(--success)">12</span></div>
+        <div class="summary-row"><span>已忽略建议</span><span class="summary-row-value">4</span></div>
+      </div>
+    </aside>
+  </div>
+</section>
+<aside class="report-detail" id="report-detail">
+  <div class="report-detail-header">
+    <div class="report-detail-title" id="report-detail-title">报告详情</div>
+    <button class="icon-btn" onclick="closeReportDetail()">&times;</button>
+  </div>
+  <div class="report-detail-body" id="report-detail-body"></div>
+  <div class="report-detail-footer">
+    <button class="btn btn-secondary" onclick="importReportToWriting()">导入写作辅助</button>
+    <button class="btn btn-secondary" onclick="aiSuggestReport()">AI 建议</button>
+    <button class="btn btn-primary" onclick="saveReportEdit()">保存</button>
+  </div>
+</aside>
+<div class="report-detail-overlay" id="report-detail-overlay" onclick="closeReportDetail()"></div>
+<section id="page-design" class="page">
+  <div class="page-header"><h2>设计</h2><button class="btn btn-secondary btn-sm" id="btn-load-skeleton" onclick="loadSkeletonData()" style="margin-left:auto;">从后端加载骨架</button></div>
+  <div class="design-layout">
+    <nav class="subnav">
+      <button class="subnav-item active" data-sub="rough" onclick="showDesign('rough')">粗纲</button>
+      <button class="subnav-item" data-sub="detailed" onclick="showDesign('detailed')">细纲</button>
+      <button class="subnav-item" data-sub="world" onclick="showDesign('world')">世界观</button>
+      <button class="subnav-item" data-sub="characters" onclick="showDesign('characters')">角色</button>
+      <button class="subnav-item" data-sub="factions" onclick="showDesign('factions')">势力</button>
+    </nav>
+    <div class="design-content">
+      <div class="design-pane active" id="design-rough">
+        <div class="volume-grid"><div class="volume-card">
+  <div class="volume-header"><span class="volume-title">第一卷</span><span class="volume-range">1-60 章</span></div>
+  <div class="volume-subtitle">灾变初临</div>
+  <p class="volume-summary">主角在高考考场遭遇末日降临，被迫在混乱中保护同学并觉醒模拟器能力。</p>
+  <div class="volume-tags"><span class="tag">觉醒</span><span class="tag">逃亡</span><span class="tag">校园</span></div>
+</div><div class="volume-card">
+  <div class="volume-header"><span class="volume-title">第二卷</span><span class="volume-range">61-120 章</span></div>
+  <div class="volume-subtitle">废墟秩序</div>
+  <p class="volume-summary">幸存者小队在废弃商场建立据点，主角通过模拟预判危险，逐步确立领导地位。</p>
+  <div class="volume-tags"><span class="tag">据点</span><span class="tag">团体</span><span class="tag">资源</span></div>
+</div><div class="volume-card">
+  <div class="volume-header"><span class="volume-title">第三卷</span><span class="volume-range">121-180 章</span></div>
+  <div class="volume-subtitle">暗流涌动</div>
+  <p class="volume-summary">外界势力觊觎据点资源，内部出现分歧，主角面临信任与利益的考验。</p>
+  <div class="volume-tags"><span class="tag">内讧</span><span class="tag">权谋</span><span class="tag">冲突</span></div>
+</div><div class="volume-card">
+  <div class="volume-header"><span class="volume-title">第四卷</span><span class="volume-range">181-240 章</span></div>
+  <div class="volume-subtitle">进化之路</div>
+  <p class="volume-summary">病毒二次变异，人类与怪物同步进化，主角团队被迫向更危险的城市核心进发。</p>
+  <div class="volume-tags"><span class="tag">进化</span><span class="tag">副本</span><span class="tag">Boss</span></div>
+</div><div class="volume-card">
+  <div class="volume-header"><span class="volume-title">第五卷</span><span class="volume-range">241-300 章</span></div>
+  <div class="volume-subtitle">新纪元</div>
+  <p class="volume-summary">真相揭露，末日竟是高等文明的筛选试验，主角必须做出拯救还是逃离的抉择。</p>
+  <div class="volume-tags"><span class="tag">真相</span><span class="tag">决战</span><span class="tag">终章</span></div>
+</div></div>
+      </div>
+      <div class="design-pane" id="design-detailed">
+        <div class="chapter-list"><div class="chapter-group">
+  <div class="chapter-header">第一卷</div>
+  <div class="chapter-grid">
+    <div><b>目标</b><p>建立末日氛围</p></div>
+    <div><b>冲突</b><p>主角与监考老师对峙</p></div>
+    <div><b>结果</b><p>觉醒模拟器，逃离考场</p></div>
+  </div>
+  <ul class="scene-list"><li>考场混乱</li><li>首次模拟</li><li>能力觉醒</li></ul>
+</div><div class="chapter-group">
+  <div class="chapter-header">第二卷</div>
+  <div class="chapter-grid">
+    <div><b>目标</b><p>展示世界规则</p></div>
+    <div><b>冲突</b><p>如何保护同学突围</p></div>
+    <div><b>结果</b><p>组建临时小队</p></div>
+  </div>
+  <ul class="scene-list"><li>丧尸出现</li><li>路线选择</li><li>救人</li></ul>
+</div><div class="chapter-group">
+  <div class="chapter-header">第三卷</div>
+  <div class="chapter-grid">
+    <div><b>目标</b><p>引入外部压力</p></div>
+    <div><b>冲突</b><p>食物与信任危机</p></div>
+    <div><b>结果</b><p>占领小卖部作为据点</p></div>
+  </div>
+  <ul class="scene-list"><li>物资搜寻</li><li>冲突爆发</li><li>决策</li></ul>
+</div></div>
+      </div>
+      <div class="design-pane" id="design-world">
+        <div class="world-core">
+          <h4>世界观核心</h4>
+          <p>末日降临由一种未知病毒引发，感染者会逐步变异成怪物。主角林默在高考考场遭遇末日降临，意外觉醒末日模拟器能力，可以在梦中预演未来4小时。随着剧情推进，末日真相逐渐揭露——这是一场高等文明对人类的筛选试验。</p>
+        </div>
+      </div>
+      <div class="design-pane" id="design-factions">
+        <div class="design-card"><h3>势力关系</h3><svg viewBox="0 0 600 300" class="relation-svg">
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="20" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="var(--text-secondary)"/></marker></defs>
+  <line x1="300" y1="80" x2="150" y2="180" stroke="var(--border)" marker-end="url(#arrow)"/>
+  <line x1="300" y1="80" x2="450" y2="180" stroke="var(--border)" marker-end="url(#arrow)"/>
+  <line x1="150" y1="180" x2="450" y2="180" stroke="var(--border)"/>
+  <circle cx="300" cy="80" r="28" fill="var(--surface)" stroke="var(--accent)" stroke-width="2"/><text x="300" y="85" text-anchor="middle" fill="var(--text)" font-size="12">末日模拟器</text>
+  <circle cx="150" cy="180" r="28" fill="var(--surface)" stroke="var(--accent)" stroke-width="2"/><text x="150" y="185" text-anchor="middle" fill="var(--text)" font-size="12">主角</text>
+  <circle cx="450" cy="180" r="28" fill="var(--surface)" stroke="var(--accent)" stroke-width="2"/><text x="450" y="185" text-anchor="middle" fill="var(--text)" font-size="12">势力A</text>
+  <circle cx="300" cy="240" r="24" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/><text x="300" y="245" text-anchor="middle" fill="var(--text-secondary)" font-size="11">病毒源头</text>
+</svg></div>
+        <div class="design-card">
+          <div class="design-card-header"><h3>势力设定</h3><span class="text-muted">点击卡片编辑</span></div>
+          <div class="faction-list" id="faction-list"></div>
+        </div>
+      </div>
+      <div class="design-pane" id="design-characters">
+        <div class="design-card"><h3>人物关系</h3><svg viewBox="0 0 600 300" class="relation-svg">
+  <line x1="300" y1="70" x2="200" y2="160" stroke="var(--border)"/>
+  <line x1="300" y1="70" x2="400" y2="160" stroke="var(--border)"/>
+  <line x1="200" y1="160" x2="400" y2="160" stroke="var(--border)"/>
+  <circle cx="300" cy="70" r="30" fill="var(--surface)" stroke="var(--accent)" stroke-width="2"/><text x="300" y="75" text-anchor="middle" fill="var(--text)" font-size="12">林默</text>
+  <circle cx="200" cy="160" r="28" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/><text x="200" y="165" text-anchor="middle" fill="var(--text)" font-size="11">苏婉</text>
+  <circle cx="400" cy="160" r="28" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/><text x="400" y="165" text-anchor="middle" fill="var(--text)" font-size="11">老K</text>
+  <circle cx="300" cy="230" r="24" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/><text x="300" y="235" text-anchor="middle" fill="var(--text-secondary)" font-size="11">变异体零号</text>
+</svg></div>
+        <div class="character-grid"><div class="character-card"><h4>林默</h4><div class="char-role">主角</div><p>冷静果断，拥有末日模拟器，能在梦中预演未来4小时。</p></div><div class="character-card"><h4>苏婉</h4><div class="char-role">女主</div><p>医学生，擅长急救与毒理分析，团队医疗核心。</p></div><div class="character-card"><h4>老K</h4><div class="char-role">导师</div><p>退役特种兵，传授生存技巧，是主角初期的武力依靠。</p></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+<div class="design-modal" id="design-edit-modal">
+  <div class="design-modal-window">
+    <div class="design-modal-header">
+      <div class="design-modal-title" id="design-edit-title">编辑</div>
+      <button class="icon-btn" onclick="closeDesignEdit()">&times;</button>
+    </div>
+    <div class="design-modal-body" id="design-edit-body"></div>
+    <div class="design-modal-footer">
+      <button class="btn btn-secondary" onclick="aiSuggestDesign()">AI 建议</button>
+      <button class="btn btn-primary" onclick="saveDesignEdit()">保存</button>
+    </div>
+  </div>
+</div>
+<div class="report-detail-overlay" id="design-edit-overlay" onclick="closeDesignEdit()"></div>
+<section id="page-writing" class="page">
+  <div class="writing-toolbar">
+    <div class="writing-toolbar-left">
+      <button class="btn btn-secondary btn-sm" id="focus-toggle" onclick="toggleFocus()">专注模式</button>
+      <div class="dropdown writing-more-dropdown">
+        <button class="btn btn-secondary btn-sm" id="ai-assist-toggle" onclick="toggleWritingMore(this)">AI 辅助</button>
+        <div class="dropdown-menu" id="writing-more-menu">
+          <button class="dropdown-item" onclick="toggleDeAi(); closeWritingMore();">去AI味</button>
+          <button class="dropdown-item" onclick="toggleAiCompare(); closeWritingMore();">AI 对比</button>
+          <button class="dropdown-item" onclick="toggleInstructionsPanel(); closeWritingMore();">逐章指令</button>
+        </div>
+      </div>
+    </div>
+    <div class="writing-toolbar-right">
+      <span class="word-count" id="editor-word-count">0 / 2000 字</span>
+      <span class="save-status-pill" id="writing-save-status">已保存</span>
+      <button class="btn btn-primary btn-sm" onclick="saveDraft()">保存草稿</button>
+    </div>
+  </div>
+  <button class="writing-sidebar-toggle" id="writing-sidebar-toggle" onclick="toggleWritingSidebar()" aria-label="展开参考面板" aria-expanded="false">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+  </button>
+  <div class="writing-layout sidebar-collapsed" id="writing-layout">
+    <div class="editor-pane">
+      <input type="text" class="editor-title" id="editor-title" value="第27章 暴雨前的寂静" placeholder="章节标题">
+      <textarea class="editor-textarea" id="editor-textarea" placeholder="开始写作..">天空阴沉得像是被谁泼了一层墨。</textarea>
+    </div>
+    <aside class="writing-sidebar" id="writing-sidebar">
+      <div class="panel" id="self-check-panel">
+        <div class="panel-header" onclick="togglePanel('self-check')">去AI味自查清单</div>
+        <div class="panel-body">
+          <label class="check-item"><input type="checkbox" checked> 避免"首先/其次/最后"机械衔接</label>
+          <label class="check-item"><input type="checkbox"> 检查是否有过度解释性总结</label>
+          <label class="check-item"><input type="checkbox" checked> 确保动词优先，少用形容词堆叠</label>
+          <label class="check-item"><input type="checkbox"> 对话是否带有角色个性</label>
+          <label class="check-item"><input type="checkbox"> 删掉"不得不说/众所周知"</label>
+        </div>
+      </div>
+      <div class="panel" id="imported-report-panel" style="display:none">
+        <div class="panel-header" onclick="togglePanel('imported-report')">导入报告</div>
+        <div class="panel-body">
+          <div class="outline-section"><b id="imported-report-title"></b><p id="imported-report-insight" style="font-size:13px;margin-top:6px;"></p></div>
+          <div class="outline-section"><span style="font-size:11px;color:var(--text-secondary)" id="imported-report-time"></span></div>
+        </div>
+      </div>
+      <div class="panel collapsed" id="outline-panel">
+        <div class="panel-header" onclick="togglePanel('outline')">大纲参考</div>
+        <div class="panel-body" id="outline-panel-body">
+          <div class="outline-section"><b>当前卷</b><p id="outline-vol-info">第一卷：降临</p></div>
+          <div class="outline-section"><b>角色</b><div id="outline-chars">林默 / 苏婉 / 老K</div></div>
+          <div class="outline-section"><b>场景目标</b><p id="outline-scene-goal">建立末日世界观，引入主角能力</p></div>
+        </div>
+      </div>
+      <div class="panel collapsed" id="ai-compare-panel">
+        <div class="panel-header" onclick="togglePanel('ai-compare')">AI对比分析</div>
+        <div class="panel-body">
+          <div class="ai-compare-item"><b>原文</b><p>天空阴沉得像是被谁泼了一层墨。</p></div>
+          <div class="ai-compare-item"><b>AI润色</b><p>天色沉得像泼翻的墨汁，压得人喘不过气。</p></div>
+          <div class="ai-compare-note">建议保留原文，画面更克制。</div>
+        </div>
+      </div>
+      <div class="panel" id="instructions-panel" style="display:none">
+        <div class="panel-header" onclick="togglePanel('instructions')">
+          逐章指令 <span style="font-size:11px;color:var(--text-secondary);margin-left:8px;" id="instr-book-name"></span>
+        </div>
+        <div class="panel-body" id="instructions-panel-body">
+          <div class="ch-instr-loading" id="instr-loading">请选择参考书与章节，点击加载获取指令</div>
+          <div class="ch-instr-list" id="instr-list" style="display:none"></div>
+          <div class="ch-instr-actions" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+            <select id="instr-book-select" onchange="loadInstructionsForBook()" style="flex:1;min-width:120px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:13px;">
+              <option value="">选择参考书</option>
+            </select>
+            <input type="number" id="instr-chapter-input" value="127" min="1" style="width:60px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:13px;" onchange="loadInstructionsForBook()" placeholder="章">
+            <button class="btn btn-primary btn-sm" onclick="loadInstructionsForBook()">加载</button>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+</section>
+<div class="focus-ai-panel" id="focus-ai-panel">
+  <div class="focus-ai-header"><h4>AI 对比</h4><button class="icon-btn" onclick="closeFocusAiPanel()">&times;</button></div>
+  <div class="focus-ai-body" id="focus-ai-body">
+    <div class="ai-compare-item"><b>原文</b><p>天空阴沉得像是被谁泼了一层墨。</p></div>
+    <div class="ai-compare-item"><b>AI润色</b><p>天色沉得像泼翻的墨汁，压得人喘不过气。</p></div>
+    <div class="ai-compare-note">建议保留原文，画面更克制。</div>
+  </div>
+</div>
+<div class="deai-hint" id="deai-hint">去AI味已开启：避免机械衔接、过度解释和套话</div>
+<section id="page-hardware" class="page">
+  <div class="page-header"><h2>硬件</h2></div>
+  <div class="hardware-layout">
+    <div class="gauge-grid" id="hardware-gauge-grid">
+      <div class="gauge-card gauge-primary status-warn" id="gauge-gpu">
+        <div class="gauge" style="--p:68;"><span id="gauge-gpu-value">68°C</span></div>
+        <div class="gauge-label">GPU 温度</div>
+        <div class="gauge-status warn" id="gauge-gpu-status">注意</div>
+      </div>
+      <div class="gauge-card gauge-secondary status-warn" id="gauge-vram">
+        <div class="gauge-value" id="gauge-vram-value">72%</div>
+        <div class="gauge-label">VRAM 占用</div>
+        <div class="gauge-bar"><span style="width:72%" id="gauge-vram-bar"></span></div>
+      </div>
+      <div class="gauge-card gauge-secondary status-normal" id="gauge-ram">
+        <div class="gauge-value" id="gauge-ram-value">55%</div>
+        <div class="gauge-label">RAM 占用</div>
+        <div class="gauge-bar"><span style="width:55%" id="gauge-ram-bar"></span></div>
+      </div>
+      <div class="gauge-card gauge-secondary status-normal" id="gauge-cpu">
+        <div class="gauge-value" id="gauge-cpu-value">41%</div>
+        <div class="gauge-label">CPU 占用</div>
+        <div class="gauge-bar"><span style="width:41%" id="gauge-cpu-bar"></span></div>
+      </div>
+      <div class="gauge-card gauge-secondary status-warn" id="gauge-power">
+        <div class="gauge-value" id="gauge-power-value">188W</div>
+        <div class="gauge-label">功耗</div>
+        <div class="gauge-bar"><span style="width:75%" id="gauge-power-bar"></span></div>
+      </div>
+    </div>
+    <div class="log-panel">
+      <div class="log-header">运行日志</div>
+      <div class="log-list">
+        <div class="log-line">10:00:01 [OK] Qwen3.5-9B loaded, ctx 8192</div>
+        <div class="log-line">10:00:12 [OK] Book processor ready</div>
+        <div class="log-line">10:05:33 [OK] Rhythm analyzer completed 33 books</div>
+        <div class="log-line">10:12:07 [WARN] VRAM usage above 70%</div>
+        <div class="log-line">10:15:44 [OK] LLM batch score finished</div>
+      </div>
+    </div>
+  </div>
+</section>
+<section id="page-settings" class="page">
+  <div class="page-header"><h2>设置</h2></div>
+  <div class="settings-grid">
+    <div class="settings-card">
+      <div class="settings-title"><span class="settings-dot" style="background:var(--accent)"></span>模型配置</div>
+      <label class="settings-row" style="flex-direction:column;align-items:flex-start;gap:4px;padding:10px 0;"><span style="margin-bottom:4px;">本地模型</span><input type="text" id="settings-local-model" class="settings-input" value="Qwen3.5-9B" onchange="saveSetting('localModel', this.value)"></label>
+      <label class="settings-row" style="flex-direction:column;align-items:flex-start;gap:4px;padding:10px 0;"><span style="margin-bottom:4px;">本地端点</span><input type="text" id="settings-local-endpoint" class="settings-input" value="http://localhost:8000" onchange="saveSetting('localEndpoint', this.value)"></label>
+      <label class="settings-row" style="flex-direction:column;align-items:flex-start;gap:4px;padding:10px 0;"><span style="margin-bottom:4px;">云端模型</span><input type="text" id="settings-cloud-model" class="settings-input" value="DeepSeek V4" onchange="saveSetting('cloudModel', this.value)"></label>
+    </div>
+    <div class="settings-card">
+      <div class="settings-title">品牌色（强调色）</div>
+      <div class="settings-row"><span>当前预设</span><span id="settings-preset-name">Datadog</span></div>
+      <div class="theme-switcher" style="margin-top:8px; gap:10px;" id="preset-switcher">
+        <button class="preset-dot" data-preset="sky" aria-label="天蓝" onclick="setAccentPreset('sky')"></button>
+        <button class="preset-dot" data-preset="tomato" aria-label="番茄红" onclick="setAccentPreset('tomato')"></button>
+      </div>
+    </div>
+    <div class="settings-card">
+      <div class="settings-title">管线设置</div>
+      <label class="settings-row"><span>自动入库</span><input type="checkbox" id="setting-auto-import" data-setting="auto-import" onchange="toggleSetting('auto-import')" checked></label>
+      <label class="settings-row"><span>拆书分析</span><input type="checkbox" id="setting-auto-rhythm" data-setting="auto-rhythm" onchange="toggleSetting('auto-rhythm')" checked></label>
+      <label class="settings-row"><span>顶部显示硬件状态</span><input type="checkbox" id="setting-show-hw-monitor" data-setting="show-hw-monitor" onchange="toggleSetting('show-hw-monitor')" checked></label>
+    </div>
+    <div class="settings-card">
+      <div class="settings-title">存储</div>
+      <label class="settings-row" style="flex-direction:column;align-items:flex-start;gap:4px;padding:10px 0;"><span style="margin-bottom:4px;">数据目录</span><input type="text" id="settings-data-dir" class="settings-input" value="data/processed" onchange="saveSetting('dataDir', this.value)"></label>
+      <div class="settings-row"><span>缓存大小</span><span>1.2 GB</span></div>
+    </div>
+    <div class="settings-card">
+      <div class="settings-title">快捷键</div>
+      <div class="settings-row"><span>保存</span><span>Ctrl+S</span></div>
+      <div class="settings-row"><span>专注模式</span><span>Ctrl+B</span></div>
+      <div class="settings-row"><span>自检面板</span><span>Ctrl+Shift+C</span></div>
+    </div>
+    <div class="settings-card">
+      <div class="settings-title">数据</div>
+      <button class="btn btn-secondary" onclick="exportSettings()">导出配置</button>
+      <button class="btn btn-secondary" style="margin-left:8px" onclick="resetSettings()">重置偏好</button>
+    </div>
+  </div>
+</section>
+</main>
+<div class="modal-overlay" id="task-modal" onclick="closeModalOnOverlay(event)">
+  <div class="modal-card">
+    <div class="modal-header"><h3>新建分析任务</h3><button class="icon-btn" onclick="closeTaskModal()">&times;</button></div>
+    <div class="modal-body">
+      <div class="form-row"><label>任务类型</label>
+        <select id="task-type">
+          <option value="full_pipeline">完整管线</option>
+          <option value="import">入库处理</option>
+          <option value="rhythm">拆书节奏</option>
+          <option value="score">LLM评分</option>
+          <option value="genre">题材合成</option>
+          <option value="gate">品质关卡</option>
+          <option value="bridge">创作桥接</option>
+          <option value="summary">递归摘要</option>
+          <option value="cross">跨书合成</option>
+          <option value="cards">技法卡片</option>
+          <option value="instructions">写作指令</option>
+        </select>
+      </div>
+      <div class="form-row"><label>题材过滤</label>
+        <select id="task-genre" onchange="filterTaskBooks()">
+          <option value="all">全部</option>
+<option value="仙侠">仙侠</option>
+<option value="历史">历史</option>
+<option value="同人">同人</option>
+<option value="奇幻">奇幻</option>
+<option value="悬疑">悬疑</option>
+<option value="无限流">无限流</option>
+<option value="末世">末世</option>
+<option value="洪荒">洪荒</option>
+<option value="科幻">科幻</option>
+<option value="都市">都市</option>
+        </select>
+      </div>
+      <div class="form-row"><label>选择书籍</label>
+      <div class="book-checklist" id="task-book-checklist">
+        <span class="text-muted" style="font-size:13px;padding:8px 0;">加载书库中...</span>
+      </div>
+      <div class="form-row" id="task-range-row" style="display:none">
+        <label>拆书范围 <span class="tooltip-icon" title="选择拆解的章节范围，留空则拆解全书">?</span></label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="number" id="task-range-start" placeholder="起始章" min="1" style="width:90px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-size:13px">
+          <span style="color:var(--text-secondary)">-</span>
+          <input type="number" id="task-range-end" placeholder="结束章" min="1" style="width:90px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-size:13px">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeTaskModal()">取消</button><button class="btn btn-primary" onclick="startTask()">开始</button></div>
+  </div>
+</div>
+<div class="modal-overlay" id="create-project-modal" onclick="if(event.target===this)closeCreateProjectModal()">
+  <div class="modal-card">
+    <div class="modal-header"><h3>创建新作品</h3><button class="icon-btn" onclick="closeCreateProjectModal()">&times;</button></div>
+    <div class="modal-body">
+      <div class="form-row"><label>作品名称</label><input type="text" id="cp-title" placeholder="输入书名..." value=""></div>
+      <div class="form-row"><label>题材类型 <span class="tooltip-icon" title="推荐末世题材：当前市场完读率最高，且你的分析数据最丰富">?</span></label>
+        <select id="cp-genre"><option value="末世">末世</option><option value="仙侠">仙侠</option><option value="科幻">科幻</option><option value="都市">都市</option><option value="悬疑">悬疑</option><option value="无限流">无限流</option><option value="历史">历史</option><option value="奇幻">奇幻</option><option value="洪荒">洪荒</option><option value="同人">同人</option></select>
+      </div>
+      <div class="form-row"><label>规划卷数</label><input type="number" id="cp-volumes" min="1" max="20" value="5"></div>
+      <div class="form-row"><label>预计总章数</label><input type="number" id="cp-chapters" min="1" max="2000" value="300"></div>
+      <div class="form-row"><label>作品简介<span class="form-hint">（可选）</span></label><textarea id="cp-desc" rows="2" placeholder="简单描述你的故事方向.."></textarea></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeCreateProjectModal()">取消</button><button class="btn btn-primary" onclick="confirmCreateProject()">创建作品</button></div>
+  </div>
+</div>
+<div id="toast-container"></div>
+</div>
+
+<script src="app.js?v=717"></script>
+<div class="loading-overlay" id="loading-overlay"><div class="loading-spinner"></div></div></body>
+</html>

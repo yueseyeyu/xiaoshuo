@@ -48,9 +48,11 @@ model_orchestration:
       port: 8000                         # llama.cpp server 端口
       n_ctx: 8192                        # 上下文窗口。实测 8GB 下 KV q8_0 安全上限 (v7.5 从4096提升)
       n_gpu_layers: 35                   # 全部 35 层 offload 到 GPU
+      kv_cache_type_k: "q8_0"           # v7.6: Key 缓存 8-bit（保持精度，影响 MTP 接受率）
+      kv_cache_type_v: "q4_0"           # v7.6: Value 缓存 4-bit（节省 ~25% KV 显存，质量影响极小）
       api_key: "xiaoshuo-local-2026"     # v7.5: 本地 API 认证密钥（可选，留空则无认证）
       chat_format: "chatml"              # Qwen 系列用 ChatML 格式
-      estimated_vram: "6.2GB"            # 模型 5.68 + KV Cache ~0.5GB
+      estimated_vram: "6.0GB"            # 模型 5.68 + KV Cache ~0.3GB (v7.6: 非对称 KV 量化)
 
     # ── 网文专家: S1 创意引导 + S2b 参考版 + 节拍分析 ──
     # 基于 Qwen3-4B + TanXS 中文网文 LoRA 微调
@@ -66,15 +68,35 @@ model_orchestration:
       estimated_vram: "2.8GB"            # 模型 2.5 + KV Cache ~0.3GB
       enabled: false                     # P0-1 实验后决定是否启用
 
-    # ── 逻辑警察候选: 推理链蒸馏模型，因果分析强 ──
-    # P0-2 用 ConStory-Bench 因果子集测试 F1 是否 > Qwen3.5-9B 10%+
+    # ── 逻辑警察候选: R1-0528 推理链蒸馏，幻觉率-50%，交叉审查用 ──
+    # v7.5: 已升级至 DeepSeek-R1-0528-Qwen3-8B (AIME 2024 86.0%, 幻觉降低45-50%)
+    # 架构与主模型完全不同 (标准Transformer vs GatedDeltaNet)，满足独立审查要求
     logic_cop_candidate:
-      name: "DeepSeek-R1-Distill-Qwen-7B"
-      gguf: "D:/DaMoXing/DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf"
+      name: "DeepSeek-R1-0528-Qwen3-8B"
+      gguf: "D:/DaMoXing/DeepSeek-R1-0528-Qwen3-8B-Q4_K_M.gguf"
       port: 8002
-      estimated_vram: "4.3GB"            # 仅 P0-2 评估用，不常驻
+      n_ctx: 4096                        # 交叉审查不需要大上下文，节省 KV Cache
+      n_gpu_layers: 24                   # 8B 模型全部 GPU offload (24层)
+      chat_format: "chatml"              # 与 llama.cpp 兼容
+      estimated_vram: "5.9GB"            # Q4_K_M ~5.9GB, 与主模型串行切换
       role: "logic_cop_only"
-      enabled: false                     # P0-2: Qwen3.5单模型方案, R1仅作备份
+      enabled: true                      # v7.5: 启用双模型交叉审查
+
+    # ── 无审查模型: 海外成人向角色扮演（v7.7） ──
+    # 用于 NSFW/擦边内容生成，与主模型串行切换
+    # 推荐: Qwen3.5-9B Abliterated (HauhauCS / Huihui-ai / heretic-org)
+    uncensored_model:
+      name: "Qwen3.5-9B-Uncensored"
+      gguf: "D:/DaMoXing/Qwen3.5-9B-Uncensored-Q4_K_M.gguf"
+      port: 8003
+      n_ctx: 16384                      # RP场景 16K 足够（角色DNA + 分层记忆 + 对话）
+      n_gpu_layers: 35
+      kv_cache_type_k: "q8_0"
+      kv_cache_type_v: "q4_0"
+      chat_format: "chatml"
+      estimated_vram: "6.0GB"
+      enabled: false                     # 需要时手动启用，与主模型互斥（串行切换）
+      note: "HuggingFace: HauhauCS/Qwen3.5-9B-Abliterated 或 Huihui-ai/qwen3.5-9b-abliterated"
 
     # ── 外部API: DeepSeek 独立评分 + 硅基流动备用 ──
     # v7.5: DS做主评(85%), Qwen fallback(15%), api_key在 secrets.yaml
@@ -118,6 +140,7 @@ model_orchestration:
     S1_creative: "main_model"           # 创意引导→Qwen3.5-9B (thinking=ON 模式)
     S2b_reference: "main_model"         # AI参考版→Qwen3.5-9B
     S3_logic_cop: "main_model"          # 逻辑警察→Qwen3.5-9B (thinking=OFF)
+    S3_cross_check: "logic_cop_candidate"  # v7.5: 交叉审查→DeepSeek-R1-0528-8B
     S4_style_check: "main_model"        # 风格检测→Qwen3.5-9B (thinking=OFF)
     S3_editor: "main_model"              # 网文编辑→主模型
     S3_qc: "main_model"                  # 语言质检→主模型
@@ -277,6 +300,18 @@ detection:
     l7_ngram_ppl:
       enabled: true
       fatal_threshold_ratio: 0.6         # N-gram PPL < 基线均值×0.6 = 过于可预测
+
+  # S3_qc 专用：AI 指纹词密度（每万字计数，与 l3 窗口法互补）
+    ai_word_density:
+      enabled: true
+      safe_threshold: 15                   # < 15 / 10000 字 = 正常
+      warn_threshold: 30                   # 15-30 = 警告，> 30 = 严重
+    # S3_qc 专用：风格漂移基线（与顶层 style_drift.monitor 互补）
+    style_drift_detection:
+      enabled: true
+      sentence_length_warn: 0.30           # 句长偏离基线 ±30% = 警告
+      vocab_warn: 0.20                     # 前100高频词 20% 不在基线 = 漂移
+      emotion_warn: 0.50                   # 情感密度偏离基线 ±50% = 显著漂移
 
   # 加权判定：Layer 7(N-gram PPL) 区分信号最强，权重最高
   weights: {l7: 3, l2: 2, l3: 2, l1: 1}
@@ -488,6 +523,23 @@ analysis:
     medium: 50                           # ≥50: 签约可期
     low: 30                              # ≥30: 需优化 (<30: 风险偏高)
 
+  # ── 商业评分决策阈值 v7.6 (借鉴"邪修"500订量化标准) ──
+  # 综合评分 → 可执行建议，用于 commercial_engine.py
+  decision_thresholds:
+    hit_potential: 75                    # ≥75: 爆款潜力 — 500订标准达成，全力投入
+    worth_investing: 60                  # ≥60: 值得投入 — 可写长篇，但需持续监控
+    keep_observing: 40                   # ≥40: 继续观察 — 有潜力但需优化，调整大纲后重测
+    # <40: 建议切书 — 综合评分过低，建议放弃当前方向
+
+  # ── 章节分区权重 v7.6 (借鉴"邪修"前50章重点分析) ──
+  # 用于 commercial_engine.py 和 beat_detector.py 的分区加权
+  chapter_zone_weights:
+    front_50: 2.0                        # 前50章权重×2（决定签约/留存/推荐）
+    middle: 1.0                          # 中间章节标准权重
+    ending: 1.5                          # 结尾权重×1.5（决定完读率）
+    front_50_boundary: 50                # 前50章边界
+    ending_boundary_pct: 0.85            # 结尾起始百分比（最后15%为结尾区域）
+
   # ── LLM 端口 (rhythm_analyzer.py llm_verify) ──
   llm_port: 8000                        # 从 model_orchestration.models.main_model.port 同步
   llm_parallel: 2                       # LLM评分并行worker数 (匹配 start_model.bat --parallel)
@@ -564,8 +616,64 @@ hardware_guard:
   # 显存三级熔断 (MB)
   vram_yellow: 6000                     # >= 此值: 黄色预警
   vram_orange: 6800                     # >= 此值: 橙色预警
-  vram_red: 7400                        # >= 此值: 红色预警 (紧急停止)
+  vram_red: 8000                        # >= 此值: 红色预警 (紧急停止，为模型基线预留 ~6GB)
   # 显存泄漏检测
   vram_leak_threshold: 300              # 1小时内累积增长上限 (MB)
   vram_leak_interval: 3600              # 基线漂移检测间隔 (秒)
   leak_history_max: 500                 # 历史记录最大条数
+
+# ============================================================================
+# 前端原型服务器配置
+# 模块: prototype/server.py
+# ============================================================================
+prototype:
+  port: 8080                             # 前端原型服务端口
+  genre: "末世"                           # 默认服务题材，对应 data/reports/{genre}
+  data_dir: "data/reports"               # 报告数据根目录（相对项目根）
+  auto_open_browser: false               # 启动时是否自动打开浏览器
+  # v7.17: 主题品牌色预设（强调色循环）
+  # 保留 minimax 修改前默认天蓝 + 方案 C 番茄红
+  theme_presets:
+    - id: sky
+      name: "天蓝"
+      accent: "#38BDF8"
+      accent_rgb: "56,189,248"
+    - id: tomato
+      name: "番茄"
+      accent: "#D97706"
+      accent_rgb: "217,119,6"
+
+# ============================================================================
+# v7.7: NSFW 角色扮演 — 海外成人向角色扮演/微世界配置
+# 模块: pipeline/canon/rp_simulator.py (LayeredMemory + RPSimulator)
+# ============================================================================
+nsfw_roleplay:
+  enabled: false                         # 需要时启用，与主模型串行切换
+  model: "uncensored_model"              # 引用 model_orchestration.models.uncensored_model
+
+  # 分层记忆配置（适配 8GB 显存）
+  layered_memory:
+    max_summaries: 3                     # 摘要层：最多保留 N 个场景摘要
+    max_raw_rounds: 3                    # 原始层：最多保留 N 轮对话
+    estimated_tokens: 6000               # 三层总常驻 tokens 估算（核心3K + 摘要2K + 原始1K）
+
+  # 角色 DNA 蒸馏
+  character_dna:
+    source_dirs:                        # 原料来源：成人小说 + 角色卡
+      - "books/in/"
+      - "assets/characters/"
+    output_dir: "assets/characters/dna/"  # 蒸馏后的角色 DNA JSON 输出目录
+    auto_extract: false                  # 是否自动从小说提取角色 DNA
+
+  # 一致性审计（官方版定期检查 Uncensored 版输出质量）
+  audit:
+    enabled: false
+    interval_rounds: 50                  # 每 N 轮对话审计一次
+    trigger_on_complaint: true           # 用户投诉时立即触发审计
+    auditor_model: "main_model"          # 用官方版做审计
+
+  # 合规
+  compliance:
+    age_verification: true               # 海外版需年龄验证
+    content_rating: "18+"                # 内容分级
+    blocked_keywords: []                 # 法律红线关键词（如未成年人相关）

@@ -98,7 +98,7 @@ def _load_commercial_scores(genre):
 
 def _load_llm_scores(genre):
     """Load llm_batch_score intensity averages per book."""
-    llm_dir = OUTPUT_DIR / genre / "llm_scores"
+    llm_dir = OUTPUT_DIR / genre / "scores"
     if not llm_dir.exists():
         return {}
     import csv

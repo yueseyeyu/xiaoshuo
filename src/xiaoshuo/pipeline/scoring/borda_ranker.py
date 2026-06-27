@@ -346,7 +346,7 @@ def process_genre(genre, books_filter=None):
     # v12: LLM sub-genre classification (before analysis loop)
     # Access module-level cache from commercial_engine
     from xiaoshuo.pipeline.scoring import commercial_engine as _ce
-    cache_path = PROJECT_ROOT / "data" / "processed" / genre / "sub_genre_llm.json"
+    cache_path = PROJECT_ROOT / "data" / "processed" / genre / "quality" / "sub_genre_llm.json"
     if cache_path.exists():
         try:
             with open(cache_path, 'r', encoding='utf-8') as f:
@@ -414,7 +414,7 @@ def process_genre(genre, books_filter=None):
     print(f"[OK] Borda Ranking: {rank_path}")
 
     # v11: Persist commercial scores to JSON for quality_gate consumption
-    scores_path = PROJECT_ROOT / "data" / "processed" / genre / "commercial_scores.json"
+    scores_path = PROJECT_ROOT / "data" / "processed" / genre / "quality" / "commercial_scores.json"
     scores_path.parent.mkdir(parents=True, exist_ok=True)
     scores_data = {}
     for a in analyses:

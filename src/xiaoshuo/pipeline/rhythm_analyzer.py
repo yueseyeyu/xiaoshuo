@@ -7,9 +7,11 @@ rhythm_analyzer v3 — 三级指标体系 (Macro/Meso/Micro)
 输出: data/rhythm_*.csv (每本逐章节奏数据)
 参考: ACL2025 Novel Benchmark (三级框架) + 马良写作(钩子+爽点递进) + 笔灵AI(拆书三件套)
 """
+import os
 import re
 import csv
 import time
+import hashlib
 import urllib.request
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -48,6 +50,9 @@ def _get_llm_port():
 
 LLAMA_PORT = _get_llm_port()
 LLAMA_BASE = f"http://127.0.0.1:{LLAMA_PORT}"
+
+# ── v11: 章节级缓存版本 (rule_analyze 逻辑变更时递增, 触发全量重分析) ──
+_CACHE_VERSION = 13  # v13: +6类反转爽点 (backfire/trap_master/knowledge_gap/hidden_value/identity_reveal/foreshadow_payoff)
 
 # ── Compact LLM key mapping (t/i/c/e/p → full keys, saves ~25 tokens/call) ──
 _LLM_KEY_MAP = {
@@ -127,6 +132,67 @@ PLEASURE_SOCIAL = re.compile(
     r"追随|跟随|效忠|臣服|折服|震慑|威[慑压]"
 )
 
+# ── v12 新增: 反转爽点 (建议中20种反转套路，19种去重，11种缺失) ──
+# 分组为6个正则，覆盖: 反派反噬/反陷阱/认知碾压/隐藏价值/身份反转/伏笔回收
+PLEASURE_BACKFIRE = re.compile(
+    r"弄巧成拙|自食恶果|反噬|搬起石头|自作自受|害人终害己|"
+    r"反而帮了|反倒成就|因缺少|偷走.*失败|反而.*突破|"
+    r"反被|反遭|毒计.*反成|阴谋.*反而"
+)
+PLEASURE_TRAP_MASTER = re.compile(
+    r"请君入瓮|精准排雷|引蛇出洞|将计就计|故意中计|假装中计|"
+    r"早已看穿|早就知道|故意.*引诱|故意.*踩入|明知.*陷阱|"
+    r"假装重伤.*引诱|设[下个].*套|等着.*跳"
+)
+PLEASURE_KNOWLEDGE_GAP = re.compile(
+    r"降维打击|跨频|现代知识|高维常识|异世界.*常识|"
+    r"这个世界的规则|用.*知识.*解决|脑补|过度解读|"
+    r"高深莫测|暗自心惊|心生敬畏|暗自揣测|"
+    r"随口.*一句|小动作.*被|高人.*解读"
+)
+PLEASURE_HIDDEN_VALUE = re.compile(
+    r"变废为宝|废品.*极品|垃圾.*宝物|残次品.*触发|"
+    r"没人要|看不上|不起眼.*隐藏|隐藏.*机制|"
+    r"精准扶贫|绝地.*修炼|恰好.*需要|因祸得福|"
+    r"折磨.*恰好|最[适合]怕.*反而|绝境.*恰好"
+)
+PLEASURE_IDENTITY_REVEAL = re.compile(
+    r"微服私访|大水冲龙王庙|靠山.*是|"  # 龙王庙场景
+    r"随手帮助|普通老头|顶级掌权|最高特权|"
+    r"没想到.*竟是|原来.*是|竟[然是].*认识|"
+    r"真是.*有眼不识|不知.*身份|认出.*身份"
+)
+PLEASURE_FORESHADOW_PAYOFF = re.compile(
+    r"拼图归位|最后.*碎片|关键.*碎片|多年.*得到|"
+    r"当年.*无意|终于.*用上|终极.*钥匙|打开.*神门|"
+    r"破石头.*关键|碎片.*完整|伏笔.*回收|埋.*线.*终于"
+)
+
+# ── v12: 爽点时序标签 (即时爽 vs 延迟爽) ──
+# 即时爽: 同一场景/章节内完成"铺垫→爆发"闭环
+# 延迟爽: 需要跨章节伏笔积累，回报在后期兑现
+# 分类依据: 建议中20种反转爽点的时序分析 + 马良写作节奏理论
+PLEASURE_TIMING = {
+    "打脸": "instant",      # 反派嘲讽→当场反击
+    "突破": "instant",      # 战斗中突破→立刻碾压
+    "碾压": "instant",      # 一招秒杀→即时爽感
+    "绝地反击": "instant",  # 绝境→当场逆转
+    "扮猪吃虎": "delayed",  # 前期隐藏→跨章节爆发
+    "羁绊": "delayed",      # 情感积累→长期回报
+    "认知突破": "instant",  # 突然明白→当场顿悟
+    "牺牲": "delayed",      # 情感积累→爆发点
+    "策略": "delayed",      # 布局→跨章节收网
+    "资源": "instant",      # 获得物品→即时满足
+    "社交": "delayed",      # 建立关系→长期回报
+    # v12 新增:
+    "反派反噬": "instant",  # 反派阴谋当场反噬
+    "反陷阱": "instant",    # 请君入瓮、当场识破
+    "认知碾压": "instant",  # 降维打击、当场震住
+    "隐藏价值": "instant",  # 变废为宝、当场发现
+    "身份反转": "delayed",  # 微服私访→跨章节揭晓
+    "伏笔回收": "delayed",  # 拼图归位→跨章节回收
+}
+
 # ── v4 新增: 4类非战斗冲突 (外部评审: 原冲突库对智斗流低估40-60%) ──
 # 来源: 心理博弈/道德困境/环境对抗/社会冲突 — 3份评审收敛建议
 CONFLICT_PSYCHOLOGICAL = re.compile(
@@ -158,6 +224,30 @@ CONFLICT_SUSPENSE = re.compile(
     r"消失|失踪|死去|复活|变异|扭曲|融化|腐[烂杇]|"
     r"不对劲|有[问]题|有问题|哪里不对|感觉不对|直觉|"
     r"危[险机]|威胁|逼近|降临|笼罩|弥漫|渗透|蔓延"
+)
+
+# ── v11 新增: 反套路信号 (2026市场趋势: 反套路成为新套路) ──
+# 核心: 识别"不按套路出牌"的信号 — 拒绝变强、拒绝系统、主动躺平
+ANTI_TROPE = re.compile(
+    r"不[想愿打算要]?变强|不[想愿打算要]?升级|不[想愿打算要]?战斗|"
+    r"拒绝[系统金手指]|不要[系统任务]|不想[穿越重生]|"
+    r"[只想只要]?[退休归隐躺平平淡安逸苟着]|"
+    r"[明明已经].*?[却还要].*?[被迫无奈]|"
+    r"系统[呢在哪]|为什么[是我选]|这[不没]科学|太离谱|太荒唐"
+)
+
+# ── v11 新增: 情绪价值检测 (情绪强度+情绪透支信号) ──
+EMOTION_HIGH = re.compile(
+    r"绝望|崩溃|疯狂|怒吼|咆哮|撕心裂肺|痛不欲生|生不如死|"
+    r"狂喜|癫狂|痴狂|失控|失态|歇斯底里|情绪崩溃|精神[崩垮]"
+)
+EMOTION_LOW = re.compile(
+    r"平静|淡然|释然|坦然|从容|平和|从容|波澜不惊|心如止水|"
+    r"麻木|冷漠|漠然|空洞|放空|放[弃手]|认命|听天由命"
+)
+EMOTION_BURNOUT = re.compile(
+    r"累[了极垮]|疲惫|筋疲力尽|精疲力竭|心力交瘁|身心俱疲|"
+    r"乏力|无[能力]为力|撑不住|扛不住|受不了|熬不住"
 )
 
 # ── 合并冲突正则 (v5: 战斗 + 心理 + 道德 + 环境 + 社会 + 悬疑) ──
@@ -362,10 +452,13 @@ def _build_chapters(parts):
 
 
 def rule_analyze(ch):
-    """Zero-LLM chapter analysis v10. Returns dict with 20+ metrics.
-    v10: +3隐式爽点(策略/资源/社交) + 8类钩子 + 双模段落检测 + 去假阳性正则"""
+    """Zero-LLM chapter analysis v11. Returns dict with 25+ metrics.
+    v11: +反套路信号 +情绪价值检测 +ch_hash章节级缓存"""
     body = ch["raw_body"]
     wc = ch["wc"]
+
+    # ── v11: 章节级内容哈希 (用于精细化缓存失效检测) ──
+    ch_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
 
     # ── Basic metrics ──
     dialogue_chars = sum(len(m.group()) for m in DIALOGUE_PAT.finditer(body))
@@ -389,6 +482,13 @@ def rule_analyze(ch):
     strategy_count = len(PLEASURE_STRATEGY.findall(body))
     resource_count = len(PLEASURE_RESOURCE.findall(body))
     social_count = len(PLEASURE_SOCIAL.findall(body))
+    # v12新增: 反转爽点6类
+    backfire_count = len(PLEASURE_BACKFIRE.findall(body))
+    trap_master_count = len(PLEASURE_TRAP_MASTER.findall(body))
+    knowledge_gap_count = len(PLEASURE_KNOWLEDGE_GAP.findall(body))
+    hidden_value_count = len(PLEASURE_HIDDEN_VALUE.findall(body))
+    identity_reveal_count = len(PLEASURE_IDENTITY_REVEAL.findall(body))
+    foreshadow_payoff_count = len(PLEASURE_FORESHADOW_PAYOFF.findall(body))
 
     # v5: 羁绊消歧 — 上下文30字共现约束 (评审: "守护仓库"≠羁绊)
     bond_count = 0
@@ -409,18 +509,35 @@ def rule_analyze(ch):
         comeback_count * 0.178 + hidden_count * 0.108 + general_count * 0.108 +
         bond_count * 0.155 + cognitive_count * 0.017 + sacrifice_count * 0.0 +
         physio_count * 0.179 +
-        strategy_count * 0.108 + resource_count * 0.108 + social_count * 0.108
+        strategy_count * 0.108 + resource_count * 0.108 + social_count * 0.108 +
+        # v12: 新爽点权重（估算，r值待 calibrate_v2 标定）
+        backfire_count * 0.108 + trap_master_count * 0.108 +
+        knowledge_gap_count * 0.108 + hidden_value_count * 0.108 +
+        identity_reveal_count * 0.108 + foreshadow_payoff_count * 0.108
     )
     total_pleasure = weighted_pleasure  # v8: 替代等权相加
     pos_density = total_pleasure / max(wc, 1) * 100
 
-    # Dominant pleasure sub-type (v10: 12 subtypes)
+    # Dominant pleasure sub-type (v12: 18 subtypes = 12 original + 6 new)
     subtypes = [("打脸", slap_count), ("突破", level_count), ("碾压", crush_count),
                 ("绝地反击", comeback_count), ("扮猪吃虎", hidden_count),
                 ("羁绊", bond_count), ("认知突破", cognitive_count),
                 ("牺牲", sacrifice_count),
-                ("策略", strategy_count), ("资源", resource_count), ("社交", social_count)]
+                ("策略", strategy_count), ("资源", resource_count), ("社交", social_count),
+                # v12: 反转爽点6类
+                ("反派反噬", backfire_count), ("反陷阱", trap_master_count),
+                ("认知碾压", knowledge_gap_count), ("隐藏价值", hidden_value_count),
+                ("身份反转", identity_reveal_count), ("伏笔回收", foreshadow_payoff_count)]
     dominant_sub = max(subtypes, key=lambda x: x[1])
+
+    # v12: 爽点时序标签 — 当前章节主导爽点是即时还是延迟回报
+    pleasure_timing = PLEASURE_TIMING.get(dominant_sub[0], "instant")
+    # 如果主导爽点计数为0，回退到计数最高的非零爽点
+    if dominant_sub[1] == 0:
+        for name, count in sorted(subtypes, key=lambda x: x[1], reverse=True):
+            if count > 0:
+                pleasure_timing = PLEASURE_TIMING.get(name, "instant")
+                break
 
     # ── Negative emotion density ──
     neg_count = len(NEGATIVE.findall(body))
@@ -555,8 +672,26 @@ def rule_analyze(ch):
     else:
         pace = "medium"
 
+    # ── v11 新增: 反套路信号检测 ──
+    anti_trope_count = len(ANTI_TROPE.findall(body))
+    is_anti_trope = anti_trope_count >= 1
+
+    # ── v11 新增: 情绪价值检测 ──
+    high_emotion_count = len(EMOTION_HIGH.findall(body))
+    low_emotion_count = len(EMOTION_LOW.findall(body))
+    burnout_count = len(EMOTION_BURNOUT.findall(body))
+    # 情绪透支: 高强度情绪+疲惫信号同时出现
+    emotion_burnout = high_emotion_count >= 2 and burnout_count >= 1
+    # 情绪强度: high正负抵消后的净强度 (-10 ~ +10 映射)
+    emotion_valence = round(
+        min(10, max(-10,
+            (high_emotion_count * 3 + physio_count * 2) -
+            (low_emotion_count * 2 + burnout_count * 4)
+        )), 1)
+
     return {
         "ch_num": ch["num"],
+        "ch_hash": ch_hash,  # v11: 章节内容哈希
         "wc": wc,
         "para_count": ch["para_count"],
         "avg_para_len": int(avg_para_len),
@@ -578,19 +713,33 @@ def rule_analyze(ch):
         "strategy_count": strategy_count,    # v10
         "resource_count": resource_count,    # v10
         "social_count": social_count,        # v10
+        "backfire_count": backfire_count,        # v12
+        "trap_master_count": trap_master_count,  # v12
+        "knowledge_gap_count": knowledge_gap_count,  # v12
+        "hidden_value_count": hidden_value_count,    # v12
+        "identity_reveal_count": identity_reveal_count,  # v12
+        "foreshadow_payoff_count": foreshadow_payoff_count,  # v12
         "dominant_sub": dominant_sub[0],
         "pleasure_type": pleasure_type,
         "pleasure_intensity": pleasure_intensity,
         "pleasure_level": "small",  # computed in analyze_book from 3-chapter window
+        "pleasure_timing": pleasure_timing,  # v12: instant / delayed
         "hook_type": hook_type,
         "readability": readability_score,
         "avg_sentence_len": round(avg_sentence_len, 1),
         "vocab_diversity": round(vocab_diversity, 3),
-        "conflict": conflict_density > 0.3,
+        "conflict": "true" if conflict_density > 0.3 else "false",
         "conflict_level": conflict_level,
         "emotion": emotion,
         "pace": pace,
         "slap_noise": (slap_count > 5 and pleasure_intensity < 3),  # P0: flag suspected false positives
+        # v11: 反套路信号 + 情绪价值
+        "anti_trope": is_anti_trope,
+        "anti_trope_count": anti_trope_count,
+        "emotion_valence": emotion_valence,
+        "emotion_burnout": emotion_burnout,
+        "high_emotion_count": high_emotion_count,
+        "burnout_count": burnout_count,
     }
 
 
@@ -677,39 +826,74 @@ def _load_cached_summary(csv_path, name):
 
 def analyze_book(filepath):
     """Full analysis. Rule-based + LLM verify 5 key chapters. Saves CSV immediately.
-    v6: CSV cache — skip re-analysis if CSV exists and is newer than txt."""
+    v6: CSV cache — skip re-analysis if CSV exists and is newer than txt.
+    v11: +章节级版本化缓存 (per-chapter hash comparison + cache version)"""
     name = Path(filepath).stem
     print(f"\n[BOOK] {name}")
     t0 = time.time()
 
-    # ── CSV Cache Check ──
+    # ── Cache Version Check (v11) ──
     genre = Path(filepath).parent.name
     csv_path = _rhythm_dir(genre) / f"rhythm_{name}.csv"
-    if csv_path.exists():
+    version_path = csv_path.with_suffix(".version")
+    cache_version_match = False
+    if version_path.exists():
+        try:
+            stored_version = int(version_path.read_text(encoding="utf-8").strip())
+            cache_version_match = (stored_version == _CACHE_VERSION)
+        except (ValueError, OSError):
+            cache_version_match = False
+    if not cache_version_match:
+        if csv_path.exists():
+            print(f"  [CACHE] Cache version mismatch (expected {_CACHE_VERSION}), force full re-analysis")
+
+    # ── CSV Cache Check (v11: +chapter-level hash + version) ──
+    chapters = extract_chapters(filepath)
+    if csv_path.exists() and cache_version_match:
         txt_mtime = Path(filepath).stat().st_mtime
         csv_mtime = csv_path.stat().st_mtime
         if csv_mtime > txt_mtime:
-            cached = _load_cached_summary(csv_path, name)
-            if cached:
-                dt = time.time() - t0
-                print(f"  [CACHE] CSV up-to-date, skip ({dt:.1f}s)")
-                print(f"  P-density={cached['pleasure_density']:.2f}  "
-                      f"Conflict={cached['conflict_rate']:.2f}  "
-                      f"Intensity={cached['avg_intensity']:.1f}  "
-                      f"Hook={cached['avg_hook']:.1f}/k")
-                return cached
+            # ── Chapter-level hash comparison (v11) ──
+            new_hashes = [
+                hashlib.sha256(ch["raw_body"].encode("utf-8")).hexdigest()[:16]
+                for ch in chapters
+            ]
+            cached_hashes = []
+            try:
+                with open(csv_path, "r", encoding="utf-8-sig") as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        cached_hashes.append(row.get("ch_hash", ""))
+            except Exception:
+                cached_hashes = []
 
-    chapters = extract_chapters(filepath)
+            if len(new_hashes) == len(cached_hashes) and new_hashes == cached_hashes:
+                cached = _load_cached_summary(csv_path, name)
+                if cached:
+                    dt = time.time() - t0
+                    print(f"  [CACHE] All chapters unchanged, full cache hit ({dt:.1f}s)")
+                    print(f"  P-density={cached['pleasure_density']:.2f}  "
+                          f"Conflict={cached['conflict_rate']:.2f}  "
+                          f"Intensity={cached['avg_intensity']:.1f}  "
+                          f"Hook={cached['avg_hook']:.1f}/k")
+                    return cached
+            elif len(new_hashes) == len(cached_hashes):
+                changed = [i for i, (n, c) in enumerate(zip(new_hashes, cached_hashes)) if n != c]
+                print(f"  [CACHE] {len(changed)}/{len(new_hashes)} chapters changed (v11 partial)")
+            else:
+                print(f"  [CACHE] Chapter count mismatch, re-analyze")
     total = len(chapters)
     total_wc = sum(c["wc"] for c in chapters)
     print(f"  Chaps: {total}  Words: {total_wc:,}  Avg: {total_wc//max(total,1):,}")
 
-    # ── Phase 1: Rule-based all chapters (instant) ──
-    print(f"  Analyzing {total} chapters (rule-based)...")
-    results = []
-    for ch in chapters:
-        r = rule_analyze(ch)
-        results.append(r)
+    # ── Phase 1: Rule-based all chapters (parallel, ThreadPool) ──
+    workers = min(4, os.cpu_count() or 4)
+    print(f"  Analyzing {total} chapters (rule-based, {workers} threads)...")
+    t1 = time.time()
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        results = list(ex.map(rule_analyze, chapters))
+    dt = time.time() - t1
+    print(f"  Phase 1 done: {dt:.1f}s ({dt/total*1000:.1f}ms/ch)")
 
     # ── Phase 1b: Chapter-to-chapter variability ──
     # Inspired by DTW concept from Climactic Chapter Recognition paper (Applied Sciences)
@@ -817,20 +1001,28 @@ def analyze_book(filepath):
     genre = Path(filepath).parent.name
     csv_path = _rhythm_dir(genre) / f"rhythm_{name}.csv"
     csv_path.parent.mkdir(parents=True, exist_ok=True)
-    fields = ["ch_num","wc","para_count","avg_para_len","dialogue_ratio",
+    fields = ["ch_num","ch_hash","wc","para_count","avg_para_len","dialogue_ratio",
               "excl_density","pos_density","neg_density","conflict_density","hook_density",
               "slap_count","level_count","crush_count","comeback_count","hidden_count",
               "bond_count","cognitive_count","sacrifice_count","physio_count",  # v4
               "strategy_count","resource_count","social_count",  # v10
+              "backfire_count","trap_master_count","knowledge_gap_count",  # v12
+              "hidden_value_count","identity_reveal_count","foreshadow_payoff_count",  # v12
               "dominant_sub",
-              "pleasure_type","pleasure_intensity","pleasure_level",
+              "pleasure_type","pleasure_intensity","pleasure_level","pleasure_timing",
               "hook_type","readability","avg_sentence_len","vocab_diversity",
               "conflict","conflict_level","emotion","pace",
-              "ch_variability"]
+              "ch_variability",
+              "anti_trope","anti_trope_count","emotion_valence","emotion_burnout",
+              "high_emotion_count","burnout_count"]  # v11
     with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=fields, extrasaction='ignore')
         w.writeheader()
         w.writerows(results)
+
+    # v11: Save cache version alongside CSV
+    version_path = csv_path.with_suffix(".version")
+    version_path.write_text(str(_CACHE_VERSION), encoding="utf-8")
 
     # v5: Generate per-chapter writing instructions
     _write_chapter_instructions(name, results, csv_path)
@@ -859,11 +1051,19 @@ def analyze_book(filepath):
         level_dist[pl] = level_dist.get(pl, 0) + 1
     avg_readability = sum(r.get("readability", 0) for r in results) / max(total, 1)
 
+    # v12: 即时爽/延迟爽分布
+    timing_dist = {}
+    for r in results:
+        pt = r.get("pleasure_timing", "instant")
+        timing_dist[pt] = timing_dist.get(pt, 0) + 1
+    instant_ratio = timing_dist.get("instant", 0) / max(total, 1)
+
     print(f"  [SAVED] {csv_path.name}  ({dt:.0f}s)")
     print(f"  P-density={pleasure_density:.2f}  Conflict={conflict_rate:.2f}  Intensity={avg_intensity:.1f}  Hook={avg_hook:.1f}/k  Readability={avg_readability:.3f}")
     print(f"  Subs: {dict(sorted(sub_dist.items(), key=lambda x:-x[1]))}")
     print(f"  HookTypes: {dict(sorted(hook_dist.items(), key=lambda x:-x[1]))}")
     print(f"  Levels: {dict(sorted(level_dist.items(), key=lambda x:-x[1]))}")
+    print(f"  Timing: instant={timing_dist.get('instant',0)} delayed={timing_dist.get('delayed',0)} (ratio={instant_ratio:.1%})")
 
     return {
         "name": name, "total_chaps": total, "total_words": total_wc,

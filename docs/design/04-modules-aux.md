@@ -265,41 +265,59 @@ def inject_style_noise(baseline: AuthorBaseline, text: str) -> EnhancedText:
 
 #### 设计动机
 
-v6.0 的 `model_switcher.py` 做动态量化切换，每次开销 20-30s。v7.0 双模型共存后，需要一个统一的编排层做请求路由和显存管理。
+v6.0 的 `model_switcher.py` 做动态量化切换，每次开销 20-30s。v7.0 曾设计双模型共存架构，但实测 Qwen3.5-9B (~6.2GB) + DeepSeek-R1-0528-Qwen3-8B (~5.9GB) 共约 12GB，超出 8GB VRAM 上限。v7.5 实际落地为**单 GPU 顺序切换**方案：
 
 ```python
-# .agents/model_orchestrator.py (v7.0 P0)
+# .agents/model_orchestrator.py (v7.5)
 class ModelOrchestrator:
     def __init__(self):
-        self.models = {
-            "webnovel_expert": ModelInstance("Qwen3-4B-WebNovel", port=8001, vram="1.5GB"),
-            "main_model":     ModelInstance("Qwen3.5-9B",        port=8000, vram="4.5GB"),
+        self.servers = {
+            "main_model":  ModelServer("Qwen3.5-9B", port=8000, vram="6.2GB"),
+            "logic_cop_candidate": ModelServer("DeepSeek-R1-0528-Qwen3-8B", port=8002, vram="5.9GB"),
         }
         self.routing_table = {
-            "S1_creative":    "webnovel_expert",   # 创意引导 → 网文专家
-            "S2b_reference":  "webnovel_expert",   # AI 参考版 → 网文专家
-            "S3_logic_cop":   "main_model",        # 逻辑警察 → 主模型
-            "S3_editor":      "main_model",        # 网文编辑 → 主模型
-            "S3_qc":          "main_model",        # 语言质检 → 主模型
-            "S4_detection":   "main_model",        # 风格检测 → 主模型
-            "M5a_beat":       "webnovel_expert",   # 节拍分析 → 网文专家
-            "M5b_drift":      "main_model",        # 漂移分析 → 主模型
-            "concept_induction":"main_model",       # 语义归纳 → 主模型
+            "S1_creative":          "main_model",     # 创意引导
+            "S2b_reference":        "main_model",     # AI 参考版
+            "S3_logic_cop":         "main_model",     # 逻辑审查
+            "S3_editor":            "main_model",     # 网文编辑
+            "S3_qc":                "main_model",     # 语言质检
+            "S3_cross_check":       "logic_cop_candidate",  # 交叉标注 (仅 cross_review Phase 2)
+            "S4_detection":         "main_model",     # 风格检测
+            "M5a_beat":             "main_model",     # 节拍分析
+            "M5b_drift":            "main_model",     # 漂移分析
         }
     
-    def route(self, task_type: str, payload: dict) -> Response:
-        """根据任务类型自动路由到对应模型"""
-        model = self.routing_table.get(task_type, "main_model")
-        return self.models[model].infer(payload)
+    def chat(self, task_type, messages, **kwargs):
+        """路由到目标模型推理"""
+        target_key = self.routing_table.get(task_type, "main_model")
+        target = self.servers.get(target_key)
+        if target and target.health_check():
+            return target.chat(messages, **kwargs)
+        # 降级至 main_model
+        return self.servers["main_model"].chat(messages, **kwargs)
+    
+    def swap_to(self, target_key, timeout=120) -> bool:
+        """顺序切换模型：停当前 → 启目标 → 等就绪"""
+        # v7.5: 解决 8GB VRAM 下单 GPU 部署限制
+        # 内部调用 switch_model.py 的 stop + start 流程
+        # 返回 False 时调用方应降级
     
     def health_check(self) -> dict:
-        """双模型健康检查，任一挂掉 → 降级到存活模型"""
-    
-    def vram_pressure_handler(self):
-        """显存压力 > 90% → 通知用户是否需要降低上下文窗口"""
+        """所有模型健康检查，挂掉的模型路由自动降级到存活模型"""
 ```
 
-**路由决策逻辑**：S1 创意任务由 WebNovel 专家处理（网文专用 LoRA 更懂网文范式）；S3/S4 评审仍由主模型处理（逻辑一致性需要更强的通用推理能力）。如果 P0 实验后 WebNovel 不满足要求，则整个系统退化为单模型模式。
+**核心流程（`cross_review.py`）**：
+```
+Phase 1: Qwen3.5-9B 全面审查 (S3_logic_cop→main_model)
+         ↓ swap_to("logic_cop_candidate")
+Phase 2: DeepSeek-R1-0528 专长维度交叉标注 (S3_cross_check→logic_cop_candidate)
+         ↓ swap_to("main_model")
+Phase 3: 合并报告，标记 has_additions
+```
+
+切换开销约 2-3 秒（模型保持加载状态）。swap_to 内置 `health_check()` 轮询 + 超时保护，失败时 cross_review 自动降级为单模型模式。
+
+**路由降级策略**：`S3_cross_check` 路由到 `logic_cop_candidate`，若交叉模型不可用，`chat()` 自动回退到 `main_model`。所有 S3 评审任务默认走主模型，仅交叉审查阶段二由 `swap_to()` 临时切换。
 
 ### 4.9 M5c — 评审经验库 (Review Knowledge Base v6.0)
 

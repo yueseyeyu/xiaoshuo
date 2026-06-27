@@ -1,0 +1,484 @@
+{
+  "genres": [
+    "仙侠",
+    "历史",
+    "同人",
+    "奇幻",
+    "悬疑",
+    "无限流",
+    "末世",
+    "洪荒",
+    "科幻",
+    "都市"
+  ],
+  "books": [
+    {
+      "title": "烂柯棋缘",
+      "author": "真费事",
+      "genre": "仙侠",
+      "size_kb": 9966,
+      "wordCount": 3092533,
+      "file": "《烂柯棋缘》作者：真费事.txt",
+      "rhythm_csv": "rhythm_《烂柯棋缘》作者：真费事.csv"
+    },
+    {
+      "title": "带着仓库到大明",
+      "author": "佚名",
+      "genre": "历史",
+      "size_kb": 19249,
+      "wordCount": 5972936,
+      "file": "《带着仓库到大明》.txt",
+      "rhythm_csv": "rhythm_《带着仓库到大明》.csv"
+    },
+    {
+      "title": "开局劝刘备去南阳",
+      "author": "佚名",
+      "genre": "历史",
+      "size_kb": 5217,
+      "wordCount": 1618731,
+      "file": "开局劝刘备去南阳.txt",
+      "rhythm_csv": "rhythm_开局劝刘备去南阳.csv"
+    },
+    {
+      "title": "斗罗：我真不是冰神啊！",
+      "author": "佚名",
+      "genre": "同人",
+      "size_kb": 5660,
+      "wordCount": 1756287,
+      "file": "斗罗：我真不是冰神啊！.txt",
+      "rhythm_csv": "rhythm_斗罗：我真不是冰神啊！.csv"
+    },
+    {
+      "title": "深渊之主",
+      "author": "佚名",
+      "genre": "奇幻",
+      "size_kb": 6704,
+      "wordCount": 2080389,
+      "file": "深渊之主.txt",
+      "rhythm_csv": "rhythm_深渊之主.csv"
+    },
+    {
+      "title": "我有一座冒险屋",
+      "author": "我会修空调",
+      "genre": "悬疑",
+      "size_kb": 9556,
+      "wordCount": 2965225,
+      "file": "《我有一座冒险屋(我有一座恐怖屋)》（校对版全本）作者：我会修空调.txt",
+      "rhythm_csv": "rhythm_《我有一座冒险屋(我有一座恐怖屋)》（校对版全本）作者：我会修空调.csv"
+    },
+    {
+      "title": "镇妖博物馆",
+      "author": "阎ZK",
+      "genre": "悬疑",
+      "size_kb": 16177,
+      "wordCount": 5019783,
+      "file": "《镇妖博物馆》（校对版全本）作者：阎ZK.txt",
+      "rhythm_csv": "rhythm_《镇妖博物馆》（校对版全本）作者：阎ZK.csv"
+    },
+    {
+      "title": "恐怖复苏",
+      "author": "佚名",
+      "genre": "悬疑",
+      "size_kb": 16994,
+      "wordCount": 5273188,
+      "file": "恐怖复苏.txt",
+      "rhythm_csv": "rhythm_恐怖复苏.csv"
+    },
+    {
+      "title": "深海余烬",
+      "author": "佚名",
+      "genre": "悬疑",
+      "size_kb": 7021,
+      "wordCount": 2178498,
+      "file": "深海余烬.txt",
+      "rhythm_csv": "rhythm_深海余烬.csv"
+    },
+    {
+      "title": "十日终焉",
+      "author": "佚名",
+      "genre": "无限流",
+      "size_kb": 9165,
+      "wordCount": 2843967,
+      "file": "《十日终焉》（校对全本）.txt",
+      "rhythm_csv": "rhythm_《十日终焉》（校对全本）.csv"
+    },
+    {
+      "title": "惊悚乐园",
+      "author": "三天两觉",
+      "genre": "无限流",
+      "size_kb": 14969,
+      "wordCount": 4645037,
+      "file": "《惊悚乐园》（校对版全本+番外）作者：三天两觉.txt",
+      "rhythm_csv": "rhythm_《惊悚乐园》（校对版全本+番外）作者：三天两觉.csv"
+    },
+    {
+      "title": "无限恐怖",
+      "author": "zhttty",
+      "genre": "无限流",
+      "size_kb": 7744,
+      "wordCount": 2403031,
+      "file": "《无限恐怖》（校对版全本）作者：zhttty.txt",
+      "rhythm_csv": "rhythm_《无限恐怖》（校对版全本）作者：zhttty.csv"
+    },
+    {
+      "title": "玩家凶猛",
+      "author": "黑灯夏火",
+      "genre": "无限流",
+      "size_kb": 9738,
+      "wordCount": 3021779,
+      "file": "《玩家凶猛》（校对版全本）作者：黑灯夏火.txt",
+      "rhythm_csv": "rhythm_《玩家凶猛》（校对版全本）作者：黑灯夏火.csv"
+    },
+    {
+      "title": "电影世界大盗",
+      "author": "佚名",
+      "genre": "无限流",
+      "size_kb": 19316,
+      "wordCount": 5993937,
+      "file": "《电影世界大盗》.txt",
+      "rhythm_csv": "rhythm_《电影世界大盗》.csv"
+    },
+    {
+      "title": "世界末日从考试不及格开始",
+      "author": "小猫要成仙",
+      "genre": "末世",
+      "size_kb": 6596,
+      "wordCount": 2046619,
+      "file": "《世界末日从考试不及格开始》作者：小猫要成仙.txt",
+      "rhythm_csv": "rhythm_《世界末日从考试不及格开始》作者：小猫要成仙.csv"
+    },
+    {
+      "title": "从红月开始",
+      "author": "黑山老鬼",
+      "genre": "末世",
+      "size_kb": 9671,
+      "wordCount": 3000946,
+      "file": "《从红月开始》（校对版全本）作者：黑山老鬼.txt",
+      "rhythm_csv": "rhythm_《从红月开始》（校对版全本）作者：黑山老鬼.csv"
+    },
+    {
+      "title": "全球进化",
+      "author": "咬狗",
+      "genre": "末世",
+      "size_kb": 3248,
+      "wordCount": 1007977,
+      "file": "《全球进化》（精校版全本）作者：咬狗.txt",
+      "rhythm_csv": "rhythm_《全球进化》（精校版全本）作者：咬狗.csv"
+    },
+    {
+      "title": "地球游戏场",
+      "author": "吉风冰",
+      "genre": "末世",
+      "size_kb": 8261,
+      "wordCount": 2563272,
+      "file": "《地球游戏场》（校对版全本）作者：吉风冰.txt",
+      "rhythm_csv": "rhythm_《地球游戏场》（校对版全本）作者：吉风冰.csv"
+    },
+    {
+      "title": "废土崛起",
+      "author": "通吃道人",
+      "genre": "末世",
+      "size_kb": 13650,
+      "wordCount": 4235684,
+      "file": "《废土崛起》（校对版全本）作者：通吃道人.txt",
+      "rhythm_csv": "rhythm_《废土崛起》（校对版全本）作者：通吃道人.csv"
+    },
+    {
+      "title": "异兽迷城",
+      "author": "佚名",
+      "genre": "末世",
+      "size_kb": 8753,
+      "wordCount": 2716030,
+      "file": "《异兽迷城》（校对版全本）.txt",
+      "rhythm_csv": "rhythm_《异兽迷城》（校对版全本）.csv"
+    },
+    {
+      "title": "恐慌沸腾【爱上阅读_www.isyd.net】",
+      "author": "佚名",
+      "genre": "末世",
+      "size_kb": 14479,
+      "wordCount": 4492912,
+      "file": "《恐慌沸腾》【爱上阅读_www.isyd.net】.txt",
+      "rhythm_csv": "rhythm_《恐慌沸腾》【爱上阅读_www.isyd.net】.csv"
+    },
+    {
+      "title": "我 的 末 世 领 地",
+      "author": "佚名",
+      "genre": "末世",
+      "size_kb": 7919,
+      "wordCount": 2457183,
+      "file": "《我 的 末 世 领 地》（校对版）.txt",
+      "rhythm_csv": "rhythm_《我 的 末 世 领 地》（校对版）.csv"
+    },
+    {
+      "title": "我在末世有套房",
+      "author": "晨星LL",
+      "genre": "末世",
+      "size_kb": 12760,
+      "wordCount": 3959598,
+      "file": "《我在末世有套房》（校对版全本）作者：晨星LL.txt",
+      "rhythm_csv": "rhythm_《我在末世有套房》（校对版全本）作者：晨星LL.csv"
+    },
+    {
+      "title": "我的女友是丧尸",
+      "author": "黑暗荔枝",
+      "genre": "末世",
+      "size_kb": 11488,
+      "wordCount": 3564688,
+      "file": "《我的女友是丧尸》（校对版全本）作者：黑暗荔枝.txt",
+      "rhythm_csv": "rhythm_《我的女友是丧尸》（校对版全本）作者：黑暗荔枝.csv"
+    },
+    {
+      "title": "末世之深渊召唤师",
+      "author": "凉心未暖",
+      "genre": "末世",
+      "size_kb": 12381,
+      "wordCount": 3841729,
+      "file": "《末世之深渊召唤师》（校对版全本）作者：凉心未暖.txt",
+      "rhythm_csv": "rhythm_《末世之深渊召唤师》（校对版全本）作者：凉心未暖.csv"
+    },
+    {
+      "title": "末世召唤狂潮",
+      "author": "黑心的大白",
+      "genre": "末世",
+      "size_kb": 12094,
+      "wordCount": 3752813,
+      "file": "《末世召唤狂潮》（校对版全本）作者：黑心的大白.txt",
+      "rhythm_csv": "rhythm_《末世召唤狂潮》（校对版全本）作者：黑心的大白.csv"
+    },
+    {
+      "title": "末世大回炉",
+      "author": "二十二刀流",
+      "genre": "末世",
+      "size_kb": 12519,
+      "wordCount": 3884639,
+      "file": "《末世大回炉》（校对版全本）作者：二十二刀流.txt",
+      "rhythm_csv": "rhythm_《末世大回炉》（校对版全本）作者：二十二刀流.csv"
+    },
+    {
+      "title": "末世魔神游戏",
+      "author": "石闻",
+      "genre": "末世",
+      "size_kb": 19468,
+      "wordCount": 6040902,
+      "file": "《末世魔神游戏》（校对版全本）作者：石闻.txt",
+      "rhythm_csv": "rhythm_《末世魔神游戏》（校对版全本）作者：石闻.csv"
+    },
+    {
+      "title": "末日拼图游戏",
+      "author": "更从心",
+      "genre": "末世",
+      "size_kb": 9136,
+      "wordCount": 2834932,
+      "file": "《末日拼图游戏》（校对版全本）作者：更从心.txt",
+      "rhythm_csv": "rhythm_《末日拼图游戏》（校对版全本）作者：更从心.csv"
+    },
+    {
+      "title": "末日蟑螂",
+      "author": "伟岸蟑螂",
+      "genre": "末世",
+      "size_kb": 12712,
+      "wordCount": 3944535,
+      "file": "《末日蟑螂》作者：伟岸蟑螂.txt",
+      "rhythm_csv": "rhythm_《末日蟑螂》作者：伟岸蟑螂.csv"
+    },
+    {
+      "title": "灾厄纪元",
+      "author": "妖的境界",
+      "genre": "末世",
+      "size_kb": 12797,
+      "wordCount": 3970816,
+      "file": "《灾厄纪元》（校对版全本）作者：妖的境界.txt",
+      "rhythm_csv": "rhythm_《灾厄纪元》（校对版全本）作者：妖的境界.csv"
+    },
+    {
+      "title": "神秘尽头-+黑山老鬼",
+      "author": "佚名",
+      "genre": "末世",
+      "size_kb": 3764,
+      "wordCount": 1168063,
+      "file": "《神秘尽头》-+黑山老鬼.txt",
+      "rhythm_csv": "rhythm_《神秘尽头》-+黑山老鬼.csv"
+    },
+    {
+      "title": "第九特区",
+      "author": "佚名",
+      "genre": "末世",
+      "size_kb": 19247,
+      "wordCount": 5972396,
+      "file": "《第九特区》.txt",
+      "rhythm_csv": "rhythm_《第九特区》.csv"
+    },
+    {
+      "title": "蹉跎",
+      "author": "随风飘摇",
+      "genre": "末世",
+      "size_kb": 4206,
+      "wordCount": 1305086,
+      "file": "《蹉跎》（校对版全本）作者：随风飘摇.txt",
+      "rhythm_csv": "rhythm_《蹉跎》（校对版全本）作者：随风飘摇.csv"
+    },
+    {
+      "title": "重卡战车在末世",
+      "author": "白雨涵",
+      "genre": "末世",
+      "size_kb": 6636,
+      "wordCount": 2059076,
+      "file": "《重卡战车在末世》（校对版全本）作者：白雨涵.txt",
+      "rhythm_csv": "rhythm_《重卡战车在末世》（校对版全本）作者：白雨涵.csv"
+    },
+    {
+      "title": "黑暗末日",
+      "author": "我妻虚彩",
+      "genre": "末世",
+      "size_kb": 5279,
+      "wordCount": 1637955,
+      "file": "《黑暗末日》（校对版全本）作者：我妻虚彩.txt",
+      "rhythm_csv": "rhythm_《黑暗末日》（校对版全本）作者：我妻虚彩.csv"
+    },
+    {
+      "title": "黑暗王者",
+      "author": "古羲",
+      "genre": "末世",
+      "size_kb": 10304,
+      "wordCount": 3197212,
+      "file": "《黑暗王者》（校对版全本）作者：古羲.txt",
+      "rhythm_csv": "rhythm_《黑暗王者》（校对版全本）作者：古羲.csv"
+    },
+    {
+      "title": "全球变异，从灾厄降临开始",
+      "author": "佚名",
+      "genre": "末世",
+      "size_kb": 10919,
+      "wordCount": 3388191,
+      "file": "全球变异，从灾厄降临开始.txt",
+      "rhythm_csv": "rhythm_全球变异，从灾厄降临开始.csv"
+    },
+    {
+      "title": "我在末世种个田",
+      "author": "佚名",
+      "genre": "末世",
+      "size_kb": 16943,
+      "wordCount": 5257578,
+      "file": "我在末世种个田.txt",
+      "rhythm_csv": "rhythm_我在末世种个田.csv"
+    },
+    {
+      "title": "末世之三宫六院_牧神空",
+      "author": "佚名",
+      "genre": "末世",
+      "size_kb": 4249,
+      "wordCount": 1318408,
+      "file": "末世之三宫六院_牧神空.txt",
+      "rhythm_csv": "rhythm_末世之三宫六院_牧神空.csv"
+    },
+    {
+      "title": "末世精灵皇",
+      "author": "佚名",
+      "genre": "末世",
+      "size_kb": 3160,
+      "wordCount": 980420,
+      "file": "末世精灵皇_and点.txt",
+      "rhythm_csv": "rhythm_末世精灵皇_and点.csv"
+    },
+    {
+      "title": "末世超级商人",
+      "author": "佚名",
+      "genre": "末世",
+      "size_kb": 5973,
+      "wordCount": 1853375,
+      "file": "末世超级商人.txt",
+      "rhythm_csv": "rhythm_末世超级商人.csv"
+    },
+    {
+      "title": "狩魔手记_烟雨江南",
+      "author": "佚名",
+      "genre": "末世",
+      "size_kb": 4364,
+      "wordCount": 1354161,
+      "file": "狩魔手记_烟雨江南.txt",
+      "rhythm_csv": "rhythm_狩魔手记_烟雨江南.csv"
+    },
+    {
+      "title": "限制级末日症候",
+      "author": "佚名",
+      "genre": "末世",
+      "size_kb": 32150,
+      "wordCount": 9976247,
+      "file": "限制级末日症候.txt",
+      "rhythm_csv": "rhythm_限制级末日症候.csv"
+    },
+    {
+      "title": "黑暗文明_古羲",
+      "author": "佚名",
+      "genre": "末世",
+      "size_kb": 8691,
+      "wordCount": 2696877,
+      "file": "黑暗文明_古羲.txt",
+      "rhythm_csv": "rhythm_黑暗文明_古羲.csv"
+    },
+    {
+      "title": "黑暗血时代",
+      "author": "佚名",
+      "genre": "末世",
+      "size_kb": 11255,
+      "wordCount": 3492453,
+      "file": "黑暗血时代.txt",
+      "rhythm_csv": "rhythm_黑暗血时代.csv"
+    },
+    {
+      "title": "洪荒关系户",
+      "author": "清风小道童",
+      "genre": "洪荒",
+      "size_kb": 6855,
+      "wordCount": 2127253,
+      "file": "《洪荒关系户》（校对版全本）作者：清风小道童.txt",
+      "rhythm_csv": "rhythm_《洪荒关系户》（校对版全本）作者：清风小道童.csv"
+    },
+    {
+      "title": "星 空 职 业 者",
+      "author": "佚名",
+      "genre": "科幻",
+      "size_kb": 7411,
+      "wordCount": 2299546,
+      "file": "《星 空 职 业 者》（校对版）.txt",
+      "rhythm_csv": "rhythm_《星 空 职 业 者》（校对版）.csv"
+    },
+    {
+      "title": "深空之下",
+      "author": "最终永恒",
+      "genre": "科幻",
+      "size_kb": 5255,
+      "wordCount": 1630670,
+      "file": "《深空之下》（校对版全本）作者：最终永恒.txt",
+      "rhythm_csv": "rhythm_《深空之下》（校对版全本）作者：最终永恒.csv"
+    },
+    {
+      "title": "超级神基因",
+      "author": "佚名",
+      "genre": "科幻",
+      "size_kb": 22259,
+      "wordCount": 6906913,
+      "file": "超级神基因.txt",
+      "rhythm_csv": "rhythm_超级神基因.csv"
+    },
+    {
+      "title": "我在精神病院学斩神",
+      "author": "三九音域",
+      "genre": "都市",
+      "size_kb": 13313,
+      "wordCount": 4130992,
+      "file": "《我在精神病院学斩神》作者：三九音域.txt",
+      "rhythm_csv": "rhythm_《我在精神病院学斩神》作者：三九音域.csv"
+    },
+    {
+      "title": "我真的长生不老",
+      "author": "初恋璀璨如夏花",
+      "genre": "都市",
+      "size_kb": 6185,
+      "wordCount": 1919240,
+      "file": "《我真的长生不老》作者：初恋璀璨如夏花.txt",
+      "rhythm_csv": "rhythm_《我真的长生不老》作者：初恋璀璨如夏花.csv"
+    }
+  ]
+}

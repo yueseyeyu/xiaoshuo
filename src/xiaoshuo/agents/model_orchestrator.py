@@ -518,6 +518,57 @@ class ModelOrchestrator:
         # ── 全部不可用 ──
         return {"error": "所有模型均不可用"}
 
+    def swap_to(self, target_key: str, timeout: int = 120) -> bool:
+        """v7.5: 单GPU多模型串行切换 — 停止当前模型，启动目标模型。
+
+        用于交叉审查流程：Phase 1 用 Qwen3.5-9B 审查后，
+        swap_to("logic_cop_candidate") 切换到 DeepSeek-R1-0528-8B 做交叉标注。
+
+        切换流程:
+        1. 停止所有非目标模型（释放 GPU 显存）
+        2. 启动目标模型
+        3. 等待就绪
+
+        Args:
+            target_key: 目标模型 key (如 "logic_cop_candidate")
+            timeout: 启动等待超时秒数
+
+        Returns:
+            True=切换成功, False=切换失败
+        """
+        target = self.servers.get(target_key)
+        if target is None:
+            print(f"[FAIL] swap_to: 未知模型 '{target_key}'")
+            return False
+
+        # 如果目标已运行，直接返回
+        if target.health_check():
+            print(f"[OK] swap_to: {target.name} 已在运行 (port {target.port})")
+            return True
+
+        # 停止所有非目标模型
+        for key, server in self.servers.items():
+            if key == target_key:
+                continue
+            if server.is_running():
+                print(f"[SWAP] 停止 {server.name} (port {server.port})...")
+                server.stop()
+                # 等待释放显存
+                time.sleep(3)
+
+        # 启动目标模型
+        print(f"[SWAP] 启动 {target.name} (port {target.port})...")
+        if not target.start():
+            print(f"[FAIL] swap_to: {target.name} 启动失败")
+            return False
+
+        if not target.wait_until_ready(timeout=timeout):
+            print(f"[FAIL] swap_to: {target.name} 启动超时 ({timeout}s)")
+            return False
+
+        print(f"[OK] swap_to: 已切换到 {target.name}")
+        return True
+
     def get_model_for_task(self, task_type: str) -> ModelServer | None:
         """获取 task_type 对应的 ModelServer 实例（不执行推理）。
 

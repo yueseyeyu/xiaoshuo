@@ -12,6 +12,8 @@
 
 ### 10.2 启动命令（v7.0：双模型共存）
 
+> **v7.5 更新**：双模型共存方案因 8GB VRAM 不足以同时容纳 Qwen3.5-9B (~6.2GB) + DeepSeek-R1-0528-Qwen3-8B (~5.9GB) 而废弃，实际落地为**单 GPU 顺序切换（swap_to）**。参见 [04-modules-aux.md §4.9 M5d](04-modules-aux.md#49--m5d--模型编排层-model-orchestrator)。以下为 v7.0 历史设计方案，**不代表当前实现**。当前启动方式：`scripts\start_model.bat`（仅启动主模型 Qwen3.5-9B port 8000），交叉模型由 `model_orchestrator.swap_to()` 按需切换。
+
 ```
 # === 🆕 v7.0 方案A: 双模型共存 (model_orchestrator.py 统一管理) ===
 

@@ -38,6 +38,9 @@ from xiaoshuo.pipeline.scoring import (
     evaluate_loocv,
     process_genre,
     main,
+    # pro_genre_guide (v11)
+    generate_genre_guide,
+    generate_all_genres,
 )
 
 # 保持原有 __name__ == "__main__" 行为

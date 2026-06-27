@@ -45,11 +45,11 @@ except ImportError:
     except ImportError:
         _ce_available = False
 
-MANIFEST_PATH = PROJECT_ROOT / "data" / "processed" / "quality_manifest.json"
+MANIFEST_PATH = PROJECT_ROOT / "data" / "processed" / "末世" / "quality" / "quality_manifest.json"
 
 
 def _feedback_path(genre="末世"):
-    return PROJECT_ROOT / "data" / "processed" / genre / "feedback.json"
+    return PROJECT_ROOT / "data" / "processed" / genre / "quality" / "feedback.json"
 
 
 def _load_benchmark_legacy():

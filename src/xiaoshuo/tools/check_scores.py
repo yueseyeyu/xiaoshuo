@@ -4,7 +4,7 @@ from collections import Counter
 from statistics import mean, stdev
 from pathlib import Path
 
-llm_dir = Path("data/processed/末世/llm_scores")
+llm_dir = Path("data/processed/末世/scores")
 files = sorted(llm_dir.glob("*_llm.csv"))
 if not files:
     print("No CSV files found")

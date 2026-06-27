@@ -71,7 +71,9 @@
 
 ### 2.3 模型选型策略（v7.0 重构：双模型共存 + 角色定位测试）
 
-v7.0 核心变化：v6.0 的动态量化切换策略**存在 90 秒/章的切换延迟**（100 章 = 2.5 小时纯开销），且每次切换需重启 llama.cpp。v7.0 改为**双模型同时加载 + 统一编排**架构。
+> **v7.5 更新**：本节描述的"双模型共存"方案因 VRAM 不足（Qwen3.5-9B ~6.2GB + DeepSeek-R1-0528-Qwen3-8B ~5.9GB ≥ 12GB > 8GB LIMIT）而废弃。实际落地为**单 GPU 顺序切换（swap_to）**，详见 [04-modules-aux.md §4.9 M5d](04-modules-aux.md#49--m5d--模型编排层-model-orchestrator)。交叉模型从 DeepSeek-R1-Distill-Qwen-7B 升级至 **DeepSeek-R1-0528-Qwen3-8B**（AIME 2024 86.0% vs 旧版 55.5%）。本节保留为历史设计记录。
+
+v7.0 核心变化：v6.0 的动态量化切换策略**存在 90 秒/章的切换延迟**（100 章 = 2.5 小时纯开销），且每次切换需重启 llama.cpp。v7.0 曾计划**双模型同时加载 + 统一编排**架构。
 
 #### 2.3.1 v6.0 量化切换 → v7.0 双模型共存
 
@@ -338,5 +340,21 @@ S0 云端              S1-S4 本地                 发布
 ```
 
 ---
+
+## v8.0 候选特性
+
+### 设定一致性自动检查 (Narrative Consistency Checker)
+
+**灵感来源**: PaperSpine citation-check → 网文版"角色行为是否与世界观/前文史实匹配"
+
+**核心思路**: 用结构化状态机替代 RAG 做"引用核查"——当 S4++ 检测到角色行为时，自动回溯 canon 文件中的设定约束，检查是否矛盾。
+
+**示例**:
+- 第50章角色A"从容面对火场" → 检查 [characters.md](file:///d:/Code/xiaoshuo/assets/canon/characters.md) 是否在第3章确立过"怕火"且没有克服事件
+- 新异能出现 → 检查 [rules.md](file:///d:/Code/xiaoshuo/assets/canon/rules.md) 是否违反"权力来源"约束
+
+**前置条件**: characters.md + rules.md 需先填充内容
+
+**优先级**: 低 — 当前 canon 文件大部分为"待填写"，不具备执行条件
 
 

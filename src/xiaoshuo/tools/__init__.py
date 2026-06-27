@@ -1,2 +1,2 @@
-# analysis/ — 小说数据分析管线
-# book_processor → rhythm_analyzer → llm_batch_score → genre_synthesizer → quality_gate → creative_bridge
+# tools/ — 工具与诊断脚本
+# 校准 / 质检 / 诊断 / 对比 / 运维

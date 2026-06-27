@@ -23,6 +23,7 @@ for %%f in (
     src\xiaoshuo\agents\session_manager.py
     src\xiaoshuo\agents\cross_review.py
     src\xiaoshuo\agents\chapter_decisions.py
+    src\xiaoshuo\agents\memory_store.py
     src\xiaoshuo\pipeline\book_processor.py
     src\xiaoshuo\pipeline\quality_gate.py
     src\xiaoshuo\pipeline\rhythm_analyzer.py
@@ -86,6 +87,9 @@ if !errorlevel! equ 0 (set /a PASS+=1) else (echo   [FAIL] comparison_engine imp
 %PYTHON% -c "import sys; sys.path.insert(0,'src'); from xiaoshuo.tools.structure_comparator import compare_worldbuilding; print('[OK] structure_comparator')" 2>&1
 if !errorlevel! equ 0 (set /a PASS+=1) else (echo   [FAIL] structure_comparator import & set /a FAIL+=1)
 
+%PYTHON% -c "import sys; sys.path.insert(0,'src'); from xiaoshuo.agents.memory_store import MemoryStore; print('[OK] memory_store')" 2>&1
+if !errorlevel! equ 0 (set /a PASS+=1) else (echo   [FAIL] memory_store import & set /a FAIL+=1)
+
 echo.
 echo [3/3] Self-test Run...
 
@@ -94,6 +98,9 @@ if !errorlevel! equ 0 (echo   [OK] model_orchestrator self-test & set /a PASS+=1
 
 %PYTHON% "src\xiaoshuo\agents\skill_loader.py" 2>&1
 if !errorlevel! equ 0 (echo   [OK] skill_loader self-test & set /a PASS+=1) else (echo   [FAIL] skill_loader self-test & set /a FAIL+=1)
+
+%PYTHON% "src\xiaoshuo\agents\memory_store.py" 2>&1
+if !errorlevel! equ 0 (echo   [OK] memory_store self-test & set /a PASS+=1) else (echo   [FAIL] memory_store self-test & set /a FAIL+=1)
 
 echo.
 echo ============================================================

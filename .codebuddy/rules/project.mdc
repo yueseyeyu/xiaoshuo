@@ -83,7 +83,7 @@ provider:
 ## Skill 触发强制 — ⚠️ 最高优先级（先于所有其他规则）
 
 27. **每次接收到用户消息后，第一件事：扫描消息中是否包含 Skill 触发词。**
-28. 触发词映射表（匹配即强制 `use_skill`，不可凭记忆模仿）：
+28. **触发词映射**（匹配即强制 `use_skill`，不可凭记忆模仿）。下表为启动引导（bootstrap），**权威来源是 `.codebuddy/skills/SKILLS.md`**，新增/修改触发词只改 SKILLS.md：
 
 | 触发词 | Skill | 用途 |
 |------|------|------|
@@ -94,12 +94,14 @@ provider:
 | 进化细纲/章纲进化/章节进化/进化细钢 | `chapter-evolution` | 细纲8角色全自动进化 |
 | 穷举进化/loop进化/进化协议/审视进化/通用进化/穷举优化 | `loop-evolution` | 通用穷举进化(任意设计文档/配置) |
 | 进化skill/skill进化/进化SKILL/SKILL进化/skill审视/skill审查/优化skill | `skill-evolution` | Skill文件质量进化(8角色Skill专项审查) |
+| 审查报告/新的审查/处理审查/Marvis报告 | `marvis-review-handler` | Marvis审查5步闭环 |
 
 29. **即使触发词嵌入在复合指令中间(如"审视当前skill，穷举搜索可以进化吗")，也必须加载匹配的所有 Skill。**
-30. 多个触发词 → 依次加载所有匹配的 Skill。Skill 加载顺序: project-reviewer → exhaustive-search → clarify-first → rough-outline-evolution → chapter-evolution → loop-evolution → skill-evolution。
-31. **教训**: 2026-06-06，"穷举搜索可以继续进化吗"未触发 exhaustive-search，导致凭记忆分析、协议缺失。根源：Skill 的触发提醒在 Skill 自己的 SKILL.md 中，但 SKILL.md 只在 Skill 加载后才生效 —— 形成循环依赖。必须在 project.mdc 中前置检测。
-32. **防偷懒规则同步**: exhaustive-search、loop-evolution、rough-outline-evolution、chapter-evolution、skill-evolution 各自维护一份防偷懒规则（`use_skill` 不支持跨文件继承）。修改任一 Skill 的防偷懒规则段时，必须同步检查其他四个 Skill 的对应段并补齐缺失项。
-33. **穷举搜索/进化的终止条件**: **必须跑满 12 轮，不可提前收敛。** 即使连续多轮零发现，也必须逐轮完整执行至 R12。不输出 `[Round N]` 格式 = 该轮未执行。禁止跳过轮次、禁止合并轮次、禁止一轮输出多轮结果。
+30. 多个触发词 → 依次加载所有匹配的 Skill。Skill 加载顺序: project-reviewer → exhaustive-search → clarify-first → rough-outline-evolution → chapter-evolution → loop-evolution → skill-evolution → marvis-review-handler。
+31. **技能注册**: 完整注册表见 `.codebuddy/skills/SKILLS.md`。需要改触发词/加载顺序时，只改 SKILLS.md，不改 project.mdc。新增 Skill 必须在 SKILLS.md 注册 + 同步规则30的加载顺序。
+32. **教训**: 2026-06-06，"穷举搜索可以继续进化吗"未触发 exhaustive-search → 规则28前置检测 + SKILLS.md注册表双重保障。v8.0 消除循环依赖风险。
+33. **防偷懒规则同步**: exhaustive-search、loop-evolution、rough-outline-evolution、chapter-evolution、skill-evolution 各自维护一份防偷懒规则（`use_skill` 不支持跨文件继承）。修改任一 Skill 的防偷懒规则段时，必须同步检查其他四个 Skill 的对应段并补齐缺失项。
+34. **穷举搜索/进化的终止条件**: **必须跑满 12 轮，不可提前收敛。** 即使连续多轮零发现，也必须逐轮完整执行至 R12。不输出 `[Round N]` 格式 = 该轮未执行。禁止跳过轮次、禁止合并轮次、禁止一轮输出多轮结果。
 
 ## 单一事实源（SSOT）— 防配置漂移
 13. 任何数值/路径/阈值 — 只在 config.yaml 定义一次，代码必须从 config 读取

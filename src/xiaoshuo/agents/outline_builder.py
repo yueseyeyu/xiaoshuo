@@ -91,9 +91,16 @@ ROUGH_OUTLINE_SYSP = """
 5. **结局 (150-200万字)**: 最终决战+各角色结局+收官
 (字数可按实际调整)
 
+## 爽点动机链 (必须标注)
+每个阶段需标注主角的动机驱动链——爽点不能是无根之木:
+- **欲望**: 主角在这一阶段想要什么? (生存/复仇/保护/变强/真相)
+- **阻碍**: 什么在阻止他? (敌人/环境/规则/自身缺陷)
+- **行动**: 他做了什么来克服阻碍? (策略/升级/结盟/牺牲)
+- **爽点**: 行动的结果如何释放爽感? (碾压/反转/收获/揭示)
+
 ## 生成规则
 - 每个阶段列出 3-5 个关键事件
-- 每个关键事件标注: 对应的爽点类型 + 预估章数范围
+- 每个关键事件标注: 对应的爽点类型 + 预估章数范围 + 动机链(欲望→阻碍→行动→爽点)
 - 给出 2 个不同的总纲方向(不同核心冲突), 供作者选择
 - 禁止在总纲中写正文段落
 """
@@ -111,6 +118,12 @@ VOLUME_OUTLINE_SYSP = """
 - 卷目标(主角在这一卷结束时达到什么状态)
 - 卷高潮(这一卷最大的爽点/反转)
 - 卷末钩子(让读者必须看下一卷的理由)
+
+## 爽点动机链 (每卷必须标注)
+- **欲望**: 主角在这一卷想要什么?
+- **阻碍**: 什么在阻止他?
+- **行动**: 他做了什么来克服?
+- **爽点**: 卷末高潮如何释放?
 
 ## 生成规则
 - 每卷 20-50 章, 约 6-15 万字
@@ -145,13 +158,16 @@ CHAPTER_OUTLINE_SYSP = """
 - 爽(400字): 主角反击/揭晓/收获 + 钩子结尾
 
 ## 输出格式 (CSV 兼容)
-每行: 章号 | 事件标题 | 爽点类型 | 冲突级别 | 章末钩子类型 | 涉及角色
+每行: 章号 | 事件标题 | 爽点类型 | 冲突级别 | 动机链 | 章末钩子类型 | 涉及角色
+
+动机链格式: 欲望→阻碍→行动→爽点 (每章用一句话概括, 如"求生存→侵蚀源威胁→清源战斗→异能突破")
 
 ## 生成规则
 - 每章只写 1-2 句话概括事件, 不写正文
 - 爽点类型: 打脸/突破/碾压/绝地反击/扮猪吃虎/资源获取/身份揭示
 - 钩子类型: 悬念/反转/情绪/信息
 - 连续 3 章以上无爽点 → 输出警告
+- 连续 3 章以上动机链断裂(欲望缺失或阻碍不明确) → 输出警告
 - 章节长度: 日常章 2000 字, 高潮章 2500-3500 字
 """
 
@@ -514,7 +530,7 @@ def run_outline_build(orch, genre: str, total_chapters: int, guidance_path=None)
             f"总纲: {rough_outline[:800] if rough_outline else '(not yet)'}\n"
             f"卷纲: {volume_outline[:800] if volume_outline else '(not yet)'}\n\n"
             f"请生成全部 {total_chapters} 章的章纲映射, 每行格式:\n"
-            f"章号 | 事件标题 | 爽点类型 | 冲突级别 | 章末钩子类型 | 涉及角色"
+            f"章号 | 事件标题 | 爽点类型 | 冲突级别 | 动机链 | 章末钩子类型 | 涉及角色"
         )}
     ]
     chapter_result = orch.chat_with_trace(
@@ -559,14 +575,14 @@ def run_outline_build(orch, genre: str, total_chapters: int, guidance_path=None)
 def _parse_chapter_outline(chapter_text: str, total_chapters: int) -> list:
     """Parse LLM-generated chapter outline text into structured data.
 
-    Expected format per line: 章号 | 事件标题 | 爽点类型 | 冲突级别 | 章末钩子类型 | 涉及角色
+    Expected format per line: 章号 | 事件标题 | 爽点类型 | 冲突级别 | 动机链 | 章末钩子类型 | 涉及角色
 
     Args:
         chapter_text: Raw chapter outline text from LLM
         total_chapters: Expected chapter count
 
     Returns:
-        list of dicts with keys: chapter, event, pleasure_type, conflict_level, hook_type, characters
+        list of dicts with keys: chapter, event, pleasure_type, conflict_level, motivation_chain, hook_type, characters
     """
     if not chapter_text:
         return []
@@ -586,8 +602,9 @@ def _parse_chapter_outline(chapter_text: str, total_chapters: int) -> list:
                 "event": parts[1] if len(parts) > 1 else "",
                 "pleasure_type": parts[2] if len(parts) > 2 else "",
                 "conflict_level": parts[3] if len(parts) > 3 else "",
-                "hook_type": parts[4] if len(parts) > 4 else "",
-                "characters": parts[5] if len(parts) > 5 else "",
+                "motivation_chain": parts[4] if len(parts) > 4 else "",
+                "hook_type": parts[5] if len(parts) > 5 else "",
+                "characters": parts[6] if len(parts) > 6 else "",
             })
         except (ValueError, IndexError):
             continue

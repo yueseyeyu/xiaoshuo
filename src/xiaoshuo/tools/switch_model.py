@@ -43,8 +43,8 @@ MODELS = {
         "chat_format": "chatml",
     },
     "r1": {
-        "name": "DeepSeek-R1-Distill-Qwen-7B",
-        "gguf": "D:/DaMoXing/DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf",
+        "name": "DeepSeek-R1-0528-Qwen3-8B",
+        "gguf": "D:/DaMoXing/DeepSeek-R1-0528-Qwen3-8B-Q4_K_M.gguf",
         "port": 8002,
         "n_ctx": 4096,
         "n_gpu_layers": 24,
