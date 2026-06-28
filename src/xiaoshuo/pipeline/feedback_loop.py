@@ -25,8 +25,7 @@ from datetime import datetime
 # PROJECT_ROOT imported from src.xiaoshuo
 # v2: Import comparison_engine for full metrics + benchmark
 try:
-    # Try package import first, then sys.path fallback
-    from analysis.comparison_engine import (
+    from xiaoshuo.pipeline.comparison_engine import (
         _rich_scan,
         compute_benchmark_percentiles,
         estimate_signing_probability,
@@ -34,8 +33,6 @@ try:
     _ce_available = True
 except ImportError:
     try:
-        import sys as _sys
-        _sys.path.insert(0, str(PROJECT_ROOT))
         from analysis.comparison_engine import (
             _rich_scan,
             compute_benchmark_percentiles,
@@ -45,18 +42,16 @@ except ImportError:
     except ImportError:
         _ce_available = False
 
-MANIFEST_PATH = PROJECT_ROOT / "data" / "processed" / "末世" / "quality" / "quality_manifest.json"
-
-
 def _feedback_path(genre="末世"):
     return PROJECT_ROOT / "data" / "processed" / genre / "quality" / "feedback.json"
 
 
-def _load_benchmark_legacy():
+def _load_benchmark_legacy(genre="末世"):
     """Legacy benchmark from quality_manifest (hook+pleasure only)."""
-    if not MANIFEST_PATH.exists():
+    manifest_path = PROJECT_ROOT / "data" / "processed" / genre / "quality" / "quality_manifest.json"
+    if not manifest_path.exists():
         return {"avg_hook": 0, "avg_pleasure": 0, "sample_n": 0}
-    with open(MANIFEST_PATH, 'r', encoding='utf-8') as f:
+    with open(manifest_path, 'r', encoding='utf-8') as f:
         m = json.load(f)
     approved = m.get("approved", [])
     avg_hook = statistics.mean([a.get("avg_hook", 0) for a in approved]) if approved else 0
@@ -83,7 +78,7 @@ def _save_feedback(data, genre="末世"):
 def submit_work(chapter_file, hook_density=0, pleasure_score=0, notes="", genre="末世"):
     """Submit a user-written chapter for feedback tracking (manual metrics)."""
     fb = _load_feedback(genre)
-    benchmark = _load_benchmark_legacy()
+    benchmark = _load_benchmark_legacy(genre)
 
     entry = {
         "chapter": chapter_file,
@@ -249,7 +244,7 @@ def adopt_suggestion(entry_index, genre="末世", post_hook=0, post_pleasure=0):
 def show_status(genre="末世"):
     """Show current feedback loop status."""
     fb = _load_feedback(genre)
-    benchmark = _load_benchmark_legacy()
+    benchmark = _load_benchmark_legacy(genre)
     print(f"[FEEDBACK] genre={genre} | 总提交: {len(fb['entries'])} | 采纳率: {fb.get('adoption_rate',0):.0%}")
     print(f"[BENCHMARK] {benchmark['sample_n']}本精品书 | hook={benchmark['avg_hook']} pleasure={benchmark['avg_pleasure']}")
     for i, e in enumerate(fb["entries"][-5:]):

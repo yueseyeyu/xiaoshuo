@@ -176,7 +176,107 @@ SUBPLOT_SCHEMA = {
     ],
 }
 
+# ── 风格规则 (v7.8 Part E 风格进化) ──
+
+STYLE_RULES_SCHEMA = {
+    "preferences": {
+        "sentence": {
+            "avg_length_range": str,  # "15-25" (chars)
+            "prefer_active_voice": bool,
+            "paragraph_density": str,  # "compact|medium|spacious"
+        },
+        "pacing": {
+            "action_to_rest_ratio": str,  # "7:3"
+            "cliffhanger_frequency": str,  # "每章|每3章|每卷"
+        },
+        "dialogue": {
+            "dialogue_to_narration_ratio": str,  # "4:6"
+            "prefer_action_tags": bool,  # 用动作标签代替"XX说"
+        },
+    },
+    "taboos": {
+        "ai_fingerprint_words": [str],  # 禁止使用的AI指纹词
+        "sentence_patterns": [str],  # 禁止的句式模板
+        "overused_devices": [str],  # 过度使用的叙事手法
+    },
+    "genre_conventions": {
+        "required_elements": [str],  # 该题材必须包含的元素
+        "forbidden_cliches": [str],  # 该题材禁止的陈词滥调
+    },
+    "s3_review_rules": [  # 从S3评审中提取的风格规则，用于后续审阅加权
+        {
+            "dimension": str,  # pacing|pleasure|hook|immersion|logic|language
+            "rule": str,  # 规则描述
+            "weight": float,  # 1.0=标准, >1.0=重点关注, <1.0=降低关注
+            "source": str,  # "S3_logic_cop|S3_editor|S3_qc|manual"
+            "evidence": str,  # 支撑证据（S3评审原文引用）
+        }
+    ],
+    "evolution_log": [  # 风格演化历史，每次校准追加一条
+        {
+            "date": str,
+            "trigger": str,  # 触发来源：S3评审/手动校准/批量提取
+            "change": str,  # 变更内容
+            "reason": str,  # 变更原因
+        }
+    ],
+}
+
 # ── 汇总 ──
+
+# v8.0: 大纲模板 (S4 大纲细纲打通方案)
+# Part B 骨架生成必须按此结构输出，写入 Canon
+NOVEL_OUTLINE_SCHEMA = {
+    "one_sentence": str,  # 一句话故事 (20字以内)
+    "protagonist": str,  # 主角名 (关联 CanonCharacter)
+    "motivation": str,  # 核心动机
+    "goal": str,  # 最终目标
+    "core_obstacle": str,  # 核心阻碍
+    "core_conflict": str,  # 核心矛盾 (S3 逻辑一致性判据来源)
+    "phases": [  # 阶段目标与代价 (对应"卷/块"层级)
+        {
+            "phase": int,
+            "goal": str,  # 本阶段目标
+            "cost": str,  # 付出的代价
+            "growth": str,  # 获得的成长
+        }
+    ],
+    "foreshadowing": [  # 伏笔与回收 (供 S3 跨章节校验)
+        {
+            "id": int,
+            "content": str,
+            "planted_at": str,  # 埋下位置 (章节号或场景)
+            "reveal_plan": str,  # 预期回收时机
+        }
+    ],
+    "character_arcs": {  # 核心角色弧线
+        "protagonist": str,  # 主角成长弧线 (如 "从懦弱到果敢")
+        "key_turning_points": [str],  # 关键转折事件
+    },
+}
+
+# v8.0: 细纲模板 (S4 大纲细纲打通方案)
+# Part C 手写前，AI 基于大纲 + Canon 生成此施工单，作者照着写
+CHAPTER_BLUEPRINT_SCHEMA = {
+    "chapter_num": int,
+    "one_sentence": str,  # 本章一句话总结 (20字)
+    "purpose": str,  # 本章在整个故事中的功能和目标
+    "characters": [str],  # 出场人物 (关联 Canon 人物卡)
+    "protagonist_wants": str,  # 主角本章欲望
+    "obstacle": str,  # 阻碍
+    "conflict": str,  # 本章冲突 (欲望 vs 阻碍)
+    "protagonist_action": str,  # 主角采取的行动
+    "action_result": str,  # 行动结果
+    "emotion_changes": {  # 人物情绪变化
+        "protagonist": str,  # 如 "期待 → 疑虑 → 震惊 → 克制"
+        "others": {str: str},  # 角色名 → 情绪变化
+    },
+    "foreshadowing_plant": str,  # 本章埋下的伏笔 (空=无)
+    "cliffhanger": str,  # 章末钩子
+    "required_canon": [str],  # 本章必须引用的 Canon 条目 (如 "妖力等级体系")
+    # v8.1: 爽感奖励 (基于七步正反馈循环)
+    "reward_type": str,  # 奖励类型: "数值型"|"权限型"|"关系型"|"未来型"|""
+}
 
 CANON_SCHEMAS = {
     "characters": CHARACTERS_SCHEMA,
@@ -185,6 +285,9 @@ CANON_SCHEMAS = {
     "foreshadowing": FORESHADOWING_SCHEMA,
     "emotional_arcs": EMOTIONAL_ARCS_SCHEMA,
     "subplot_board": SUBPLOT_SCHEMA,
+    "style_rules": STYLE_RULES_SCHEMA,
+    "novel_outline": NOVEL_OUTLINE_SCHEMA,
+    "chapter_blueprint": CHAPTER_BLUEPRINT_SCHEMA,
 }
 
 

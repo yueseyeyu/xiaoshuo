@@ -10,7 +10,7 @@ for f in NOVELS_DIR.glob("*.txt"):
         raw.decode('utf-8')
         print(f"[SKIP] 已是UTF-8: {f.name}")
         continue
-    except:
+    except UnicodeDecodeError:
         pass
     
     try:

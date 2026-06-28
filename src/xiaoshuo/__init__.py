@@ -19,7 +19,7 @@ xiaoshuo — 番茄小说 AI 辅助创作系统
 
 from pathlib import Path
 
-__version__ = "7.5.0"
+__version__ = "8.0.0"
 
 # 统一 PROJECT_ROOT — 替代全仓 86+ 处 Path(__file__).parent.parent hack
 # src/xiaoshuo/__init__.py → d:\Code\xiaoshuo\

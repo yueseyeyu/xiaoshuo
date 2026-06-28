@@ -48,17 +48,17 @@ def audit_rhythm():
                     if v == "" or v is None:
                         null_cols[k] += 1
                 try: hook_stats.append(float(row["hook_density"]))
-                except: pass
+                except (ValueError, TypeError, KeyError): pass
                 try: pl_stats.append(float(row["pleasure_intensity"]))
-                except: pass
+                except (ValueError, TypeError, KeyError): pass
                 try: wc_stats.append(int(row["wc"]))
-                except: pass
+                except (ValueError, TypeError, KeyError): pass
                 try:
                     rd = float(row["readability"])
                     readability_count += 1
                     if rd > 0:
                         readability_pos += 1
-                except: pass
+                except (ValueError, TypeError, KeyError): pass
                 if float(row.get("pleasure_intensity", 0) or 0) == 0:
                     pl_zero += 1
                 if float(row.get("hook_density", 0) or 0) == 0:

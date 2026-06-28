@@ -4,7 +4,7 @@
 style_detection_loop.py — S4 反检测循环: 检测→报告→(人工修改)→复检→对比
 ========================================================================
 v7.6: 新增 L5 人物一致性 + L6 AI口头禅, 对标平台整治重点
-原则: 正文100%手写 — 本模块只检测, 不生成任何改写建议或替换文本
+原则: 本模块只检测, 不生成任何改写建议或替换文本。AI生成正文须通过S3质量门禁。
 
 六层检测 (来自 config.yaml detection.layers):
   L1 PPL (困惑度)         — PPL < 阈值 → 疑似 AI 生成
@@ -26,10 +26,10 @@ v7.6: 新增 L5 人物一致性 + L6 AI口头禅, 对标平台整治重点
 import math
 import re
 import sys
-import yaml
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
+from xiaoshuo.infra.config_manager import get_config
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
@@ -55,7 +55,7 @@ def _load_cfg():
         "l6_ai_tic": {"max_density": 1.0, "max_unique": 8},
     }
     try:
-        cfg = yaml.safe_load(open(CONFIG_PATH, encoding="utf-8"))
+        cfg = get_config()
         det = cfg.get("detection", {}).get("layers", {})
         return {
             "l1": det.get("l1_ppl", defaults["l1_ppl"]),
@@ -64,6 +64,7 @@ def _load_cfg():
             "l4": det.get("l4_sentence_length_variation", defaults["l4_variation"]),
             "l5": det.get("l5_character_consistency", defaults["l5_character"]),
             "l6": det.get("l6_ai_tic_phrases", defaults["l6_ai_tic"]),
+            "l7": det.get("l7_human_likeness", {}),
         }
     except Exception:
         return defaults
@@ -308,6 +309,165 @@ _AI_TIC_PHRASES = [
     "究其原因", "归根结底", "从某种程度上说",
 ]
 
+# ── L7: 人味度检测 (v7.7 新增) ──
+
+# 第一人称心理活动标记词
+_PSYCH_MARKERS = [
+    "我觉得", "我感到", "我感觉", "我心里", "我心中", "我内心",
+    "我意识到", "我突然想到", "我忽然明白", "我明白", "我懂了",
+    "我不确定", "我犹豫", "我纠结", "我挣扎", "我害怕",
+    "我担心", "我期待", "我渴望", "我恨", "我厌",
+    "莫名其妙地", "不知道为什么", "鬼使神差", "忍不住",
+    "下意识地", "不自觉地", "恍惚间", "一瞬间",
+    "脑海中闪过", "心底涌起", "心头一紧", "心一横",
+    "深吸一口气", "咬了咬牙", "握紧拳头", "眼眶发热",
+]
+
+# 第一人称视角标记 (用于判断是否为第一人称)
+_FIRST_PERSON_COUNT = re.compile(r'(?:^|[。！？…；\n\s])我')
+
+# 第三人称叙述标记 (用于判断是否为第三人称)
+_THIRD_PERSON_COUNT = re.compile(r'(?:^|[。！？…；\n\s])(?:他|她)')
+
+# 心理矛盾/犹豫标记
+_CONTRADICTION_MARKERS = [
+    "但是", "可是", "然而", "不过", "虽然", "尽管",
+    "犹豫", "纠结", "挣扎", "矛盾", "两难",
+    "一方面", "另一方面", "既想", "又怕",
+    "理智告诉我", "但心里", "明明知道", "却还是",
+    "说不上来", "说不清", "无法形容", "复杂",
+]
+
+# 上帝视角泄露标记 (AI 常见问题: 主角知道不该知道的事)
+# 注: 不用 \b, 因为中文全是 \w 字符, \b 不生效
+_OMNISCIENT_LEAK = re.compile(
+    r'(?:殊不知|他不知道的是|她不知道的是|而此刻|不远处|隔壁|'
+    r'千里之外|另一边|暗处|暗中|背地里|私下里|'
+    r'此刻.{0,5}正|此时.{0,5}正|这时候.{0,5}正|就在这时)|'
+    r'(?:他|她)(?:暗自|偷偷|悄悄|默默|暗暗)'
+)
+
+
+def _human_likeness(text):
+    """L7: 人味度检测 — 评估文本的"人写感"。
+
+    基于建议文件中的"第一人称+定期心理总结去AI味"技巧,
+    从四个维度评估文本的人味度:
+      1. 视角一致性: 是否第一人称? 视角是否统一?
+      2. 心理活动密度: 每千字心理标记词数量
+      3. 矛盾/犹豫: 是否有情感矛盾和非理性?
+      4. 信息差: 是否有"上帝视角"泄露?
+
+    高分 = 更像人写, 低分 = 更像 AI 生成。
+
+    Returns:
+        dict with:
+        - pov_type: "first_person" / "third_person" / "mixed"
+        - pov_consistency: 0-100 POV 一致性
+        - psych_density: 心理标记词密度 (/千字)
+        - contradiction_count: 矛盾/犹豫标记数
+        - omniscient_leaks: 上帝视角泄露次数
+        - score: 0-100 人味度总分 (100 = 最像人写)
+    """
+    if not text:
+        return {
+            "pov_type": "unknown", "pov_consistency": 0,
+            "psych_density": 0.0, "contradiction_count": 0,
+            "omniscient_leaks": 0, "score": 50,
+        }
+
+    char_count = len(text.replace("\n", "").replace(" ", ""))
+    if char_count < 50:
+        return {
+            "pov_type": "unknown", "pov_consistency": 0,
+            "psych_density": 0.0, "contradiction_count": 0,
+            "omniscient_leaks": 0, "score": 50,
+        }
+
+    # 1. POV 检测
+    first_person_count = len(_FIRST_PERSON_COUNT.findall(text))
+    third_person_count = len(_THIRD_PERSON_COUNT.findall(text))
+
+    total_markers = first_person_count + third_person_count
+    if total_markers == 0:
+        pov_type = "unknown"
+        pov_consistency = 0
+    elif first_person_count > third_person_count * 2:
+        pov_type = "first_person"
+        pov_consistency = min(100, int(first_person_count / max(1, total_markers) * 100))
+    elif third_person_count > first_person_count * 2:
+        pov_type = "third_person"
+        pov_consistency = min(100, int(third_person_count / max(1, total_markers) * 100))
+    else:
+        pov_type = "mixed"
+        pov_consistency = int(abs(first_person_count - third_person_count) / max(1, total_markers) * 100)
+
+    # 2. 心理活动密度
+    psych_hits = 0
+    psych_found = []
+    for marker in _PSYCH_MARKERS:
+        count = text.count(marker)
+        if count > 0:
+            psych_hits += count
+            psych_found.append(marker)
+
+    psych_density = round(psych_hits / (char_count / 1000), 2)
+
+    # 3. 矛盾/犹豫标记
+    contradiction_count = 0
+    for marker in _CONTRADICTION_MARKERS:
+        contradiction_count += text.count(marker)
+
+    # 4. 上帝视角泄露
+    omniscient_leaks = len(_OMNISCIENT_LEAK.findall(text))
+
+    # ── 综合评分 ──
+    score = 50  # 默认中性
+
+    # POV: 第一人称 +25, 第三人称 +5, mixed +0
+    if pov_type == "first_person":
+        score += 25
+    elif pov_type == "third_person":
+        score += 5
+    # POV consistency: 越一致越好
+    if pov_consistency >= 80:
+        score += 5
+    elif pov_consistency >= 60:
+        score += 3
+
+    # 心理密度: 1.0-3.0/千字 = 最佳区间 (人写水平)
+    if 1.0 <= psych_density <= 3.0:
+        score += 25
+    elif 0.5 <= psych_density < 1.0:
+        score += 15
+    elif psych_density > 3.0:
+        score += 5  # 过多内心戏, 颓势
+
+    # 矛盾/犹豫: 有矛盾 = 有人味
+    if contradiction_count >= 3:
+        score += 15
+    elif contradiction_count >= 1:
+        score += 8
+
+    # 上帝视角泄露: 扣分 (0 泄露 +5, 1-2 不加分, >2 扣分)
+    if omniscient_leaks == 0:
+        score += 5
+    elif omniscient_leaks > 2:
+        score -= (omniscient_leaks - 2) * 3
+
+    score = max(0, min(100, score))
+
+    return {
+        "pov_type": pov_type,
+        "pov_consistency": pov_consistency,
+        "psych_density": psych_density,
+        "psych_markers_found": psych_found[:10],
+        "contradiction_count": contradiction_count,
+        "omniscient_leaks": omniscient_leaks,
+        "score": score,
+    }
+
+
 def _ai_tic_density(text):
     """L6: AI 口头禅检测 — 检测 AI 高频套话密度。
 
@@ -464,6 +624,28 @@ def detect_style(text, previous_text=None):
         "status": l6_status,
     }
 
+    # L7: Human-likeness / 人味度 (v7.7)
+    human_result = _human_likeness(text)
+    l7_cfg = cfg.get("l7", {})
+    min_score = l7_cfg.get("min_score", 40)
+    l7_status = "pass"
+    if human_result["score"] >= 70:
+        l7_status = "pass"
+    elif human_result["score"] >= min_score:
+        l7_status = "warn"
+    else:
+        l7_status = "fail"
+    results["l7_human_likeness"] = {
+        "pov_type": human_result["pov_type"],
+        "pov_consistency": human_result["pov_consistency"],
+        "psych_density": human_result["psych_density"],
+        "psych_markers": human_result["psych_markers_found"],
+        "contradiction_count": human_result["contradiction_count"],
+        "omniscient_leaks": human_result["omniscient_leaks"],
+        "score": human_result["score"],
+        "status": l7_status,
+    }
+
     # Overall verdict
     failures = sum(1 for r in results.values() if r["status"] == "fail")
     warns = sum(1 for r in results.values() if r["status"] == "warn")
@@ -502,7 +684,8 @@ class GradientValidator:
             {"name": "l3_ai_words",      "label": "AI词共现",   "threshold": 0.70, "error_prob": 0.18, "harm": "高"},
             {"name": "l4_variation",     "label": "句长变异",   "threshold": 0.60, "error_prob": 0.15, "harm": "高"},
             {"name": "l5_character",     "label": "人物一致性", "threshold": 0.55, "error_prob": 0.12, "harm": "致命"},
-            {"name": "l6_ai_tic",        "label": "AI口头禅",   "threshold": 0.50, "error_prob": 0.10, "harm": "致命"},
+            { "name": "l6_ai_tic",        "label": "AI口头禅",   "threshold": 0.50, "error_prob": 0.10, "harm": "致命"},
+            {"name": "l7_human_likeness", "label": "人味度",     "threshold": 0.45, "error_prob": 0.12, "harm": "高"},
         ]
 
     def validate(self, style_results):

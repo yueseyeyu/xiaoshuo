@@ -253,12 +253,12 @@ def load_guidance_benchmarks(genre: str = "末世") -> dict:
     cfg_path = root / "config.yaml"
     if cfg_path.exists():
         try:
-            with open(cfg_path, "r", encoding="utf-8") as f:
-                cfg = yaml.safe_load(f)
+            from xiaoshuo.infra.config_manager import get_config
+            cfg = get_config()
             cb = cfg.get("creative_bridge", {})
             hook_per_chars = cb.get("hook_per_chars", hook_per_chars)
             pleasure_per_chars = cb.get("pleasure_per_chars", pleasure_per_chars)
-        except (yaml.YAMLError, IOError):
+        except Exception:
             pass
 
     return {
@@ -611,6 +611,148 @@ def _parse_chapter_outline(chapter_text: str, total_chapters: int) -> list:
 
     _logger.debug("Parsed %d chapter entries from outline text", len(chapters))
     return chapters
+
+
+# ============================================================
+# v8.0: 章节施工单生成 (S4 大纲细纲打通方案)
+# ============================================================
+
+CHAPTER_BLUEPRINT_SYSP = """## 你的角色
+你是网文细纲规划师。基于全书大纲和 Canon 设定，为指定章节生成施工单。
+
+## 施工单格式
+你必须严格按以下 JSON 结构输出，不得省略任何字段：
+
+```json
+{
+  "chapter_num": 数字,
+  "one_sentence": "本章一句话总结 (20字以内)",
+  "purpose": "本章在整个故事中的功能和目标",
+  "characters": ["出场人物名1", "出场人物名2"],
+  "protagonist_wants": "主角本章的欲望/目标",
+  "obstacle": "阻碍是什么",
+  "conflict": "欲望 vs 阻碍的具体冲突",
+  "protagonist_action": "主角采取的行动",
+  "action_result": "行动结果",
+  "emotion_changes": {
+    "protagonist": "主角情绪变化 (如: 期待→疑虑→震惊→克制)",
+    "others": {"角色名": "情绪变化"}
+  },
+  "foreshadowing_plant": "本章埋下的伏笔 (空字符串=无)",
+  "cliffhanger": "章末钩子",
+  "required_canon": ["必须引用的Canon设定"],
+  "reward_type": "奖励类型: 数值型|权限型|关系型|未来型 (空字符串=无)"
+}
+```
+
+## 奖励类型说明 (七步正反馈循环)
+- 数值型: 直观的数值变化 (等级突破/力量提升/资源获取)
+- 权限型: 身份转变 (获得资格/晋升/解锁新区域)
+- 关系型: 情感满足 (被认可/被依赖/建立羁绊/收服同伴)
+- 未来型: 激发期待 (伏笔/契机/潜力/预知信息)
+
+## 规则
+1. chapter_num 用传入的章节号
+2. one_sentence 必须 ≤20 字
+3. 情绪变化用箭头连接 (如: 平静→愤怒→克制)
+4. 如果本章无伏笔, foreshadowing_plant 为空字符串 ""
+5. 如果本章无特殊 Canon 引用, required_canon 为空数组 []
+6. 如果本章无奖励, reward_type 为空字符串 ""
+7. 只输出 JSON, 不要额外文字
+"""
+
+
+def build_chapter_blueprint(
+    orch,
+    chapter_num: int,
+    total_chapters: int,
+    genre: str = "末世",
+    outline_summary: str = "",
+    canon_context: str = "",
+    previous_chapter_summary: str = "",
+) -> dict:
+    """Generate a structured chapter blueprint (施工单) for Part C hand-writing.
+
+    Args:
+        orch: ModelOrchestrator instance
+        chapter_num: Target chapter number
+        total_chapters: Total chapters in the book
+        genre: Genre name
+        outline_summary: Brief summary of the overall outline
+        canon_context: Relevant Canon entries (characters, rules, etc.)
+        previous_chapter_summary: Summary of the previous chapter (empty for ch1)
+
+    Returns:
+        dict matching CHAPTER_BLUEPRINT_SCHEMA, or {"error": str} on failure
+    """
+    prev_hint = ""
+    if previous_chapter_summary:
+        prev_hint = f"\n前一章摘要: {previous_chapter_summary[:500]}"
+
+    progress = round(chapter_num / total_chapters * 100, 1)
+    progress_hint = ""
+    if progress <= 5:
+        progress_hint = "开局阶段: 建立世界观, 引入主角, 埋下核心矛盾"
+    elif progress <= 25:
+        progress_hint = "前期: 展开冲突, 引入核心同伴, 建立日常节奏"
+    elif progress <= 50:
+        progress_hint = "中期: 冲突升级, 世界观扩展, 主角成长"
+    elif progress <= 75:
+        progress_hint = "后期: 冲突到达高峰, 角色关系深化, 伏笔开始回收"
+    else:
+        progress_hint = "终局: 最终决战, 伏笔全面回收, 角色弧线完成"
+
+    user_msg = (
+        f"题材: {genre}\n"
+        f"章节: 第{chapter_num}章 / 共{total_chapters}章 ({progress}%)\n"
+        f"阶段: {progress_hint}\n"
+        f"大纲概要: {outline_summary[:800] if outline_summary else '(未提供)'}\n"
+        f"Canon 设定: {canon_context[:800] if canon_context else '(未提供)'}"
+        f"{prev_hint}\n\n"
+        f"请为第{chapter_num}章生成施工单 (JSON格式)。"
+    )
+
+    messages = [
+        {"role": "system", "content": CHAPTER_BLUEPRINT_SYSP},
+        {"role": "user", "content": user_msg},
+    ]
+    result = orch.chat_with_trace(
+        "main_model", messages,
+        caller="outline_builder.blueprint",
+        max_tokens=1500, temperature=0.5, timeout=120
+    )
+
+    if "error" in result:
+        return {"error": result["error"], "chapter_num": chapter_num}
+
+    raw = result.get("content", "")
+    # Extract JSON from response (may be wrapped in ```json blocks)
+    json_str = raw
+    if "```json" in raw:
+        json_str = raw.split("```json")[1].split("```")[0]
+    elif "```" in raw:
+        json_str = raw.split("```")[1].split("```")[0]
+
+    try:
+        blueprint = json.loads(json_str.strip())
+        blueprint["chapter_num"] = chapter_num
+        # Ensure minimal fields exist
+        blueprint.setdefault("one_sentence", "")
+        blueprint.setdefault("purpose", "")
+        blueprint.setdefault("characters", [])
+        blueprint.setdefault("protagonist_wants", "")
+        blueprint.setdefault("obstacle", "")
+        blueprint.setdefault("conflict", "")
+        blueprint.setdefault("protagonist_action", "")
+        blueprint.setdefault("action_result", "")
+        blueprint.setdefault("emotion_changes", {"protagonist": "", "others": {}})
+        blueprint.setdefault("foreshadowing_plant", "")
+        blueprint.setdefault("cliffhanger", "")
+        blueprint.setdefault("required_canon", [])
+        blueprint.setdefault("reward_type", "")  # v8.1: 爽感奖励类型
+        return blueprint
+    except json.JSONDecodeError as e:
+        return {"error": f"JSON parse failed: {e}", "raw": raw[:500], "chapter_num": chapter_num}
 
 
 # ============================================================

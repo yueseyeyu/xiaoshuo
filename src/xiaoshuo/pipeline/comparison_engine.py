@@ -32,8 +32,8 @@ CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
 def _get_llama_base():
     try:
-        with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-            cfg = yaml.safe_load(f) or {}
+        from xiaoshuo.infra.config_manager import get_config
+        cfg = get_config()
         port = cfg.get("model_orchestration", {}).get("models", {}).get("main_model", {}).get("port", 8000)
         return f"http://127.0.0.1:{port}"
     except Exception:

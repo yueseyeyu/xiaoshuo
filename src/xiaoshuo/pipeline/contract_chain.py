@@ -4,7 +4,7 @@
 contract_chain.py — 合同链模块: 合同种子→运行时合同→章节提交→事件审计
 =========================================================================
 灵感: webnovel-writer Story System (lingfengQAQ, v5.4.2)
-适配: 本地 Qwen + 正文 100% 手写 + 七真相文件
+适配: 本地 Qwen + 质量门禁 + 七真相文件
 
 四阶段流程:
   1. 合同种子 (ContractSeed): 从 assets/canon/ 加载世界规则, 不可变

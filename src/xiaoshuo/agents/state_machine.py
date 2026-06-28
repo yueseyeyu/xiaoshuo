@@ -318,8 +318,8 @@ class StateMachine:
     def _load_config(self):
         """从 config.yaml 读取熔断参数。"""
         try:
-            with open(self.CONFIG_PATH, "r", encoding="utf-8") as f:
-                cfg = yaml.safe_load(f) or {}
+            from xiaoshuo.infra.config_manager import get_config
+            cfg = get_config()
             cb = cfg.get("circuit_breaker", {})
             self._max_llm_calls = cb.get("max_daily_llm_calls", 50)
             self._max_retries_s3 = cb.get("max_s3_retries_per_chapter", 2)

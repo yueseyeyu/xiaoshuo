@@ -83,9 +83,15 @@ class MemoryStore:
                     date        TEXT NOT NULL,
                     project_version TEXT DEFAULT 'v7.5',
                     source      TEXT DEFAULT '',          -- 触发来源: quality_gate|s4_detection|manual|book_complete
-                    hallucination_pattern TEXT DEFAULT '' -- 幻觉模式记录 (v7.5新增)
+                    hallucination_pattern TEXT DEFAULT '', -- 幻觉模式记录 (v7.5新增)
+                    category    TEXT DEFAULT 'general'    -- 记忆分类: fact|episodic|skill|general (v7.8新增)
                 )
             """)
+            # v7.8 迁移：为已有数据库添加 category 列
+            try:
+                conn.execute("ALTER TABLE memory_cards ADD COLUMN category TEXT DEFAULT 'general'")
+            except sqlite3.OperationalError:
+                pass  # 列已存在
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_memory_tags
                 ON memory_cards(tags)
@@ -93,6 +99,10 @@ class MemoryStore:
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_memory_date
                 ON memory_cards(date DESC)
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_memory_category
+                ON memory_cards(category)
             """)
             conn.commit()
         finally:
@@ -102,7 +112,8 @@ class MemoryStore:
 
     def add(self, goal: str, solution: str = "", result: str = "",
             pain_point: str = "", tags: Optional[List[str]] = None,
-            source: str = "manual", hallucination_pattern: str = "") -> int:
+            source: str = "manual", hallucination_pattern: str = "",
+            category: str = "general") -> int:
         """添加一张记忆卡片。
 
         Args:
@@ -113,6 +124,7 @@ class MemoryStore:
             tags: 标签列表 (3-5 个推荐)
             source: 触发来源标识
             hallucination_pattern: LLM幻觉模式记录 (v7.5新增)
+            category: 记忆分类 (v7.8新增): fact|episodic|skill|general
 
         Returns:
             新卡片 ID
@@ -121,8 +133,8 @@ class MemoryStore:
         conn = sqlite3.connect(str(self.db_path))
         try:
             cur = conn.execute("""
-                INSERT INTO memory_cards (goal, solution, result, pain_point, tags, date, project_version, source, hallucination_pattern)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO memory_cards (goal, solution, result, pain_point, tags, date, project_version, source, hallucination_pattern, category)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 goal,
                 solution,
@@ -130,9 +142,10 @@ class MemoryStore:
                 pain_point,
                 json.dumps(tags, ensure_ascii=False),
                 datetime.now().isoformat(timespec="seconds"),
-                "v7.5",
+                "v7.8",
                 source,
                 hallucination_pattern,
+                category,
             ))
             conn.commit()
             return cur.lastrowid or 0
@@ -142,7 +155,8 @@ class MemoryStore:
     def add_from_pipeline(self, goal: str, solution: str = "", result: str = "",
                           pain_point: str = "", tags: Optional[List[str]] = None,
                           s4_verdict: str = "", human_confirmed: bool = False,
-                          hallucination_pattern: str = "") -> int:
+                          hallucination_pattern: str = "",
+                          category: str = "general") -> int:
         """管线触发写入, 自动分类成功/失败经验。
 
         规则:
@@ -165,7 +179,8 @@ class MemoryStore:
 
         return self.add(goal=goal, solution=solution, result=result,
                         pain_point=pain_point, tags=tags, source=source,
-                        hallucination_pattern=hallucination_pattern)
+                        hallucination_pattern=hallucination_pattern,
+                        category=category)
 
     # ── 检索 ──
 
@@ -212,6 +227,24 @@ class MemoryStore:
             rows = conn.execute(
                 "SELECT * FROM memory_cards WHERE source = ? ORDER BY date DESC LIMIT ?",
                 (source, limit)
+            ).fetchall()
+            return [self._row_to_dict(r) for r in rows]
+        finally:
+            conn.close()
+
+    def query_by_category(self, category: str, limit: int = 20) -> List[dict]:
+        """按分类检索记忆卡片 (v7.8新增).
+
+        Args:
+            category: fact|episodic|skill|general
+            limit: 最大返回条数
+        """
+        conn = sqlite3.connect(str(self.db_path))
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(
+                "SELECT * FROM memory_cards WHERE category = ? ORDER BY date DESC LIMIT ?",
+                (category, limit)
             ).fetchall()
             return [self._row_to_dict(r) for r in rows]
         finally:
@@ -329,6 +362,7 @@ class MemoryStore:
             "version": row["project_version"],
             "source": row["source"],
             "hallucination_pattern": row["hallucination_pattern"] if "hallucination_pattern" in row.keys() else "",
+            "category": row["category"] if "category" in row.keys() else "general",
         }
 
     @staticmethod

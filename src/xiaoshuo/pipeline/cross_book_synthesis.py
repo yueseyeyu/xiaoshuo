@@ -35,7 +35,8 @@ CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
 def _llm_port():
     try:
-        cfg = yaml.safe_load(open(CONFIG_PATH, encoding="utf-8"))
+        from xiaoshuo.infra.config_manager import get_config
+        cfg = get_config()
         return cfg.get("analysis", {}).get("llm_port", 8000)
     except Exception:
         return 8000

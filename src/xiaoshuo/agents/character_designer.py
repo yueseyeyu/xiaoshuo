@@ -301,8 +301,7 @@ def run_character_design() -> None:
     调用方式: python novel.py characters
     """
     import sys
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from model_orchestrator import get_orchestrator
+    from xiaoshuo.agents.model_orchestrator import get_orchestrator
 
     orch = get_orchestrator()
 

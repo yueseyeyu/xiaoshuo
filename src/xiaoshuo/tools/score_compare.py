@@ -3,11 +3,11 @@ Output: data/score_comparison.json
 Usage: python scripts/score_compare.py
 """
 import sys, json, io, datetime
-sys.path.insert(0, "d:/Code/xiaoshuo")
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 from pathlib import Path
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-DATA = Path("d:/Code/xiaoshuo/data")
+DATA = PROJECT_ROOT / "data"
 
 # Load DS
 ds = {}

@@ -48,10 +48,9 @@ def _output_dir(genre):
 
 def _load_config():
     try:
-        if CONFIG_PATH.exists():
-            with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-                return yaml.safe_load(f) or {}
-    except (yaml.YAMLError, IOError) as e:
+        from xiaoshuo.infra.config_manager import get_config
+        return get_config()
+    except Exception as e:
         print(f"[WARN] 配置加载失败: {e}")
     return {}
 
@@ -833,7 +832,7 @@ def generate_md_report(guidance, output_path):
         f"# {g['genre']}类网文创作指导 v2",
         f"\n> 数据源: {g['book_count']}本精品书(置信度:{conf}) · {g['total_chapters']}章",
         f"> {g.get('disclaimer','')}",
-        f"> ⚠️ **AI声明**: 本指导由AI辅助统计分析生成，仅提供趋势参考和写作建议，不构成创作内容。正文需100%手写。",
+        f"> ⚠️ **AI声明**: 本指导由AI辅助统计分析生成，仅提供趋势参考和写作建议，不构成创作内容。AI生成正文须通过S3质量门禁。",
         gate_warning,
         "\n---\n",
         "## 全部概览 — 8维渐进式披露\n",

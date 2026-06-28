@@ -27,7 +27,7 @@ class CanonExtractor:
         """返回 {filename: {data, markdown}} 的字典。"""
         world_text = self.world_path.read_text(encoding="utf-8")
         sections = self._parse_sections(world_text)
-        return {
+        result = {
             "characters.md": self._extract_characters(sections, world_text),
             "timeline.md": self._extract_timeline(sections, world_text),
             "rules.md": self._extract_rules(sections, world_text),
@@ -35,6 +35,11 @@ class CanonExtractor:
             "emotional_arcs.md": self._extract_emotional_arcs(sections, world_text),
             "subplot_board.md": self._extract_subplot(sections, world_text),
         }
+        # v7.8: 添加风格规则（如果已有 style_rules.md 则保留，否则初始化）
+        if not (self.canon_dir / "style_rules.md").exists():
+            existing = self._load_style_rules()
+            result["style_rules.md"] = {"data": existing, "markdown": self._style_rules_to_md(existing)}
+        return result
 
     def write_all(self, results: dict = None):
         """将提取结果写入 assets/canon/ 目录。"""
@@ -653,7 +658,8 @@ class CanonExtractor:
             content = self.index_path.read_text(encoding="utf-8")
             # 更新状态标记：待填写 → 已提取
             for name in ["characters.md", "timeline.md", "rules.md",
-                         "emotional_arcs.md", "foreshadowing.md", "subplot_board.md"]:
+                         "emotional_arcs.md", "foreshadowing.md", "subplot_board.md",
+                         "style_rules.md"]:
                 if name in results:
                     content = content.replace(
                         f"| [{name}]({name}) |", f"| [{name}]({name}) |"
@@ -662,3 +668,312 @@ class CanonExtractor:
                         f"| 待填写 |", f"| 已提取（待审核） |", 1
                     )
             self.index_path.write_text(content, encoding="utf-8")
+
+    # ── 风格规则提取 (v7.8 Part E 风格进化) ──
+
+    def extract_style_rules_from_review(self, s3_review_text: str,
+                                        chapter_num: int = 0,
+                                        genre: str = "") -> dict:
+        """从 S3 评审报告中提取风格规则，合并到 style_rules.md。
+
+        Args:
+            s3_review_text: S3 评审的合并报告文本（cross_review 输出）
+            chapter_num: 当前章节号（0=非特定章节）
+            genre: 题材（如"末世"）
+
+        Returns:
+            {"data": 合并后的风格规则数据, "new_findings": 本轮新增发现数}
+        """
+        # 加载已有规则（如果存在）
+        existing = self._load_style_rules()
+        # 解析本轮 S3 评审，提取风格相关发现
+        new_findings = self._parse_s3_for_style(s3_review_text, chapter_num)
+        # 合并去重
+        merged = self._merge_style_rules(existing, new_findings, chapter_num)
+        # 生成 Markdown
+        markdown = self._style_rules_to_md(merged)
+        # 写入文件
+        path = self.canon_dir / "style_rules.md"
+        path.write_text(markdown, encoding="utf-8")
+        print(f"[OK] style_rules.md (新增 {len(new_findings)} 条风格发现)")
+        return {"data": merged, "new_findings": len(new_findings)}
+
+    def _load_style_rules(self) -> dict:
+        """加载已有的 style_rules 数据，如果不存在返回默认结构。"""
+        path = self.canon_dir / "style_rules.md"
+        if not path.exists():
+            return {
+                "preferences": {
+                    "sentence": {"avg_length_range": "15-25", "prefer_active_voice": True,
+                                 "paragraph_density": "medium"},
+                    "pacing": {"action_to_rest_ratio": "7:3", "cliffhanger_frequency": "每章"},
+                    "dialogue": {"dialogue_to_narration_ratio": "4:6", "prefer_action_tags": True},
+                },
+                "taboos": {"ai_fingerprint_words": [], "sentence_patterns": [],
+                           "overused_devices": []},
+                "genre_conventions": {"required_elements": [], "forbidden_cliches": []},
+                "s3_review_rules": [],
+                "evolution_log": [],
+            }
+        # 简单解析 Markdown 中的 YAML front matter 或结构化数据
+        # 当前版本：从 Markdown 中提取 rules 表格
+        text = path.read_text(encoding="utf-8")
+        return self._parse_style_md(text)
+
+    def _parse_style_md(self, text: str) -> dict:
+        """从已有 style_rules.md 解析回数据字典。"""
+        import re
+        data = {
+            "preferences": {
+                "sentence": {"avg_length_range": "15-25", "prefer_active_voice": True,
+                             "paragraph_density": "medium"},
+                "pacing": {"action_to_rest_ratio": "7:3", "cliffhanger_frequency": "每章"},
+                "dialogue": {"dialogue_to_narration_ratio": "4:6", "prefer_action_tags": True},
+            },
+            "taboos": {"ai_fingerprint_words": [], "sentence_patterns": [],
+                       "overused_devices": []},
+            "genre_conventions": {"required_elements": [], "forbidden_cliches": []},
+            "s3_review_rules": [],
+            "evolution_log": [],
+        }
+
+        # 解析 AI 指纹词
+        taboo_section = re.search(r'## 禁用词/句式\n\n(.*?)(?=\n## |\n---|\Z)', text, re.DOTALL)
+        if taboo_section:
+            for line in taboo_section.group(1).strip().split('\n'):
+                word = line.strip().lstrip('- ').strip()
+                if word and not word.startswith('>'):
+                    if word not in data["taboos"]["ai_fingerprint_words"]:
+                        data["taboos"]["ai_fingerprint_words"].append(word)
+
+        # 解析 S3 评审规则表
+        rules_section = re.search(r'## S3 评审风格规则\n\n(.*?)(?=\n## |\n---|\Z)', text, re.DOTALL)
+        if rules_section:
+            lines = rules_section.group(1).strip().split('\n')
+            for line in lines:
+                if line.startswith('|') and '|' in line[1:]:
+                    parts = [p.strip() for p in line.split('|')[1:-1]]
+                    if len(parts) >= 5 and parts[0] != '维度':
+                        try:
+                            data["s3_review_rules"].append({
+                                "dimension": parts[0],
+                                "rule": parts[1],
+                                "weight": float(parts[2]) if parts[2] else 1.0,
+                                "source": parts[3] if len(parts) > 3 else "manual",
+                                "evidence": parts[4] if len(parts) > 4 else "",
+                            })
+                        except ValueError:
+                            pass
+
+        return data
+
+    def _parse_s3_for_style(self, review_text: str, chapter_num: int) -> list[dict]:
+        """从 S3 评审文本中提取风格相关的发现。
+
+        返回: [{"dimension": ..., "rule": ..., "source": ..., "evidence": ...}]
+        """
+        findings = []
+        import re
+
+        # ── 1. 从 S3_qc 提取 AI 指纹词 ──
+        # 匹配格式: "高频词TOP5: [词1: X次, 词2: X次, ...]"
+        qc_match = re.search(r'AI指纹词密度.*?高频词TOP5:\s*\[?(.*?)\]', review_text, re.DOTALL)
+        if qc_match:
+            words_str = qc_match.group(1)
+            for word_entry in re.findall(r'([^,:]+):\s*\d+次', words_str):
+                word = word_entry.strip()
+                if word and len(word) >= 2:
+                    findings.append({
+                        "dimension": "language",
+                        "rule": f"避免使用AI指纹词: {word}",
+                        "weight": 1.2,
+                        "source": "S3_qc",
+                        "evidence": f"第{chapter_num}章 QC 检测: {word} 高频出现",
+                    })
+
+        # ── 2. 从 S3_editor 提取节奏/爽点/钩子/代入感问题 ──
+        # 匹配格式: "节奏感: [X/10] — [问题诊断] → [修改方向]"
+        editor_dims = {
+            "节奏感": "pacing",
+            "爽点密度": "pleasure",
+            "钩子效果": "hook",
+            "代入感": "immersion",
+        }
+        for label, dim in editor_dims.items():
+            pattern = rf'{label}:\s*\[(\d+)/10\]\s*[—–-]\s*(.+?)(?:\n|$)'
+            match = re.search(pattern, review_text)
+            if match:
+                score = int(match.group(1))
+                diagnosis = match.group(2).strip()
+                if score <= 5 and diagnosis:
+                    findings.append({
+                        "dimension": dim,
+                        "rule": f"{label}偏低({score}/10): {diagnosis[:80]}",
+                        "weight": 1.5 if score <= 3 else 1.2,
+                        "source": "S3_editor",
+                        "evidence": f"第{chapter_num}章 {label}: {score}/10",
+                    })
+
+        # ── 3. 从 S3_logic_cop 提取高频逻辑问题类型 ──
+        # 匹配格式: "type": "timeline|ability|item|causality|worldbuilding|shortcut"
+        issue_types = re.findall(r'"type":\s*"(\w+)"', review_text)
+        type_counter = {}
+        for t in issue_types:
+            type_counter[t] = type_counter.get(t, 0) + 1
+
+        type_labels = {
+            "timeline": "时间线矛盾",
+            "ability": "角色能力/知识矛盾",
+            "item": "物品/资源归属矛盾",
+            "causality": "因果关系断裂",
+            "worldbuilding": "世界观规则违反",
+            "shortcut": "叙事捷径",
+        }
+        for t, count in type_counter.items():
+            if count >= 2:  # 至少出现2次才纳入规则
+                label = type_labels.get(t, t)
+                findings.append({
+                    "dimension": "logic",
+                    "rule": f"关注{label}问题（近{count}次出现）",
+                    "weight": 1.3 if count >= 3 else 1.1,
+                    "source": "S3_logic_cop",
+                    "evidence": f"第{chapter_num}章附近 {count} 次 {label}",
+                })
+
+        # ── 4. 从 S3_qc 提取句法模式重复 ──
+        syntax_match = re.search(r'句法模式重复:\s*\[(\d+)处\]', review_text)
+        if syntax_match and int(syntax_match.group(1)) >= 2:
+            findings.append({
+                "dimension": "language",
+                "rule": "减少句法模式重复，增加句式多样性",
+                "weight": 1.2,
+                "source": "S3_qc",
+                "evidence": f"第{chapter_num}章 QC: {syntax_match.group(1)}处句法重复",
+            })
+
+        return findings
+
+    def _merge_style_rules(self, existing: dict, new_findings: list[dict],
+                           chapter_num: int) -> dict:
+        """将新发现合并到已有风格规则中，去重。"""
+        import copy
+        merged = copy.deepcopy(existing)
+
+        if not new_findings:
+            return merged
+
+        # 合并 AI 指纹词
+        for f in new_findings:
+            if f["dimension"] == "language" and "避免使用AI指纹词" in f["rule"]:
+                word = f["rule"].split(": ")[-1] if ": " in f["rule"] else ""
+                if word and word not in merged["taboos"]["ai_fingerprint_words"]:
+                    merged["taboos"]["ai_fingerprint_words"].append(word)
+
+        # 合并 S3 评审规则（去重：同维度+同规则内容）
+        for f in new_findings:
+            duplicate = False
+            for existing_rule in merged["s3_review_rules"]:
+                if (existing_rule.get("dimension") == f["dimension"] and
+                    existing_rule.get("rule", "")[:30] == f["rule"][:30]):
+                    # 更新权重（取较高值）
+                    existing_rule["weight"] = max(existing_rule.get("weight", 1.0), f["weight"])
+                    duplicate = True
+                    break
+            if not duplicate:
+                merged["s3_review_rules"].append(f)
+
+        # 限制规则数量（最多 30 条）
+        if len(merged["s3_review_rules"]) > 30:
+            merged["s3_review_rules"] = sorted(
+                merged["s3_review_rules"],
+                key=lambda x: x.get("weight", 1.0), reverse=True
+            )[:30]
+
+        # 追加剧化日志
+        merged["evolution_log"].append({
+            "date": datetime.now().strftime('%Y-%m-%d %H:%M'),
+            "trigger": f"S3评审第{chapter_num}章" if chapter_num else "S3评审批量提取",
+            "change": f"新增 {len(new_findings)} 条风格规则",
+            "reason": "从 S3 评审发现中自动提取风格偏好",
+        })
+
+        return merged
+
+    def _style_rules_to_md(self, data: dict) -> str:
+        """生成 style_rules.md 的 Markdown 内容。"""
+        md = "# 风格规则\n\n"
+        md += "> 由 canon_extractor.py 从 S3 评审报告自动提取 · 请人工审核补充\n"
+        md += f"> 提取时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+        md += "> 此文件为 S3 评审提供加权系数，实现 Part E 风格进化\n\n"
+
+        # 写作偏好
+        md += "## 写作偏好\n\n"
+        prefs = data.get("preferences", {})
+        sent = prefs.get("sentence", {})
+        md += f"- **句长范围**: {sent.get('avg_length_range', '15-25')} 字\n"
+        md += f"- **主动语态优先**: {'是' if sent.get('prefer_active_voice', True) else '否'}\n"
+        md += f"- **段落密度**: {sent.get('paragraph_density', 'medium')}\n"
+        pac = prefs.get("pacing", {})
+        md += f"- **动作/喘息比**: {pac.get('action_to_rest_ratio', '7:3')}\n"
+        md += f"- **悬念频率**: {pac.get('cliffhanger_frequency', '每章')}\n"
+        dial = prefs.get("dialogue", {})
+        md += f"- **对话/叙述比**: {dial.get('dialogue_to_narration_ratio', '4:6')}\n"
+        md += f"- **动作标签优先**: {'是' if dial.get('prefer_action_tags', True) else '否'}\n\n"
+
+        # 禁用词/句式
+        md += "## 禁用词/句式\n\n"
+        taboos = data.get("taboos", {})
+        fp_words = taboos.get("ai_fingerprint_words", [])
+        if fp_words:
+            for w in fp_words:
+                md += f"- {w}\n"
+        else:
+            md += "（暂无，等待 S3 评审积累）\n"
+        md += "\n"
+
+        # S3 评审风格规则
+        md += "## S3 评审风格规则\n\n"
+        md += "| 维度 | 规则 | 权重 | 来源 | 证据 |\n"
+        md += "|------|------|:---:|------|------|\n"
+        rules = data.get("s3_review_rules", [])
+        if rules:
+            for r in rules:
+                dim = r.get("dimension", "unknown")
+                rule = r.get("rule", "")
+                weight = r.get("weight", 1.0)
+                source = r.get("source", "manual")
+                evidence = r.get("evidence", "")[:60]
+                md += f"| {dim} | {rule} | {weight:.1f} | {source} | {evidence} |\n"
+        else:
+            md += "| — | 暂无规则，等待 S3 评审积累 | 1.0 | — | — |\n"
+        md += "\n"
+
+        # 题材惯例
+        md += "## 题材惯例\n\n"
+        conv = data.get("genre_conventions", {})
+        md += "### 必须包含\n\n"
+        for e in conv.get("required_elements", []):
+            md += f"- {e}\n"
+        if not conv.get("required_elements"):
+            md += "（待填写）\n"
+        md += "\n### 禁止陈词滥调\n\n"
+        for c in conv.get("forbidden_cliches", []):
+            md += f"- {c}\n"
+        if not conv.get("forbidden_cliches"):
+            md += "（待填写）\n"
+        md += "\n"
+
+        # 演化日志
+        md += "## 演化日志\n\n"
+        logs = data.get("evolution_log", [])
+        if logs:
+            md += "| 日期 | 触发 | 变更 | 原因 |\n"
+            md += "|------|------|------|------|\n"
+            for log in logs[-20:]:  # 最近 20 条
+                md += f"| {log.get('date', '')} | {log.get('trigger', '')} | {log.get('change', '')} | {log.get('reason', '')} |\n"
+        else:
+            md += "（暂无演化记录）\n"
+
+        md += "\n---\n\n"
+        md += "> 提示：权重 >1.0 的规则在 S3 评审中会被重点关注。手动编辑此文件后，下次 S3 评审自动生效。\n"
+        return md

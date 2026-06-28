@@ -1,20 +1,34 @@
 [project]
 name = "xiaoshuo"
-version = "8.0"
+# 版本号 SSOT: src/xiaoshuo/__init__.py::__version__
+# 此处保持同步; 后续可改为 dynamic=["version"] 自动读取
+version = "8.0.0"
 description = "番茄小说AI辅助创作系统 — 数据驱动的网文创作指导·三层拆书深度架构"
 requires-python = ">=3.10"
 dependencies = [
-    "pyyaml>=6.0",
-    "scipy>=1.12",
-    "psutil>=5.9",
+    "pyyaml>=6.0",          # config_manager / 多模块配置读取
+    "scipy>=1.12",          # scene_search 稀疏矩阵 (save_npz/load_npz)
+    "numpy>=1.24",          # scene_search / beat_detector 数值计算
+    "scikit-learn>=1.3",    # scene_search: cosine_similarity (备用)
+    "jieba>=0.42",          # scene_search / rhythm_analyzer 中文分词 (BM25 通道用)
+    "rank_bm25>=0.2.2",     # scene_search: BM25 关键词检索 (混合检索通道A)
+    "sentence-transformers>=2.7",  # scene_search: BGE 语义检索 (混合检索通道B)
+    "fastapi>=0.110",       # api/server.py 场景检索 HTTP 服务
+    "uvicorn>=0.27",        # ASGI 服务器
+    "pydantic>=2.5",        # API 请求/响应模型
+    "psutil>=5.9",          # 进程/系统监控 (预留)
 ]
 
 [project.optional-dependencies]
 dev = [
     "ruff>=0.1",
+    "pytest>=7.4",
 ]
 llm = [
-    "llmlingua>=0.3",
+    "llmlingua>=0.3",       # Prompt 压缩 (可选)
+]
+hardware = [
+    "pynvml>=11.5",         # GPU 监控 (不可用时降级到 nvidia-smi)
 ]
 
 [build-system]

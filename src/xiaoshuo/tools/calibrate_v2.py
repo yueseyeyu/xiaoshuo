@@ -31,8 +31,7 @@ def _load_llama_base():
 
 LLAMA_BASE = _load_llama_base()
 
-sys.path.insert(0, str(PROJECT_ROOT / "analysis"))
-from rhythm_analyzer import extract_chapters, rule_analyze
+from xiaoshuo.pipeline.rhythm_analyzer import extract_chapters, rule_analyze
 
 
 def check_server():
@@ -79,7 +78,7 @@ def llm_score_independent(chapter_text, ch_num):
                     res = json.loads(m.group())
                     if "pleasure_intensity" in res:
                         return res
-                except:
+                except (json.JSONDecodeError, KeyError, ValueError):
                     continue
         # Fallback: extract fields individually
         pi = re.search(r'"pleasure_intensity"\s*:\s*(\d+(?:\.\d+)?)', raw)

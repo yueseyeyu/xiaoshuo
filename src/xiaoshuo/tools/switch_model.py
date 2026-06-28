@@ -22,12 +22,7 @@ import time
 import sys
 import json
 from pathlib import Path
-
-try:
-    import yaml
-    _HAS_YAML = True
-except ImportError:
-    _HAS_YAML = False
+from xiaoshuo.infra.config_manager import get_config
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -56,38 +51,32 @@ LLAMA_SERVER = "D:/miniconda3/envs/llm-shared/Library/bin/llama-server.exe"
 
 
 def _load_config_models():
-    """Read model configs from config.yaml if available."""
-    if not _HAS_YAML:
-        return MODELS
+    """Read model configs from config.yaml via config_manager."""
     try:
-        cfg_path = PROJECT_ROOT / "config.yaml"
-        if cfg_path.exists():
-            with open(cfg_path, 'r', encoding='utf-8') as f:
-                cfg = yaml.safe_load(f)
-            models_cfg = cfg.get("model_orchestration", {}).get("models", {})
-            result = {}
-            for key, mc in models_cfg.items():
-                gguf = mc.get("gguf", "")
-                if not gguf or not Path(gguf).exists():
-                    continue
-                short = "qwen3" if "Qwen3.5" in mc.get("name", "") else \
-                        "r1" if "DeepSeek" in mc.get("name", "") else key
-                result[short] = {
-                    "name": mc.get("name", key),
-                    "gguf": gguf,
-                    "port": mc.get("port", 8000),
-                    "n_ctx": mc.get("n_ctx", 4096),
-                    "n_gpu_layers": mc.get("n_gpu_layers", 35),
-                    "chat_format": mc.get("chat_format", "chatml"),
-                }
-            if result:
-                return result
-    except Exception as e:
-        print(f"[WARN] Failed to load config.yaml: {e}, using built-in models", file=sys.stderr)
-    return MODELS  # fallback to built-in
+        cfg = get_config()
+        models_cfg = cfg.get("model_orchestration", {}).get("models", {})
+        result = {}
+        for key, mc in models_cfg.items():
+            gguf = mc.get("gguf", "")
+            if not gguf or not Path(gguf).exists():
+                continue
+            short = "qwen3" if "Qwen3.5" in mc.get("name", "") else \
+                    "r1" if "DeepSeek" in mc.get("name", "") else key
+            result[short] = {
+                "name": mc.get("name", key),
+                "gguf": gguf,
+                "port": mc.get("port", 8000),
+                "n_ctx": mc.get("n_ctx", 4096),
+                "n_gpu_layers": mc.get("n_gpu_layers", 35),
+                "chat_format": mc.get("chat_format", "chatml"),
+            }
+        if result:
+            return result
+    except Exception:
+        return MODELS
 
 
-def _check_port(port):
+def _get_current_model_name():
     """Check if a server is responding on given port."""
     try:
         r = urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=3)

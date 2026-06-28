@@ -6,17 +6,52 @@
 方法: LLM-PeerReview (北航, 2026.3) 的 Flipped-triple scoring 简化版
       模型A生成报告 → 模型B标注遗漏 → 合并输出
 
+v8.0: MoA 多视角评审 (S5) + 情绪直白度判据 (S1) + AI指纹词检测 (S6)
+      - 单模型内模拟多视角: 逻辑/情绪/读者三视角 → 聚合
+      - 新增 "情绪直白度" 维度, 检测是否用强情绪写法
+      - 平台级 AI 指纹词库 (50+词) 交叉检测
+
 8GB约束: 两模型不能共存, 需顺序切换 (~40s 额外开销)
 """
 
 import sys
+import re
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from model_orchestrator import get_orchestrator
+from xiaoshuo.agents.model_orchestrator import get_orchestrator
 
 # DeepSeek-R1 专长的微观维度 (Naming/Quantity/CharKnowledge)
 R1_SPECIALTY_DIMS = ["Naming", "Quantity", "CharKnowledge"]
+
+# v8.0: 平台级 AI 指纹词库 (S6, 来源: 番茄小说审核实战经验)
+# 分类: 过度程度词 / 眼神表情类 / 身体反应类
+# 高危词 (AI 降智高频) 单独标注, 触发更高权重
+AI_FINGERPRINT_WORDS = {
+    "过度程度词": [
+        "死死", "紧紧", "轰然", "极其", "无比", "异常", "格外", "分外",
+        "尤为", "万分", "彻底", "完全", "瞬间", "骤然", "猛然", "陡然",
+        "顷刻间", "刹那间", "几乎", "仿佛", "宛若", "犹如", "好似", "像是",
+        "隐隐", "微微", "淡淡", "一丝", "一抹", "一缕", "一股", "一阵",
+    ],
+    "眼神表情类": [
+        "眼神复杂", "眼中闪过一丝", "眸中掠过", "瞳孔骤缩", "眼底泛起",
+        "目光冰冷", "目光森然", "目光灼灼", "眼神变得凝重", "眼中满是震撼",
+        "眼中透着难以置信", "脸色骤变", "脸色惨白", "脸色铁青", "神色复杂",
+        "神情凝重", "嘴角抽搐", "嘴角微微上扬", "嘴角勾起一抹弧度",
+    ],
+    "身体反应类": [
+        "指尖发白", "指节泛白", "拳头攥紧", "浑身一颤", "身体僵住",
+        "后背发凉", "头皮发麻", "喉结滚动", "呼吸一滞", "呼吸急促",
+        "心跳漏了一拍", "心中一沉", "心头狂震", "脑海轰鸣", "如遭雷击",
+        "双腿发软", "脚步踉跄", "冷汗直冒", "额头青筋暴起", "手心全是汗",
+        "后背猛然拔直",
+    ],
+}
+
+# 高危词: AI 在降智状态下尤其高频的词
+HIGH_RISK_FINGERPRINTS = [
+    "极其", "无比", "瞬间", "猛然", "一丝", "一抹", "仿佛", "骤然",
+]
 
 
 def cross_review(
@@ -50,10 +85,33 @@ def cross_review(
         chapter_text = chapter_text[:3000] + "\n[...章节过长, 仅分析前3000字符...]"
 
     # ── Phase 1: 主模型全面审查 (Qwen3.5, thinking=OFF) ──
+    # v8.0 MoA 多视角 (S5): 单次推理模拟逻辑/情绪/读者三视角 → 聚合
+    # v8.0 AI指纹词 (S6): 嵌入词库, 交叉检测 + 豁免规则
+    # v8.0 强情绪判据 (S1): 检测是否使用外在动作/被迫承受/冰冷克制写法
+    fp_categories = []
+    for cat, words in AI_FINGERPRINT_WORDS.items():
+        fp_categories.append(f"  - {cat}: {' / '.join(words[:10])}... (共{len(words)}个)")
+    fp_list = "\n".join(fp_categories)
+    high_risk = "、".join(HIGH_RISK_FINGERPRINTS)
     primary_sys = (
-        "你是网文逻辑审查专家。对以下章节进行全面的逻辑一致性审查。"
-        "覆盖: 时间线、因果关系、角色动机、世界观规则、信息一致性。"
-        "直接输出审查报告，不要求总结。"
+        "你是网文质量控制专家。请从以下三个视角审查本章，分别输出发现，最后综合评分。\n\n"
+        "## 视角A: 逻辑审查\n"
+        "覆盖: 时间线、因果关系、角色动机、世界观规则、信息一致性。\n\n"
+        "## 视角B: 情绪表达质量\n"
+        "检查作者的写法是否\u201c强情绪\u201d而非\u201c直白情绪\u201d。\n"
+        "- 优秀写法 (加分): 通过外在动作、被迫承受苦难、冰冷克制的动作来传递情绪\n"
+        "  (如: 将剑从泥中捡起擦干净; 摘下对方送的手表放入抽屉; 上前摆正遗像抚摸镜框后退鞠躬)\n"
+        "- 直白写法 (扣分): 直接写\u201c他很愤怒\u201d\u201c她非常悲伤\u201d\u201c他心中一紧\u201d\n"
+        "- 如果使用了身体反应类词汇 (如心跳加速、浑身一颤) 但缺少外部动作铺垫, 标记为\u201c情绪直白\u201d\n\n"
+        "## 视角C: 读者体验\n"
+        "检查: 钩子位置、节奏起伏、爽点/虐点分布、章末悬念。\n\n"
+        "## AI 指纹词检测\n"
+        "逐句扫描以下平台级 AI 指纹词, 标记出现频率和位置:\n"
+        f"{fp_list}\n"
+        f"特别注意高危词 (AI降智高频): {high_risk}\n"
+        "豁免规则: 如果指纹词出现在对话中、角色口癖、或梦境/发疯/醉酒等非理性场景, 标注但豁免。\n\n"
+        "## 综合输出\n"
+        "先分别输出视角A/B/C的发现, 再输出指纹词检测, 最后给出综合评分。"
     )
     memory_hint = ""
     if previous_findings:
@@ -198,11 +256,17 @@ def cross_review_iterative(
     return rounds
 
 
-# S3 评审维度 (3 维度, 每个 1-10 分)
+# S3 评审维度 (4 维度, 每个 1-10 分)
+# v8.0: 新增 emotion 维度 (S1 强情绪写法)
 REVIEW_DIMENSIONS = {
     "structure": "结构节奏: 爽点分布、钩子位置、章节节奏是否合理",
     "character": "角色一致性: 人设、动机、对话标签是否前后一致",
     "style":    "文笔质量: 句长分布、描写密度、AI痕迹是否可接受",
+    "emotion":  "情绪表达: 是否使用强情绪写法 (外在动作/被迫承受/冰冷克制), 是否避免直白情绪词",
+    # v8.1: 新增维度 (基于肘子方法论 + 视角管理 + 爽感奖励)
+    "opening":    "开头质量: 前三章人物精简度(≤3人)、背景篇幅占比(≤30%)、黄金一句功能",
+    "perspective": "视角一致性: 是否同段双视角穿帮、高潮是否频繁切视角、配角视角是否过长",
+    "reward":     "奖励多样性: 本章是否包含数值型/权限型/关系型/未来型奖励, 是否立刻且可感知",
 }
 
 # 维度评分通过阈值
@@ -210,23 +274,24 @@ DIMENSION_PASS_THRESHOLD = 7
 
 
 def _score_dimensions(merged_report: str, chapter_num: int) -> dict:
-    """Ask primary model to score the review on 3 dimensions (1-10).
+    """Ask primary model to score the review on 4 dimensions (1-10).
 
     Args:
         merged_report: merged review report from cross_review()
         chapter_num: chapter number for context
 
     Returns:
-        dict: {"structure": N, "character": N, "style": N, "_raw": raw_response}
+        dict: {"structure": N, "character": N, "style": N, "emotion": N, "_raw": raw_response}
     """
     orch = get_orchestrator()
     dim_desc = "\n".join(f"- {k}: {v}" for k, v in REVIEW_DIMENSIONS.items())
+    dim_names = " ".join(f"{k}: N" for k in REVIEW_DIMENSIONS)
     scoring_prompt = (
-        f"基于以下评审报告, 对第{chapter_num}章的3个维度打分(1-10分, 10=完美):\n\n"
+        f"基于以下评审报告, 对第{chapter_num}章的{len(REVIEW_DIMENSIONS)}个维度打分(1-10分, 10=完美):\n\n"
         f"{dim_desc}\n\n"
         f"## 评审报告:\n{merged_report[:2000]}\n\n"
         f"请严格按以下格式输出 (每行一个维度, 仅输出数字):\n"
-        f"structure: N\ncharacter: N\nstyle: N"
+        f"{dim_names}"
     )
     messages = [
         {"role": "system", "content": "你是网文质量控制专家。仅输出评分, 无额外文字。"},
@@ -361,13 +426,14 @@ def format_loop_summary(rounds: list) -> str:
 
     # Per-round overview
     lines.append("## 逐轮结果")
-    lines.append("| 轮次 | structure | character | style | 新增发现 | 判定 |")
-    lines.append("|------|-----------|-----------|-------|---------|------|")
+    lines.append("| 轮次 | structure | character | style | emotion | 新增发现 | 判定 |")
+    lines.append("|------|-----------|-----------|-------|---------|---------|------|")
     for i, r in enumerate(rounds, 1):
         scores = r.get("scores", {})
         struct = scores.get("structure", "?")
         char = scores.get("character", "?")
         style = scores.get("style", "?")
+        emotion = scores.get("emotion", "?")
         has_new = "[OK]" if r.get("has_additions", False) else "无"
         # Determine pass/fail per round
         threshold = DIMENSION_PASS_THRESHOLD
@@ -375,7 +441,7 @@ def format_loop_summary(rounds: list) -> str:
             scores.get(d, 0) >= threshold for d in REVIEW_DIMENSIONS
         )
         verdict = "[PASS]" if all_pass else "[FAIL]"
-        lines.append(f"| {i} | {struct} | {char} | {style} | {has_new} | {verdict} |")
+        lines.append(f"| {i} | {struct} | {char} | {style} | {emotion} | {has_new} | {verdict} |")
 
     lines.append("")
 
@@ -426,6 +492,620 @@ def _extract_findings_summary(primary_report, secondary_patch):
     return summary[:600] if summary else ""
 
 
+# v8.0: AI 指纹词扫描工具 (S6 平台合规预检)
+def scan_fingerprints(text: str, exempt_dialogue: bool = True) -> dict:
+    """扫描文本中的 AI 指纹词，返回风险报告。
+
+    Args:
+        text: 要扫描的章节全文
+        exempt_dialogue: 是否豁免对话中的指纹词 (默认 True)
+
+    Returns:
+        {
+            "total_count": int,
+            "high_risk_count": int,
+            "by_category": {category: [{"word": str, "count": int}]},
+            "high_risk_hits": [{"word": str, "count": int}],
+            "risk_level": "low|medium|high|critical",
+        }
+    """
+    result = {
+        "total_count": 0,
+        "high_risk_count": 0,
+        "by_category": {},
+        "high_risk_hits": [],
+        "risk_level": "low",
+    }
+
+    # 简单对话豁免: 如果 exempt_dialogue=True, 移除引号内的内容
+    scan_text = text
+    if exempt_dialogue:
+        scan_text = re.sub(r'"[^"]*"', '', scan_text)
+        scan_text = re.sub(r'"[^"]*"', '', scan_text)
+        scan_text = re.sub(r'"[^"]*"', '', scan_text)
+
+    for category, words in AI_FINGERPRINT_WORDS.items():
+        cat_hits = []
+        for word in words:
+            count = scan_text.count(word)
+            if count > 0:
+                cat_hits.append({"word": word, "count": count})
+                result["total_count"] += count
+                if word in HIGH_RISK_FINGERPRINTS:
+                    result["high_risk_count"] += count
+                    result["high_risk_hits"].append({"word": word, "count": count})
+        if cat_hits:
+            result["by_category"][category] = cat_hits
+
+    # 风险分级
+    if result["total_count"] == 0:
+        result["risk_level"] = "low"
+    elif result["total_count"] <= 5 and result["high_risk_count"] <= 2:
+        result["risk_level"] = "medium"
+    elif result["total_count"] <= 15 and result["high_risk_count"] <= 5:
+        result["risk_level"] = "high"
+    else:
+        result["risk_level"] = "critical"
+
+    return result
+
+
+# ============================================================
+# v8.1: 开头诊断 (肘子方法论: 黄金一句 + 前三章人物精简 + 背景篇幅)
+# ============================================================
+
+# 中文人物名检测模式 (姓+名, 2-3字)
+_RE_NAME_PATTERN = re.compile(
+    r'(?:[李王张刘陈杨赵黄周吴徐孙胡朱高林何郭马罗]'
+    r'|[郑梁宋谢唐韩冯于董萧程曹袁邓许傅沈曾彭吕苏卢蒋蔡贾丁魏薛叶阎余潘杜戴夏钟汪田任姜范方石姚谭廖邹熊金陆郝孔白崔康毛邱秦江史顾侯邵孟龙万段雷钱汤尹黎易常武乔贺赖龚文]'
+    r')(?:[^\s，。！？、；：""''（）《》\n]{1,2})'
+)
+
+# 内心活动关键词 (用于视角检测)
+_MENTAL_VERBS = [
+    "心想", "暗道", "觉得", "感到", "暗想", "思忖", "琢磨",
+    "意识到", "想起", "回忆起", "想到", "思考", "暗忖", "琢磨着",
+]
+
+# 背景/回忆关键词 (用于开头背景篇幅检测)
+_BACKGROUND_KEYWORDS = [
+    "曾经", "以前", "从前", "过去", "记得", "那年", "前世",
+    "穿越前", "重生前", "穿越之前", "重生之前", "上辈子",
+    "那一年", "记忆中", "回忆", "回想", "那时候", "当时",
+]
+
+# 感官关键词 (用于感官丰富度检测)
+_SENSORY_WORDS = {
+    "视觉": ["看", "见", "望", "瞪", "盯", "瞥", "瞅", "瞧", "目睹", "看见", "看到",
+             "目击", "观望", "凝视", "注视", "眺望", "张望", "映入眼帘"],
+    "听觉": ["听", "听见", "听到", "闻", "声", "响", "音", "喊", "叫", "吼", "轰鸣",
+             "金鸣", "破空", "呼啸", "炸响", "嘶喊", "尖叫", "低语", "耳语", "嘈杂"],
+    "触觉": ["触", "碰", "摸", "热", "冷", "凉", "烫", "麻", "痒", "振动",
+             "擦过", "拂过", "刺骨", "灼热", "冰寒", "发抖", "麻痒"],
+    "嗅觉": ["闻", "嗅", "香", "臭", "腥", "焦", "腐", "气味", "刺鼻", "浓郁", "清新"],
+    "痛觉": ["痛", "疼", "酸", "麻", "灼", "撕裂", "刺痛", "剧痛", "绞痛", "酸痛"],
+}
+
+# 奖励类型关键词 (用于爽感奖励检测)
+_REWARD_KEYWORDS = {
+    "数值型": ["突破", "升级", "获得", "提升", "增加", "增长", "解锁", "觉醒",
+              "涨", "升", "翻倍", "暴涨", "飙升", "突破到"],
+    "权限型": ["成为", "晋升", "获得资格", "进入", "认证", "认可", "授予",
+              "从.*变为", "成为.*弟子", "晋升为"],
+    "关系型": ["认可", "依赖", "感激", "感谢", "信任", "依赖", "崇拜", "追随",
+              "交心", "认主", "受.*尊敬", "被.*认可"],
+    "未来型": ["伏笔", "线索", "预兆", "预示", "暗示", "秘密", "隐藏",
+              "潜力", "契机", "机缘", "预知", "征兆"],
+}
+
+# 转折词 (用于简介反转检测)
+_BLURB_TWIST_WORDS = ["却", "但", "然而", "不过", "可是", "不料", "谁知", "哪知",
+                      "偏偏", "竟然", "居然", "看似", "实则", "表面", "背地"]
+
+
+def scan_opening_diagnosis(text: str, chapter_num: int) -> dict:
+    """前三章开头诊断 (基于肘子方法论).
+
+    Args:
+        text: 章节全文
+        chapter_num: 章节编号 (1-based)
+
+    Returns:
+        {
+            "character_names": [str],
+            "character_count": int,
+            "character_warning": str|null,
+            "background_ratio": float,
+            "background_warning": str|null,
+            "golden_sentence": str,
+            "golden_sentence_type": str,  # 需LLM分类
+            "applicable": bool,  # 是否适用 (前三章才适用)
+        }
+    """
+    result = {
+        "character_names": [],
+        "character_count": 0,
+        "character_warning": None,
+        "background_ratio": 0.0,
+        "background_warning": None,
+        "golden_sentence": "",
+        "golden_sentence_type": "",
+        "applicable": chapter_num <= 3,
+    }
+
+    if chapter_num > 3:
+        return result
+
+    # 1. 黄金一句: 提取第一段第一个非空句
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    if lines:
+        first_line = lines[0]
+        # 取第一个句号之前的句子, 或整行(≤30字)
+        first_sentence = first_line.split("。")[0].strip()
+        if not first_sentence:
+            first_sentence = first_line.split("，")[0].strip()
+        result["golden_sentence"] = first_sentence[:50]
+
+    # 2. 人物出场计数: 正则匹配中文姓名
+    names = set()
+    for m in _RE_NAME_PATTERN.finditer(text):
+        name = m.group()
+        if 2 <= len(name) <= 3:
+            names.add(name)
+    result["character_names"] = sorted(names)[:20]
+    result["character_count"] = len(names)
+    if result["character_count"] > 3:
+        result["character_warning"] = (
+            f"[WARN] 前三章出场人物 {result['character_count']} 人, "
+            f"建议≤3人 (肘子: 除主角外最多保留2个重要人物)"
+        )
+
+    # 3. 背景/回忆篇幅占比: 统计包含回忆关键词的句子
+    total_chars = len(text.replace("\n", "").replace(" ", ""))
+    if total_chars > 0:
+        bg_chars = 0
+        paragraphs = text.split("\n")
+        for para in paragraphs:
+            if any(kw in para for kw in _BACKGROUND_KEYWORDS):
+                bg_chars += len(para.replace("\n", "").replace(" ", ""))
+        result["background_ratio"] = round(bg_chars / total_chars * 100, 1)
+        if result["background_ratio"] > 30:
+            result["background_warning"] = (
+                f"[WARN] 背景/回忆篇幅占比 {result['background_ratio']}%, "
+                f"建议≤30% (肘子: 新人切忌大篇幅交代背景)"
+            )
+
+    return result
+
+
+def scan_blurb_quality(blurb: str) -> dict:
+    """简介质量分析 (基于肘子方法论).
+
+    Args:
+        blurb: 简介文本
+
+    Returns:
+        {
+            "has_core_selling_point": bool,  # 是否有核心卖点
+            "core_selling_point_hint": str,  # 核心卖点关键词
+            "element_focus": str,  # 专注要素
+            "has_twist": bool,  # 是否有反转
+            "twist_hints": [str],  # 转折词/反差点
+            "element_conflict": bool,  # 是否要素杂糅
+            "element_conflict_detail": str,
+            "score": int,  # 0-100
+        }
+    """
+    result = {
+        "has_core_selling_point": False,
+        "core_selling_point_hint": "",
+        "element_focus": "",
+        "has_twist": False,
+        "twist_hints": [],
+        "element_conflict": False,
+        "element_conflict_detail": "",
+        "score": 50,
+    }
+
+    if not blurb or len(blurb) < 20:
+        result["score"] = 0
+        return result
+
+    score = 50
+
+    # 1. 核心卖点检测: 简介是否包含"系统/金手指/技能/能力"等关键词
+    core_keywords = ["系统", "金手指", "能力", "技能", "天赋", "觉醒", "获得",
+                     "穿越", "重生", "回到", "唯一", "最强", "无敌", "末日",
+                     "生存", "进化", "变异", "基因", "战斗", "力量"]
+    core_hits = [kw for kw in core_keywords if kw in blurb]
+    if core_hits:
+        result["has_core_selling_point"] = True
+        result["core_selling_point_hint"] = "、".join(core_hits[:5])
+        score += 20
+
+    # 2. 要素专注度检测: 是否杂糅多条线
+    element_signals = {
+        "悬疑": ["悬疑", "谜", "真相", "秘密", "调查", "解谜", "线索"],
+        "升级": ["升级", "变强", "突破", "修炼", "等级", "实力", "突破"],
+        "情感": ["感情", "爱情", "恋爱", "情感", "心动", "暧昧", "关系"],
+        "生存": ["生存", "活下去", "末日", "废土", "灾难", "逃", "活着"],
+        "复仇": ["复仇", "报仇", "血债", "仇恨", "血仇", "清算"],
+    }
+    detected_elements = []
+    for elem, kw_list in element_signals.items():
+        if any(kw in blurb for kw in kw_list):
+            detected_elements.append(elem)
+
+    if len(detected_elements) == 1:
+        result["element_focus"] = detected_elements[0]
+        score += 10
+    elif len(detected_elements) >= 3:
+        result["element_conflict"] = True
+        result["element_conflict_detail"] = (
+            f"[WARN] 简介同时涉及 {', '.join(detected_elements)} 条线, "
+            f"建议专注一个要素 (肘子: 悬疑文就写悬疑, 爽文就写爽)"
+        )
+        score -= 10
+    elif len(detected_elements) == 2:
+        result["element_focus"] = "、".join(detected_elements)
+        # 两条线可以接受, 不加不减
+
+    # 3. 反转检测: 是否有转折词
+    twist_hits = [w for w in _BLURB_TWIST_WORDS if w in blurb]
+    if twist_hits:
+        result["has_twist"] = True
+        result["twist_hints"] = twist_hits[:5]
+        score += 10
+
+    # 4. 长度检查
+    if len(blurb) < 50:
+        score -= 5
+    elif len(blurb) > 500:
+        score -= 5
+
+    result["score"] = min(100, max(0, score))
+    return result
+
+
+def scan_perspective(text: str) -> dict:
+    """视角一致性检测: 同段双视角穿帮 (基于视角管理方法论).
+
+    核心铁律: 同一个自然段, 只允许存在一个感知主体。
+    你站谁的视角, 就只能写谁看见、听见、摸到、想到的东西。
+
+    Args:
+        text: 章节全文
+
+    Returns:
+        {
+            "violations": [{"paragraph": str, "perspectives": [str], "evidence": str}],
+            "violation_count": int,
+            "risk_level": "low|medium|high|critical",
+        }
+    """
+    result = {
+        "violations": [],
+        "violation_count": 0,
+        "risk_level": "low",
+    }
+
+    # 分段落
+    paragraphs = [p.strip() for p in text.split("\n") if p.strip() and len(p.strip()) > 20]
+
+    for para in paragraphs:
+        # 检测段落中的人物名
+        names_in_para = set()
+        for m in _RE_NAME_PATTERN.finditer(para):
+            name = m.group()
+            if 2 <= len(name) <= 3:
+                names_in_para.add(name)
+
+        # 检测段落中的内心活动
+        mental_owners = []
+        for verb in _MENTAL_VERBS:
+            for m in re.finditer(re.escape(verb), para):
+                # 向前查找最近的人物名 (最多前20字)
+                prefix = para[max(0, m.start() - 20):m.start()]
+                found_name = None
+                for name in sorted(names_in_para, key=len, reverse=True):
+                    if name in prefix:
+                        found_name = name
+                        break
+                if found_name:
+                    mental_owners.append(found_name)
+
+        # 如果同一段落中出现 2+ 不同人物的内心活动 → 穿帮
+        unique_owners = list(dict.fromkeys(mental_owners))  # 去重保序
+        if len(unique_owners) >= 2:
+            evidence = " ".join([f"{o}的内心活动" for o in unique_owners])
+            result["violations"].append({
+                "paragraph": para[:120] + ("..." if len(para) > 120 else ""),
+                "perspectives": unique_owners,
+                "evidence": f"[同段双视角] 段落中同时出现 {evidence}",
+            })
+            result["violation_count"] += 1
+
+    # 风险分级
+    if result["violation_count"] == 0:
+        result["risk_level"] = "low"
+    elif result["violation_count"] <= 2:
+        result["risk_level"] = "medium"
+    elif result["violation_count"] <= 5:
+        result["risk_level"] = "high"
+    else:
+        result["risk_level"] = "critical"
+
+    return result
+
+
+def scan_sensory_richness(text: str) -> dict:
+    """感官丰富度检测: 统计打斗/动作场景中的感官维度分布.
+
+    检测视觉/听觉/触觉/嗅觉/痛觉五种感官的关键词密度,
+    输出雷达图数据和丰富度评分。
+
+    Args:
+        text: 章节全文
+
+    Returns:
+        {
+            "sensory_counts": {sense: int},
+            "total_sensory_hits": int,
+            "richness_score": float,  # 0.0-1.0
+            "radar_data": [{label: str, value: int}],
+            "missing_senses": [str],
+            "warning": str|null,
+            "text_length": int,
+        }
+    """
+    result = {
+        "sensory_counts": {},
+        "total_sensory_hits": 0,
+        "richness_score": 0.0,
+        "radar_data": [],
+        "missing_senses": [],
+        "warning": None,
+        "text_length": len(text),
+    }
+
+    total_chars = len(text.replace("\n", "").replace(" ", ""))
+    if total_chars == 0:
+        return result
+
+    for sense, words in _SENSORY_WORDS.items():
+        count = 0
+        for word in words:
+            count += text.count(word)
+        result["sensory_counts"][sense] = count
+        result["total_sensory_hits"] += count
+        result["radar_data"].append({"label": sense, "value": count})
+
+    # 丰富度评分: 有多少种感官被使用
+    senses_with_hits = sum(1 for c in result["sensory_counts"].values() if c > 0)
+    total_senses = len(_SENSORY_WORDS)
+    result["richness_score"] = round(senses_with_hits / total_senses, 2)
+
+    # 缺失的感官
+    result["missing_senses"] = [
+        s for s, c in result["sensory_counts"].items() if c == 0
+    ]
+
+    # 警告: 只有视觉, 缺少其他感官
+    if senses_with_hits <= 1 and result["sensory_counts"].get("视觉", 0) > 0:
+        result["warning"] = (
+            "[WARN] 描写仅含视觉感官, 缺少听觉/触觉/嗅觉/痛觉。"
+            "建议增加动作细节(指节/脚尖/衣袂)和气势渲染(环境/气氛)"
+        )
+
+    return result
+
+
+def scan_reward_diversity(text: str) -> dict:
+    """奖励多样性检测: 统计本章是否包含多种奖励类型.
+
+    基于七步正反馈循环的四类奖励模型:
+    - 数值型: 直观的数值变化 (等级突破/力量提升)
+    - 权限型: 身份转变 (从弟子到亲传/获得资格)
+    - 关系型: 情感满足 (被认可/被依赖/建立羁绊)
+    - 未来型: 激发期待 (伏笔/契机/潜力)
+
+    Args:
+        text: 章节全文
+
+    Returns:
+        {
+            "reward_types_found": [str],
+            "reward_count": int,
+            "diversity_score": float,  # 0.0-1.0
+            "by_type": {type: str|null},  # 每类找到的原文片段
+            "warning": str|null,
+        }
+    """
+    result = {
+        "reward_types_found": [],
+        "reward_count": 0,
+        "diversity_score": 0.0,
+        "by_type": {},
+        "warning": None,
+    }
+
+    for reward_type, keywords in _REWARD_KEYWORDS.items():
+        hit = None
+        for kw in keywords:
+            # 使用 re.search 支持正则模式 (如 "从.*变为")
+            if re.search(kw, text):
+                # 找包含关键词的句子作为证据
+                for sentence in re.split(r'[。！？]', text):
+                    if re.search(kw, sentence):
+                        hit = sentence.strip()[:80]
+                        break
+                if hit:
+                    break
+        result["by_type"][reward_type] = hit
+        if hit:
+            result["reward_types_found"].append(reward_type)
+            result["reward_count"] += 1
+
+    result["diversity_score"] = round(result["reward_count"] / 4, 2)
+
+    if result["reward_count"] == 0:
+        result["warning"] = (
+            "[WARN] 本章未检测到奖励类型。"
+            "建议每章至少包含一种奖励 (数值/权限/关系/未来), 立刻且可感知"
+        )
+    elif result["reward_count"] == 1:
+        result["warning"] = (
+            f"[INFO] 本章仅含 {result['reward_types_found'][0]} 奖励, "
+            f"建议丰富奖励类型 (数值/权限/关系/未来)"
+        )
+
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════
+# 爽点四象限关键词 (微观爽点单元: 装逼→打脸→震惊→收获)
+# 与正反馈七步循环 (宏观) 形成分层分析
+# ═══════════════════════════════════════════════════════════════
+_PLEASURE_QUADRANT_KEYWORDS = {
+    "装逼": {
+        "pattern": r"(展示|亮出|释放|显露|不再隐藏|真正实力|真实身份|隐藏修为|低调出手|露出|展现|使出|不再掩饰|隐藏的|真正.*力量|底牌)",
+        "description": "主角优势展示 (语言/动作/心理)",
+    },
+    "打脸": {
+        "pattern": r"(怎么可能|不可能|不敢相信|难以置信|目瞪口呆|瞠目结舌|竟然|居然|反转|逆袭|碾压|出乎意料|没想到|无法.*相信|震惊.*说不出)",
+        "description": "预期违背 (嘲讽→成功, 反差)",
+    },
+    "震惊": {
+        "pattern": r"(震惊|震撼|惊讶|惊恐|呆住|愣住|傻眼|倒吸.*凉气|一片哗然|鸦雀无声|齐刷刷|纷纷.*看向|全场.*寂静|众人.*反应|所有人.*目光)",
+        "description": "旁人反应 (敌人/队友/路人/围观群众)",
+    },
+    "收获": {
+        "pattern": r"(获得|得到|收获|突破|晋升|升级|解锁|奖励|功法|资源|认可|重视|收服|提升|变强|进化|觉醒|新.*能力|从.*变为|成为.*弟子)",
+        "description": "实际利益 (数值/权限/关系/未来型)",
+    },
+}
+
+
+def scan_pleasure_quadrant(text: str) -> dict:
+    """爽点四象限检测: 装逼→打脸→震惊→收获 链式结构分析.
+
+    基于网文爽点设计理论, 将每章正文按时间轴标注四象限:
+    - 装逼(铺垫): 主角优势展示
+    - 打脸(核心): 预期违背, 反转
+    - 震惊(反响): 旁人反应衬托
+    - 收获(实际): 主角获得实际利益
+
+    四缺一检测: 只有装逼无打脸=空洞, 只有打脸无震惊=爽感减半.
+
+    Args:
+        text: 章节全文
+
+    Returns:
+        {
+            "quadrants_found": [str],      # 检测到的象限列表
+            "quadrant_count": int,          # 0-4
+            "completeness": str,            # "完整"|"四缺一"|"四缺二"|"四缺三"|"无爽点"
+            "completeness_score": float,    # 0.0-1.0
+            "by_quadrant": {str: list},     # 每个象限的原文片段 (最多3条)
+            "timeline": [dict],             # 按段落顺序的象限标注 (用于可视化)
+            "warnings": [str],              # 结构完整性警告
+            "missing_quadrants": [str],     # 缺失的象限
+        }
+    """
+    result = {
+        "quadrants_found": [],
+        "quadrant_count": 0,
+        "completeness": "无爽点",
+        "completeness_score": 0.0,
+        "by_quadrant": {},
+        "timeline": [],
+        "warnings": [],
+        "missing_quadrants": [],
+    }
+
+    # 分段落扫描
+    paragraphs = [p.strip() for p in text.split("\n") if p.strip() and len(p.strip()) > 15]
+    if not paragraphs:
+        return result
+
+    quadrant_hits = {q: [] for q in _PLEASURE_QUADRANT_KEYWORDS}
+    quadrant_set = set()
+
+    for i, para in enumerate(paragraphs):
+        para_labels = []
+        for q_name, q_info in _PLEASURE_QUADRANT_KEYWORDS.items():
+            if re.search(q_info["pattern"], para):
+                para_labels.append(q_name)
+                quadrant_set.add(q_name)
+                # 保存证据 (最多3条)
+                if len(quadrant_hits[q_name]) < 3:
+                    quadrant_hits[q_name].append(para[:120] + ("..." if len(para) > 120 else ""))
+
+        if para_labels:
+            result["timeline"].append({
+                "para_index": i,
+                "labels": para_labels,
+                "text_preview": para[:80] + ("..." if len(para) > 80 else ""),
+            })
+
+    result["by_quadrant"] = {q: hits for q, hits in quadrant_hits.items() if hits}
+    result["quadrants_found"] = sorted(quadrant_set)
+    result["quadrant_count"] = len(quadrant_set)
+    result["completeness_score"] = round(result["quadrant_count"] / 4, 2)
+    result["missing_quadrants"] = sorted(set(_PLEASURE_QUADRANT_KEYWORDS.keys()) - quadrant_set)
+
+    # 完整性判定
+    if result["quadrant_count"] == 4:
+        result["completeness"] = "完整"
+    elif result["quadrant_count"] == 3:
+        result["completeness"] = "四缺一"
+        result["warnings"].append(
+            f"[四缺一] 缺失象限: {', '.join(result['missing_quadrants'])}。"
+            "爽点结构不完整, 爽感减半"
+        )
+    elif result["quadrant_count"] == 2:
+        result["completeness"] = "四缺二"
+        result["warnings"].append(
+            f"[四缺二] 缺失象限: {', '.join(result['missing_quadrants'])}。"
+            "爽点仅有骨架, 缺乏血肉"
+        )
+    elif result["quadrant_count"] == 1:
+        result["completeness"] = "四缺三"
+        result["warnings"].append(
+            f"[四缺三] 仅检测到 {result['quadrants_found'][0]}, "
+            "单象限爽点空洞无力, 读者耐心即将耗尽"
+        )
+    else:
+        result["completeness"] = "无爽点"
+        result["warnings"].append(
+            "[无爽点] 本章未检测到爽点结构, 如非过渡章节, 建议增加爽点单元"
+        )
+
+    # 专项警告: 装逼+打脸+震惊 但无收获 → 爽点不兑现
+    has_show = "装逼" in quadrant_set
+    has_slap = "打脸" in quadrant_set
+    has_shock = "震惊" in quadrant_set
+    has_reward = "收获" in quadrant_set
+
+    if has_show and has_slap and not has_reward:
+        result["warnings"].append(
+            "[WARN] 爽点只打脸不兑现: 有装逼+打脸+震惊但无收获, "
+            "读者爽感不完整, 建议增加实际获得 (数值/权限/关系/信息)"
+        )
+    if has_show and not has_slap:
+        result["warnings"].append(
+            "[WARN] 爽点只铺垫不兑现: 有装逼但无打脸, "
+            "装逼没有后续打脸是不完整不过瘾的 (建议: 装逼→打脸→震惊→收获)"
+        )
+    if has_slap and not has_shock:
+        result["warnings"].append(
+            "[WARN] 爽点无反响: 有打脸但无震惊, "
+            "打脸后缺少旁人反应, 爽感减半。\"总得有人看你打脸\""
+        )
+
+    return result
+
+
 # ============================================================
 # 自检
 # ============================================================
@@ -442,6 +1122,49 @@ if __name__ == "__main__":
     print("[OK] adaptive_review_loop() defined (v7.6)")
     print("[OK] _score_dimensions() defined")
     print("[OK] format_loop_summary() defined")
+    print("[OK] scan_fingerprints() defined (v8.0)")
+    print("[OK] scan_opening_diagnosis() defined (v8.1)")
+    print("[OK] scan_blurb_quality() defined (v8.1)")
+    print("[OK] scan_pleasure_quadrant() defined (v8.2)")
+    print("[OK] scan_perspective() defined (v8.1)")
+    print("[OK] scan_sensory_richness() defined (v8.1)")
+    print("[OK] scan_reward_diversity() defined (v8.1)")
+
+    # ── v8.1: 新函数自检 ──
+    test_text = (
+        "林风站在废墟上，望着远处的地平线。\n"
+        "他心里暗道：这片区域已经没有活人了。\n"
+        "另一边，陈默也心想：这些丧尸的速度比昨天更快了。\n"
+        "他握紧拳头，指节捏得发白，拳风擦过破烂的墙壁，发出刺耳的金鸣。\n"
+        "一阵腐臭的气味飘来，他咬紧牙关。"
+    )
+
+    # 视角检测
+    persp_result = scan_perspective(test_text)
+    print("[TEST] scan_perspective:", persp_result["risk_level"],
+          "violations:", persp_result["violation_count"])
+
+    # 感官丰富度
+    sensory_result = scan_sensory_richness(test_text)
+    print("[TEST] scan_sensory_richness: score:", sensory_result["richness_score"],
+          "missing:", sensory_result["missing_senses"])
+
+    # 奖励多样性
+    reward_result = scan_reward_diversity(test_text)
+    print("[TEST] scan_reward_diversity: types:", reward_result["reward_types_found"],
+          "score:", reward_result["diversity_score"])
+
+    # 开头诊断
+    opening_result = scan_opening_diagnosis(test_text, 1)
+    print("[TEST] scan_opening_diagnosis(ch1): chars:", opening_result["character_count"],
+          "bg_ratio:", opening_result["background_ratio"])
+
+    # 简介质量
+    blurb_result = scan_blurb_quality("末世降临，废土生存，唯一的能力觉醒者，却要面对最残酷的真相。")
+    print("[TEST] scan_blurb_quality: score:", blurb_result["score"],
+          "core:", blurb_result["has_core_selling_point"],
+          "focus:", blurb_result["element_focus"])
+
     print("[INFO] 使用: cross_review(chapter_text, chapter_num)")
     print("[INFO] 自适应循环: adaptive_review_loop(chapter_text, chapter_num)")
     print("[INFO] 8GB约束: 模型顺序切换 ~40s 额外开销")

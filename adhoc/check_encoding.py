@@ -19,11 +19,11 @@ for f in sorted(NOVELS_DIR.glob("*.txt")):
         try:
             raw.decode('utf-8')
             enc = "UTF-8"
-        except:
+        except UnicodeDecodeError:
             try:
                 raw.decode('gbk')
                 enc = "GBK"
-            except:
+            except UnicodeDecodeError:
                 enc = "UNKNOWN"
     
     size_mb = len(raw) / 1024 / 1024

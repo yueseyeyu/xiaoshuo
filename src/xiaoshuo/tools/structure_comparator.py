@@ -26,10 +26,10 @@ import json
 import re
 import statistics
 import sys
-import yaml
 from pathlib import Path
 from collections import Counter
 from datetime import datetime
+from xiaoshuo.infra.config_manager import get_config
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
@@ -46,15 +46,14 @@ def _load_cfg():
     if not CONFIG_PATH.exists():
         return defaults
     try:
-        with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-            cfg = yaml.safe_load(f)
+        cfg = get_config()
         sc = cfg.get("structure_comparator", {})
         return {
             "score_gap_thresholds": sc.get("score_gap_thresholds", defaults["score_gap_thresholds"]),
             "max_input_bytes": sc.get("max_input_bytes", defaults["max_input_bytes"]),
             "elite_factions_floor": sc.get("elite_factions_floor", defaults["elite_factions_floor"]),
         }
-    except (yaml.YAMLError, IOError) as e:
+    except Exception as e:
         print(f"[WARN] config.yaml 读取失败, 使用默认值: {e}")
         return defaults
 
@@ -64,12 +63,10 @@ _SC_CFG = _load_cfg()
 
 def _get_default_genre():
     try:
-        if CONFIG_PATH.exists():
-            with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-                cfg = yaml.safe_load(f) or {}
-            genres = cfg.get("author", {}).get("genres", ["末世"])
-            return genres[0] if genres else "末世"
-    except (yaml.YAMLError, IOError) as e:
+        cfg = get_config()
+        genres = cfg.get("author", {}).get("genres", ["末世"])
+        return genres[0] if genres else "末世"
+    except Exception as e:
         print(f"[WARN] 配置加载失败(使用默认末世): {e}")
     return "末世"
 

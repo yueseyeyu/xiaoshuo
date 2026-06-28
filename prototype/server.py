@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """
-prototype/server.py — 番茄小说 AI 辅助创作系统 前端原型服务器
+prototype/server.py — 番茄小说 AI 辅助创作系统 前端原型服务器（已弃用）
 ============================================================================
 启动方式: python server.py  (或 scripts/start_prototype.bat)
-访问地址: 由 config.yaml 中 prototype.port 决定，默认 http://localhost:8080
+访问地址: 由 config.yaml 中 prototype.port 决定，默认 http://localhost:8088
 
-功能:
-  1. 静态文件服务 — 提供 prototype/ 目录下的 HTML/CSS/JS
-  2. API 端点 — 读取后端分析数据，转为前端可消费的 JSON
+注意：v8.0 起静态文件与 API 统一由 src/xiaoshuo/api/server.py (FastAPI) 提供，
+      本文件保留作为独立原型服务器的备用方案。
 ============================================================================
 """
 
@@ -23,6 +22,7 @@ import webbrowser
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
+import psutil
 import yaml
 
 # 项目根目录
@@ -72,6 +72,56 @@ DATA_DIR = ROOT / CONFIG["data_dir"] / GENRE
 MANUALS_DIR = DATA_DIR / "writing_manuals"
 DIAGNOSIS_DIR = DATA_DIR / "deep_diagnosis"
 SYNTHESIS_DIR = DATA_DIR / "synthesis"
+
+# ── 日志系统 v7.6 ──
+LOG_DIR = ROOT / "logs" / "prototype"
+ACCESS_LOG_DIR = LOG_DIR / "access"
+OP_LOG_DIR = LOG_DIR / "operations"
+for d in [LOG_DIR, ACCESS_LOG_DIR, OP_LOG_DIR]:
+    d.mkdir(parents=True, exist_ok=True)
+
+_log_lock = threading.Lock()
+
+
+def _log_append(category: str, entry: dict):
+    """以 JSONL 格式追加一条日志记录（线程安全）"""
+    entry["timestamp"] = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
+    today = time.strftime("%Y-%m-%d")
+    if category == "access":
+        log_path = ACCESS_LOG_DIR / f"{today}.jsonl"
+    elif category == "operation":
+        log_path = OP_LOG_DIR / f"{today}.jsonl"
+    else:
+        log_path = LOG_DIR / f"{category}_{today}.jsonl"
+    with _log_lock:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def log_access(handler, method: str, path: str, params: dict, status: int,
+               duration_ms: float, req_body: dict = None, resp_size: int = 0):
+    """记录一次 API 请求的完整链路"""
+    entry = {
+        "method": method,
+        "path": path,
+        "params": params or {},
+        "client_ip": handler.client_address[0] if hasattr(handler, "client_address") else "",
+        "status": status,
+        "duration_ms": round(duration_ms, 2),
+        "resp_size": resp_size,
+    }
+    if req_body:
+        entry["req_body"] = req_body
+    _log_append("access", entry)
+
+
+def log_operation(user_action: str, detail: dict = None):
+    """记录前端用户操作（由前端通过 POST /api/logs/operations 上报）"""
+    entry = {
+        "action": user_action,
+        "detail": detail or {},
+    }
+    _log_append("operation", entry)
 
 # 尝试加载 library_data.json
 LIBRARY_DATA_PATH = PROTO_DIR / "library_data.json"
@@ -153,7 +203,19 @@ def parse_instructions(book_name, chapter=None):
 # ============================================================
 
 def api_books():
-    """GET /api/books — 书库列表"""
+    """GET /api/books — 书库列表（含拆书统计）"""
+    books = LIBRARY_DATA.get("books", [])
+    # 用 rhythm_csv 字段匹配拆书数据
+    rhythm_map = {}
+    for key, info in _list_rhythm_csvs().items():
+        # key 示例: "《从红月开始》（校对版全本）作者：黑山老鬼"
+        rhythm_map[info["path"].name] = _read_rhythm_summary(info["path"])
+    for book in books:
+        csv_name = book.get("rhythm_csv", "")
+        if csv_name in rhythm_map:
+            book["disassembly"] = rhythm_map[csv_name]
+        else:
+            book["disassembly"] = None
     return LIBRARY_DATA
 
 
@@ -607,6 +669,286 @@ def api_config(params=None):
 
 
 # ============================================================
+# 硬件监控 API
+# ============================================================
+
+def _read_gpu_smi():
+    """通过 nvidia-smi 读取 GPU 温度和显存 (pynvml 降级方案)。"""
+    try:
+        r = subprocess.run(
+            ["nvidia-smi", "--query-gpu=temperature.gpu,memory.used,memory.total,utilization.gpu",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            parts = [p.strip() for p in r.stdout.strip().split(",")]
+            return {
+                "temp": int(parts[0]) if len(parts) > 0 else None,
+                "vram_used_mb": int(parts[1]) if len(parts) > 1 else None,
+                "vram_total_mb": int(parts[2]) if len(parts) > 2 else None,
+                "gpu_util": int(parts[3]) if len(parts) > 3 else None,
+            }
+    except Exception:
+        pass
+    return None
+
+
+def api_hardware(params=None):
+    """GET /api/hardware — 实时硬件状态"""
+    result = {
+        "gpu": {"available": False, "temp": None, "vram_used": None, "vram_total": None, "vram_pct": None, "util": None},
+        "cpu": {"pct": None},
+        "ram": {"used": None, "total": None, "pct": None},
+    }
+
+    # GPU
+    gpu = _read_gpu_smi()
+    if gpu and gpu.get("temp") is not None:
+        result["gpu"] = {
+            "available": True,
+            "temp": gpu["temp"],
+            "vram_used": gpu.get("vram_used_mb"),
+            "vram_total": gpu.get("vram_total_mb"),
+            "vram_pct": round(gpu["vram_used_mb"] / gpu["vram_total_mb"] * 100, 1) if gpu.get("vram_used_mb") and gpu.get("vram_total_mb") else None,
+            "util": gpu.get("gpu_util"),
+        }
+
+    # CPU
+    result["cpu"]["pct"] = round(psutil.cpu_percent(interval=0.1), 1)
+
+    # RAM
+    mem = psutil.virtual_memory()
+    result["ram"] = {
+        "used": round(mem.used / (1024**3), 1),
+        "total": round(mem.total / (1024**3), 1),
+        "pct": mem.percent,
+    }
+
+    return result
+
+
+# ============================================================
+# 拆书数据 API
+# ============================================================
+
+def _list_rhythm_csvs():
+    """扫描所有题材的 rhythm CSV 文件，返回 {book_key: csv_path}。"""
+    rhythm_dir = ROOT / "data" / "processed"
+    books = {}
+    if not rhythm_dir.exists():
+        return books
+    for csv_path in rhythm_dir.rglob("rhythm_*.csv"):
+        genre = csv_path.parent.parent.name if csv_path.parent.parent.parent == rhythm_dir else "unknown"
+        key = csv_path.stem.replace("rhythm_", "")
+        books[key] = {"path": csv_path, "genre": genre}
+    return books
+
+
+def _read_rhythm_summary(csv_path):
+    """读取 rhythm CSV 的摘要统计。"""
+    import csv as csv_mod
+    try:
+        with open(csv_path, "r", encoding="utf-8-sig") as f:
+            reader = csv_mod.DictReader(f)
+            rows = list(reader)
+    except Exception:
+        return None
+
+    if not rows:
+        return None
+
+    ch_count = len(rows)
+    total_wc = sum(int(r.get("wc", 0) or 0) for r in rows)
+    emotions = {}
+    paces = {}
+    conflict_levels = {}
+    pleasure_types = {}
+
+    for r in rows:
+        e = r.get("emotion", "")
+        if e: emotions[e] = emotions.get(e, 0) + 1
+        p = r.get("pace", "")
+        if p: paces[p] = paces.get(p, 0) + 1
+        c = r.get("conflict_level", "")
+        if c: conflict_levels[c] = conflict_levels.get(c, 0) + 1
+        pt = r.get("pleasure_type", "none")
+        if pt: pleasure_types[pt] = pleasure_types.get(pt, 0) + 1
+
+    return {
+        "chapters": ch_count,
+        "total_words": total_wc,
+        "avg_words": round(total_wc / ch_count) if ch_count else 0,
+        "emotion_dist": emotions,
+        "pace_dist": paces,
+        "conflict_dist": conflict_levels,
+        "pleasure_dist": pleasure_types,
+    }
+
+
+def api_disassembly_books(params=None):
+    """GET /api/disassembly/books — 列出所有有拆书数据的书"""
+    books = _list_rhythm_csvs()
+    result = []
+    for key, info in sorted(books.items()):
+        summary = _read_rhythm_summary(info["path"])
+        entry = {
+            "key": key,
+            "genre": info["genre"],
+            "file": info["path"].name,
+        }
+        if summary:
+            entry["summary"] = summary
+        result.append(entry)
+    return {"total": len(result), "books": result}
+
+
+def api_disassembly_book(params):
+    """GET /api/disassembly/book?name=X — 获取某本书的逐章拆书数据"""
+    import csv as csv_mod
+    name = (params or {}).get("name", [None])[0]
+    if not name:
+        return {"error": "Missing name parameter"}
+
+    books = _list_rhythm_csvs()
+    if name not in books:
+        return {"error": "Book not found", "name": name}
+
+    csv_path = books[name]["path"]
+    try:
+        with open(csv_path, "r", encoding="utf-8-sig") as f:
+            reader = csv_mod.DictReader(f)
+            chapters = []
+            for row in reader:
+                chapters.append({
+                    "ch": int(row.get("ch_num", 0)),
+                    "wc": int(row.get("wc", 0) or 0),
+                    "emotion": row.get("emotion", ""),
+                    "pace": row.get("pace", ""),
+                    "conflict": row.get("conflict", ""),
+                    "conflict_level": row.get("conflict_level", ""),
+                    "pleasure_type": row.get("pleasure_type", "none"),
+                    "pleasure_intensity": float(row.get("pleasure_intensity", 0) or 0),
+                    "dominant_sub": row.get("dominant_sub", ""),
+                    "dialogue_ratio": float(row.get("dialogue_ratio", 0) or 0),
+                    "pos_density": float(row.get("pos_density", 0) or 0),
+                    "hook_density": float(row.get("hook_density", 0) or 0),
+                    "readability": float(row.get("readability", 0) or 0),
+                })
+            summary = _read_rhythm_summary(csv_path)
+            return {"name": name, "genre": books[name]["genre"], "total_chapters": len(chapters), "summary": summary, "chapters": chapters}
+    except Exception as e:
+        return {"error": str(e), "name": name}
+
+
+# ── 日志查询 API ──
+
+def _list_log_files(category: str):
+    """列出指定类别下所有日志文件，返回 [(date_str, path), ...] 按日期倒序"""
+    dir_map = {
+        "access": ACCESS_LOG_DIR,
+        "operation": OP_LOG_DIR,
+    }
+    log_dir = dir_map.get(category, LOG_DIR)
+    if not log_dir.exists():
+        return []
+    files = []
+    for f in sorted(log_dir.glob("*.jsonl"), reverse=True):
+        date_str = f.stem  # "2026-06-27"
+        files.append((date_str, f))
+    return files
+
+
+def _read_log_entries(category: str, date_str: str = None,
+                      search: str = None, level: str = None,
+                      offset: int = 0, limit: int = 50):
+    """读取日志条目，支持筛选和分页"""
+    entries = []
+    if date_str:
+        dir_map = {"access": ACCESS_LOG_DIR, "operation": OP_LOG_DIR}
+        log_dir = dir_map.get(category, LOG_DIR)
+        log_path = log_dir / f"{date_str}.jsonl"
+        paths = [log_path] if log_path.exists() else []
+    else:
+        # 默认读取最近 7 天
+        paths = []
+        for date_s, path in _list_log_files(category)[:7]:
+            paths.append(path)
+
+    for path in paths:
+        if not path.exists():
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    entries.append(entry)
+        except Exception:
+            continue
+
+    # 排序（时间倒序）
+    entries.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
+
+    # 搜索过滤
+    if search:
+        search_lower = search.lower()
+        entries = [
+            e for e in entries
+            if search_lower in json.dumps(e, ensure_ascii=False).lower()
+        ]
+
+    # 等级过滤（access 日志中 status>=400 为 ERROR）
+    if level:
+        if level == "ERROR":
+            entries = [e for e in entries if e.get("status", 200) >= 400]
+        elif level == "WARNING":
+            entries = [e for e in entries if 300 <= e.get("status", 200) < 400]
+
+    total = len(entries)
+    page = entries[offset:offset + limit]
+    return {"total": total, "offset": offset, "limit": limit, "entries": page}
+
+
+def api_logs(params):
+    """GET /api/logs — 查询日志"""
+    category = (params or {}).get("category", ["access"])[0]
+    date_str = (params or {}).get("date", [None])[0]
+    search = (params or {}).get("search", [None])[0]
+    level = (params or {}).get("level", [None])[0]
+    try:
+        offset = int((params or {}).get("offset", ["0"])[0])
+    except ValueError:
+        offset = 0
+    try:
+        limit = int((params or {}).get("limit", ["50"])[0])
+    except ValueError:
+        limit = 50
+
+    return _read_log_entries(category, date_str, search, level, offset, limit)
+
+
+def api_log_dates(params=None):
+    """GET /api/logs/dates — 列出有日志的日期"""
+    result = {"access": [], "operation": []}
+    for cat in ["access", "operation"]:
+        result[cat] = [d for d, _ in _list_log_files(cat)]
+    return result
+
+
+def api_logs_operation(body):
+    """POST /api/logs/operations — 前端上报用户操作"""
+    action = body.get("action", "")
+    detail = body.get("detail", {})
+    log_operation(action, detail)
+    return {"status": "ok"}
+
+
+# ============================================================
 # HTTP 请求处理器
 # ============================================================
 
@@ -622,10 +964,16 @@ API_ROUTES = {
     "/api/rhythm-plan": api_rhythm_plan,
     "/api/tasks": api_list_tasks,
     "/api/task": api_get_task,
+    "/api/hardware": api_hardware,
+    "/api/disassembly/books": api_disassembly_books,
+    "/api/disassembly/book": api_disassembly_book,
+    "/api/logs": api_logs,
+    "/api/logs/dates": api_log_dates,
 }
 
 API_POST_ROUTES = {
     "/api/tasks": api_create_task,
+    "/api/logs/operations": api_logs_operation,
 }
 
 MIME_TYPES = {
@@ -651,37 +999,50 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
         sys.stdout.write("[%s] %s\n" % (self.address_string(), format % args))
 
     def send_json(self, data, status=200):
-        """发送 JSON 响应"""
+        """发送 JSON 响应（客户端断开时静默忽略）"""
         body = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", len(body))
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", len(body))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(body)
+        except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+            pass  # 客户端已断开，无法发送响应，静默忽略
 
     def do_GET(self):
+        t0 = time.perf_counter()
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
         params = parse_qs(parsed.query)
 
-        # API 路由
-        if path in API_ROUTES:
-            handler = API_ROUTES[path]
-            try:
-                if handler in (api_instructions, api_rhythm_plan, api_get_task):
-                    result = handler(params)
-                else:
-                    result = handler()
-                self.send_json(result)
-            except Exception as e:
-                self.send_json({"error": str(e)}, 500)
+        # ── 静态文件：不记录日志 ──
+        if path not in API_ROUTES:
+            super().do_GET()
             return
 
-        # 静态文件服务
-        super().do_GET()
+        # API 路由
+        handler = API_ROUTES[path]
+        status = 200
+        try:
+            if handler in (api_instructions, api_rhythm_plan, api_get_task, api_disassembly_book, api_hardware, api_logs):
+                result = handler(params)
+            else:
+                result = handler()
+            self.send_json(result)
+        except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+            status = 499  # client closed request
+            pass
+        except Exception as e:
+            status = 500
+            self.send_json({"error": str(e)}, 500)
+        finally:
+            duration = (time.perf_counter() - t0) * 1000
+            log_access(self, "GET", path, params, status, duration)
 
     def do_POST(self):
+        t0 = time.perf_counter()
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
 
@@ -693,6 +1054,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
         except Exception:
             json_body = {}
 
+        status = 200
         if path in API_POST_ROUTES:
             try:
                 result = API_POST_ROUTES[path](json_body)
@@ -700,8 +1062,15 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_json(result[0], result[1])
                 else:
                     self.send_json(result)
+            except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+                status = 499
+                pass
             except Exception as e:
+                status = 500
                 self.send_json({"error": str(e)}, 500)
+            finally:
+                duration = (time.perf_counter() - t0) * 1000
+                log_access(self, "POST", path, {}, status, duration, req_body=json_body)
             return
 
         self.send_json({"error": "Method not allowed"}, 405)
@@ -713,6 +1082,13 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
+
+    def end_headers(self):
+        """静态文件禁用缓存，避免前端样式/脚本更新后浏览器仍使用旧版本"""
+        parsed = urlparse(self.path)
+        if not parsed.path.startswith("/api/"):
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+        super().end_headers()
 
 
 def main():

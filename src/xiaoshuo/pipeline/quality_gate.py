@@ -66,24 +66,22 @@ def _load_gate_config():
         "author_protected_books": [],
     }
     try:
-        if CONFIG_PATH.exists():
-            with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-                cfg = yaml.safe_load(f) or {}
-            qg = cfg.get("analysis", {}).get("quality_gate", {})
-            result = dict(defaults)
-            for key in result:
-                if key in qg:
-                    result[key] = qg[key]
-            # Merge known_quality_list from book_filter if not in quality_gate
-            if not result["known_quality_list"]:
-                bf = cfg.get("analysis", {}).get("book_filter", {})
-                result["known_quality_list"] = bf.get("known_quality_list", [])
-            # Merge author_protected_books from book_filter
-            if not result["author_protected_books"]:
-                bf = cfg.get("analysis", {}).get("book_filter", {})
-                result["author_protected_books"] = bf.get("author_protected_books", [])
-            _gate_config_cache = result
-            return result
+        from xiaoshuo.infra.config_manager import get_config
+        cfg = get_config()
+        qg = cfg.get("analysis", {}).get("quality_gate", {})
+        result = dict(defaults)
+        for key in result:
+            if key in qg:
+                result[key] = qg[key]
+        # Merge known_quality_list from book_filter if not in quality_gate
+        if not result["known_quality_list"]:
+            bf = cfg.get("analysis", {}).get("book_filter", {})
+            result["known_quality_list"] = bf.get("known_quality_list", [])
+        # Merge author_protected_books from book_filter
+        if not result["author_protected_books"]:
+            result["author_protected_books"] = bf.get("author_protected_books", [])
+        _gate_config_cache = result
+        return result
     except Exception:
         pass
     _gate_config_cache = defaults

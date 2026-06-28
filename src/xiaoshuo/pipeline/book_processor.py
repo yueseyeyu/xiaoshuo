@@ -38,20 +38,18 @@ def _load_genre_config():
         "min_confidence": 0.40,
     }
     try:
-        if CONFIG_PATH.exists():
-            with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-                cfg = yaml.safe_load(f) or {}
-            bf = cfg.get("analysis", {}).get("book_filter", {})
-            result = dict(defaults)
-            for key in result:
-                if key in bf:
-                    result[key] = bf[key]
-            _genre_config_cache = result
-            return result
+        from xiaoshuo.infra.config_manager import get_config
+        cfg = get_config()
+        bf = cfg.get("analysis", {}).get("book_filter", {})
+        result = dict(defaults)
+        for key in result:
+            if key in bf:
+                result[key] = bf[key]
+        _genre_config_cache = result
+        return result
     except Exception:
-        pass
-    _genre_config_cache = defaults
-    return defaults
+        _genre_config_cache = defaults
+        return defaults
 
 
 def _load_filter_config():
@@ -62,18 +60,16 @@ def _load_filter_config():
         "known_genre_map": {},
     }
     try:
-        if CONFIG_PATH.exists():
-            with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-                cfg = yaml.safe_load(f) or {}
-            bf = cfg.get("analysis", {}).get("book_filter", {})
-            result = dict(defaults)
-            for key in result:
-                if key in bf:
-                    result[key] = bf[key]
-            return result
+        from xiaoshuo.infra.config_manager import get_config
+        cfg = get_config()
+        bf = cfg.get("analysis", {}).get("book_filter", {})
+        result = dict(defaults)
+        for key in result:
+            if key in bf:
+                result[key] = bf[key]
+        return result
     except Exception:
-        pass
-    return defaults
+        return defaults
 
 
 def detect_encoding(filepath: Path) -> str:
@@ -88,12 +84,12 @@ def detect_encoding(filepath: Path) -> str:
     try:
         raw.decode('utf-8')
         return "UTF-8"
-    except:
+    except UnicodeDecodeError:
         pass
     try:
         raw.decode('gbk')
         return "GBK"
-    except:
+    except UnicodeDecodeError:
         pass
     return "UNKNOWN"
 
@@ -104,19 +100,19 @@ def convert_to_utf8(filepath: Path) -> bool:
     try:
         raw.decode('utf-8')
         return False  # Already UTF-8
-    except:
+    except UnicodeDecodeError:
         pass
     try:
         text = raw.decode('gbk')
         filepath.write_text(text, encoding='utf-8')
         return True
-    except:
+    except UnicodeDecodeError:
         pass
     try:
         text = raw.decode('gb18030')
         filepath.write_text(text, encoding='utf-8')
         return True
-    except:
+    except UnicodeDecodeError:
         pass
     return False
 

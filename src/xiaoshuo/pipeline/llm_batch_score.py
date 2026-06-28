@@ -64,8 +64,8 @@ CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 def _load_llama_base():
     """Read LLM server base URL from config.yaml, fallback to default."""
     try:
-        with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-            cfg = yaml.safe_load(f)
+        from xiaoshuo.infra.config_manager import get_config
+        cfg = get_config()
         port = cfg.get("model_orchestration", {}).get("models", {}).get("main_model", {}).get("port", 8000)
         return f"http://127.0.0.1:{port}"
     except Exception:
@@ -79,8 +79,8 @@ LLAMA_HOST = urllib.parse.urlparse(LLAMA_BASE).netloc  # e.g. "127.0.0.1:8000"
 def _get_server_parallel():
     """Read LLM server parallel setting from config.yaml for optimal worker count."""
     try:
-        with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-            cfg = yaml.safe_load(f)
+        from xiaoshuo.infra.config_manager import get_config
+        cfg = get_config()
         return cfg.get("analysis", {}).get("llm_parallel", 2)
     except Exception:
         return 2
@@ -88,8 +88,7 @@ def _get_server_parallel():
 
 LLM_PARALLEL = _get_server_parallel()
 
-# sys.path hack removed (v8.0)
-from rhythm_analyzer import extract_chapters
+from xiaoshuo.pipeline.rhythm_analyzer import extract_chapters
 
 
 def check_server():
@@ -214,7 +213,7 @@ def llm_score_rubric(chapter_text, ch_num, conn=None):
                         if "hook" in res:
                             res["hook"] = _normalize_hook(res["hook"])
                         return res
-                except:
+                except (json.JSONDecodeError, KeyError, ValueError):
                     continue
         # Fallback: field extraction
         pi = re.search(r'"intensity"\s*:\s*(\d+(?:\.\d+)?)', raw)
@@ -280,7 +279,7 @@ def llm_score_self_consistency(chapter_text, ch_num, n_samples=3, conn=None):
                                 res["hook"] = _normalize_hook(res["hook"])
                             results.append(res)
                             break
-                    except:
+                    except (json.JSONDecodeError, KeyError, ValueError):
                         continue
             else:
                 # Fallback: field extraction
@@ -300,7 +299,7 @@ def llm_score_self_consistency(chapter_text, ch_num, n_samples=3, conn=None):
                         "hook": _normalize_hook(hook_raw),
                         "retention": float(rt.group(1)) if rt else 5,
                     })
-        except:
+        except Exception:
             continue
         time.sleep(0.1)  # Minimal gap between SC samples
 
@@ -375,7 +374,7 @@ def batch_book(txt_path, csv_path, max_chapters=None, sc_samples=1):
             vals = []
             for r in valid:
                 try: vals.append(float(r[key]))
-                except: pass
+                except (ValueError, TypeError, KeyError): pass
             merged[key] = round(sum(vals) / len(vals), 1) if vals else 5.0
         for key in ["conflict", "emotion", "pace", "hook"]:
             cats = [str(r[key]) for r in valid if key in r and r[key]]

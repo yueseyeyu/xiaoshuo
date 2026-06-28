@@ -3,12 +3,12 @@ Results saved to data/deepseek_records.jsonl for persistence.
 Usage: python scripts/test_deepseek.py
 """
 import sys, csv, json, statistics, io, datetime
-sys.path.insert(0, "d:/Code/xiaoshuo")
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 from pathlib import Path
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 from collections import Counter
 
-from analysis.genre_synthesizer import (
+from xiaoshuo.pipeline.scoring.commercial_engine import (
     compute_commercial_score, _load_deepseek_config
 )
 
@@ -32,7 +32,7 @@ if OUTPUT.exists():
             today = datetime.date.today().isoformat()
             if rec.get("timestamp", "").startswith(today):
                 already_done.add(rec["book"])
-        except: pass
+        except (json.JSONDecodeError, KeyError): pass
 if already_done:
     print(f"[SKIP] {len(already_done)} books already scored today: {already_done}")
 
@@ -61,12 +61,12 @@ for name, csv_file in tests:
         print(f"{name:<25} {'(skipped)':>20}")
         continue
     rows = []
-    csv_path = Path(f"d:/Code/xiaoshuo/data/processed/末世/rhythm/{csv_file}")
+    csv_path = PROJECT_ROOT / "data" / "processed" / "末世" / "rhythm" / csv_file
     with open(csv_path, encoding="utf-8-sig") as f:
         for r in csv.DictReader(f):
             for k in r:
                 try: r[k] = float(r[k])
-                except: pass
+                except (ValueError, TypeError): pass
             rows.append(r)
 
     comm = compute_commercial_score(rows, "末世", name)

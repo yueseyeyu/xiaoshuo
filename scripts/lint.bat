@@ -27,6 +27,7 @@ for %%f in (
     src\xiaoshuo\pipeline\book_processor.py
     src\xiaoshuo\pipeline\quality_gate.py
     src\xiaoshuo\pipeline\rhythm_analyzer.py
+    src\xiaoshuo\pipeline\scene_search.py
     src\xiaoshuo\pipeline\genre_synthesizer.py
     src\xiaoshuo\pipeline\synthesis_reporter.py
     src\xiaoshuo\pipeline\creative_bridge.py
@@ -35,6 +36,7 @@ for %%f in (
     src\xiaoshuo\pipeline\checkpoint.py
     src\xiaoshuo\pipeline\contract_chain.py
     src\xiaoshuo\pipeline\writing_instructions.py
+    src\xiaoshuo\pipeline\novel_index.py
     src\xiaoshuo\pipeline\scoring\__init__.py
     src\xiaoshuo\pipeline\scoring\vad_analyzer.py
     src\xiaoshuo\pipeline\scoring\structure_matcher.py
@@ -89,6 +91,9 @@ if !errorlevel! equ 0 (set /a PASS+=1) else (echo   [FAIL] structure_comparator 
 
 %PYTHON% -c "import sys; sys.path.insert(0,'src'); from xiaoshuo.agents.memory_store import MemoryStore; print('[OK] memory_store')" 2>&1
 if !errorlevel! equ 0 (set /a PASS+=1) else (echo   [FAIL] memory_store import & set /a FAIL+=1)
+
+%PYTHON% -c "import sys; sys.path.insert(0,'src'); from xiaoshuo.pipeline.scene_search import SceneSearch; print('[OK] scene_search')" 2>&1
+if !errorlevel! equ 0 (set /a PASS+=1) else (echo   [FAIL] scene_search import & set /a FAIL+=1)
 
 echo.
 echo [3/3] Self-test Run...

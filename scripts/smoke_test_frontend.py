@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""前端联调冒烟测试"""
+"""前端联调冒烟测试（v8.0 FastAPI 单服务）"""
 import json
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 
-BASE = "http://127.0.0.1:8090"
+BASE = "http://127.0.0.1:8088"
 
 
 def get(path):
@@ -22,6 +22,20 @@ def get(path):
         except json.JSONDecodeError:
             data = {"ok": False, "error": body}
         return e.code, data
+    except urllib.error.URLError as e:
+        return 0, {"ok": False, "error": str(e)}
+
+
+def get_raw(path):
+    """获取非 JSON 静态资源。"""
+    req = urllib.request.Request(f"{BASE}{path}")
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status, r.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8")
+    except urllib.error.URLError as e:
+        return 0, str(e)
 
 
 def post(path, body):
@@ -51,80 +65,81 @@ def _llm_healthy():
 
 
 def _wait_for_server(timeout=30):
-    """Wait for progress server to be ready (first request may be slow)."""
+    """Wait for API server to be ready."""
     import time
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            req = urllib.request.Request(f"{BASE}/api/status")
+            req = urllib.request.Request(f"{BASE}/api/health")
             with urllib.request.urlopen(req, timeout=5) as r:
-                return r.status, json.loads(r.read().decode("utf-8"))
+                return r.status, r.read().decode("utf-8")
         except Exception:
             time.sleep(1)
-    raise RuntimeError(f"Progress server not ready after {timeout}s")
+    raise RuntimeError(f"API server not ready after {timeout}s")
 
 
 def main():
-    # API endpoints
-    status, data = _wait_for_server()
-    assert status == 200 and data["ok"]
-    print(f"[OK] /api/status {status}: running={data['data']['running']}")
+    # Wait for server
+    status, _ = _wait_for_server()
+    assert status == 200
+    print(f"[OK] /api/health {status}")
+
+    status, data = get("/api/config")
+    assert status == 200 and "version" in data
+    print(f"[OK] /api/config {status}: version={data.get('version')}")
+
+    status, data = get("/api/status")
+    assert status == 200 and "running" in data
+    print(f"[OK] /api/status {status}: running={data.get('running', False)}")
 
     status, data = get("/api/progress")
-    assert status == 200 and data["ok"]
-    print(f"[OK] /api/progress {status}: {len(data['data'])} books")
-
-    # Genre filter
-    encoded = urllib.parse.quote("仙侠")
-    status, data = get(f"/api/progress?genre={encoded}")
-    assert status == 200 and data["ok"]
-    print(f"[OK] /api/progress?genre=仙侠 {status}: {len(data['data'])} books")
+    assert status == 200 and "running" in data
+    print(f"[OK] /api/progress {status}: running={data.get('running', False)}")
 
     status, data = get("/api/hardware")
-    assert status == 200 and data["ok"]
-    print(f"[OK] /api/hardware {status}: gpu_temp={data['data'].get('gpu_temp')}")
+    assert status == 200 and isinstance(data, dict)
+    print(f"[OK] /api/hardware {status}: keys={list(data.keys())[:3]}")
 
-    status, data = get("/api/logs")
-    assert status == 200 and data["ok"]
-    print(f"[OK] /api/logs {status}: {len(data['data'])} logs")
+    status, data = get("/api/logs/dates")
+    assert status == 200 and "dates" in data
+    print(f"[OK] /api/logs/dates {status}")
 
-    # Static files
-    with urllib.request.urlopen(f"{BASE}/", timeout=5) as r:
-        html = r.read().decode("utf-8")
-        assert "番茄拆书舱" in html
-        print(f"[OK] / {r.status}: HTML ok")
+    status, data = get("/api/books")
+    assert status == 200 and "books" in data
+    print(f"[OK] /api/books {status}: count={data.get('count', 0)}")
 
-    with urllib.request.urlopen(f"{BASE}/css/tokens.css", timeout=5) as r:
-        css = r.read().decode("utf-8")
-        assert "--bg-primary" in css
-        print(f"[OK] /css/tokens.css {r.status}: CSS ok")
+    status, data = get("/api/disassembly/books")
+    assert status == 200 and isinstance(data, list)
+    print(f"[OK] /api/disassembly/books {status}: count={len(data)}")
 
-    with urllib.request.urlopen(f"{BASE}/js/main.js", timeout=5) as r:
-        js = r.read().decode("utf-8")
-        assert "init()" in js
-        print(f"[OK] /js/main.js {r.status}: JS ok")
+    # Static files served by FastAPI StaticFiles
+    status, html = get_raw("/")
+    assert status == 200 and "番茄小说" in html
+    print(f"[OK] / {status}: HTML ok")
+
+    status, css = get_raw("/styles.css")
+    assert status == 200 and "--bg" in css
+    print(f"[OK] /styles.css {status}: CSS ok")
+
+    status, js = get_raw("/js/main.js")
+    assert status == 200 and "init" in js
+    print(f"[OK] /js/main.js {status}: JS ok")
+
+    status, js = get_raw("/js/api.js")
+    assert status == 200 and "apiFetch" in js
+    print(f"[OK] /js/api.js {status}: JS ok")
 
     llm_ok = _llm_healthy()
     if llm_ok:
-        # Start with selected books
         status, data = post("/api/start", {"genre": "末世", "books": ["book1", "book2"]})
-        assert status == 200 and data["ok"]
+        assert status == 200 and data.get("ok")
         print(f"[INFO] /api/start {status}: {data.get('message', data)}")
 
         status, data = post("/api/stop", {})
-        assert status == 200 and data["ok"]
+        assert status == 200 and data.get("ok")
         print(f"[INFO] /api/stop {status}: {data.get('message', data)}")
     else:
         print("[SKIP] /api/start /api/stop (LLM server not running)")
-
-    # P2: new endpoints (404 for missing data is expected)
-    status, data = get("/api/book/nonexistent")
-    assert status == 404 and not data["ok"]
-    print(f"[OK] /api/book/nonexistent {status}")
-
-    status, data = get("/api/score/nonexistent")
-    assert status == 404 and not data["ok"]
-    print(f"[OK] /api/score/nonexistent {status}")
 
     print("[DONE] integration smoke test completed")
     return 0

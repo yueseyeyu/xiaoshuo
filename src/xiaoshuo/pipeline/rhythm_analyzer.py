@@ -39,13 +39,11 @@ CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 def _get_llm_port():
     """Read LLM port from config.yaml. Falls back to 8000."""
     try:
-        if CONFIG_PATH.exists():
-            with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-                cfg = yaml.safe_load(f) or {}
-            return cfg.get("analysis", {}).get("llm_port", 8000)
+        from xiaoshuo.infra.config_manager import get_config
+        cfg = get_config()
+        return cfg.get("analysis", {}).get("llm_port", 8000)
     except Exception:
-        pass
-    return 8000
+        return 8000
 
 
 LLAMA_PORT = _get_llm_port()
@@ -71,13 +69,11 @@ def _map_llm_response(llm: dict) -> dict:
 def _get_llm_parallel():
     """Read LLM parallelism from config.yaml. Falls back to 2."""
     try:
-        if CONFIG_PATH.exists():
-            with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-                cfg = yaml.safe_load(f) or {}
-            return cfg.get("analysis", {}).get("llm_parallel", 2)
+        from xiaoshuo.infra.config_manager import get_config
+        cfg = get_config()
+        return cfg.get("analysis", {}).get("llm_parallel", 2)
     except Exception:
-        pass
-    return 2
+        return 2
 
 # ── Rule-based keyword dictionaries (zero LLM cost) ──
 # Sources: 网文俱乐部 爽点分类 + 知乎18种爽点 + Climactic Chapter Recognition (Applied Sciences)
@@ -323,7 +319,7 @@ def _parse_cn_num(s):
               "两":2}
     # Handle pure digits
     try: return int(s)
-    except: pass
+    except ValueError: pass
     result = 0
     current = 0
     for ch in s:
@@ -431,7 +427,7 @@ def _build_chapters(parts):
                     num_str = m.group(1).strip()
                     try:
                         ch_num = int(num_str)
-                    except:
+                    except (ValueError, TypeError):
                         ch_num = _parse_cn_num(num_str)
                 break
 
@@ -769,7 +765,8 @@ def llm_verify(ch, rule_result):
         raw = resp["choices"][0]["message"].get("content", "")
         m = re.search(r'\{[^}]+\}', raw)
         if m: return json.loads(m.group())
-    except: pass
+    except (json.JSONDecodeError, KeyError, urllib.error.URLError, TimeoutError, ConnectionError):
+        pass
     return None
 
 
@@ -951,7 +948,7 @@ def analyze_book(filepath):
     try:
         urllib.request.urlopen(f"{LLAMA_BASE}/health", timeout=2)
         server_ok = True
-    except:
+    except (urllib.error.URLError, TimeoutError, ConnectionError):
         server_ok = False
 
     llm_correlation = None

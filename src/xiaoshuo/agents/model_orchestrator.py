@@ -80,8 +80,8 @@ def _strip_thinking_tags(text: str) -> str:
     """
     if not text:
         return text
-    cleaned = re.sub(r" thinking.*? response\s*", "", text, flags=re.DOTALL)
-    cleaned = re.sub(r" thinking.*$", "", cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r"<thinking>.*?</response>\s*", "", text, flags=re.DOTALL)
+    cleaned = re.sub(r"<thinking>.*$", "", cleaned, flags=re.DOTALL)
     return cleaned.strip()
 
 

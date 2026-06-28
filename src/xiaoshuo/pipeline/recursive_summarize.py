@@ -53,20 +53,19 @@ CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
 def _llm_port():
     try:
-        if CONFIG_PATH.exists():
-            cfg = yaml.safe_load(open(CONFIG_PATH, encoding="utf-8"))
-            return cfg.get("analysis", {}).get("llm_port", 8000)
+        from xiaoshuo.infra.config_manager import get_config
+        cfg = get_config()
+        return cfg.get("analysis", {}).get("llm_port", 8000)
     except Exception:
-        pass
-    return 8000
+        return 8000
 
 
 def _llm_parallel():
     """Read LLM parallelism from config.yaml. Falls back to 2."""
     try:
-        if CONFIG_PATH.exists():
-            cfg = yaml.safe_load(open(CONFIG_PATH, encoding="utf-8"))
-            return cfg.get("analysis", {}).get("llm_parallel", 2)
+        from xiaoshuo.infra.config_manager import get_config
+        cfg = get_config()
+        return cfg.get("analysis", {}).get("llm_parallel", 2)
     except Exception:
         pass
     return 2

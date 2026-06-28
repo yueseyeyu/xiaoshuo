@@ -37,10 +37,9 @@ CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
 def _get_llm_port():
     try:
-        if CONFIG_PATH.exists():
-            with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-                cfg = yaml.safe_load(f) or {}
-            return cfg.get("analysis", {}).get("llm_port", 8000)
+        from xiaoshuo.infra.config_manager import get_config
+        cfg = get_config()
+        return cfg.get("analysis", {}).get("llm_port", 8000)
     except Exception as e:
         print(f"  [WARN] config.yaml读取失败: {e}, 使用默认端口8000")
     return 8000

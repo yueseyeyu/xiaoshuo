@@ -43,16 +43,16 @@ model_orchestration:
     # ── 主模型: S3 评审 + S4 检测 + 概念归纳 ──
     main_model:
       name: "Qwen3.5-9B-Instruct"
-      gguf: "D:/DaMoXing/Qwen3.5-9B-Q4_K_M.gguf"
-      quant: "Q4_K_M"                    # 实测 5.68GB；备选 IQ4_XS 5.17GB
+      gguf: "D:/DaMoXing/Qwen3.5-9B-IQ4_XS.gguf"
+      quant: "IQ4_XS"                    # v8.2: 从 Q4_K_M 切换。ByteShape 基准: 准确率 0.9858 vs Q4_K_M 0.9765, TPS +8.6%, 体积 -0.5GB
       port: 8000                         # llama.cpp server 端口
-      n_ctx: 8192                        # 上下文窗口。实测 8GB 下 KV q8_0 安全上限 (v7.5 从4096提升)
+      n_ctx: 8192                        # 上下文窗口。IQ4_XS 节省 ~0.5GB 显存，可尝试提升至 16384
       n_gpu_layers: 35                   # 全部 35 层 offload 到 GPU
       kv_cache_type_k: "q8_0"           # v7.6: Key 缓存 8-bit（保持精度，影响 MTP 接受率）
       kv_cache_type_v: "q4_0"           # v7.6: Value 缓存 4-bit（节省 ~25% KV 显存，质量影响极小）
       api_key: "xiaoshuo-local-2026"     # v7.5: 本地 API 认证密钥（可选，留空则无认证）
       chat_format: "chatml"              # Qwen 系列用 ChatML 格式
-      estimated_vram: "6.0GB"            # 模型 5.68 + KV Cache ~0.3GB (v7.6: 非对称 KV 量化)
+      estimated_vram: "5.5GB"            # v8.2: IQ4_XS 模型 ~5.17GB + KV Cache ~0.3GB
 
     # ── 网文专家: S1 创意引导 + S2b 参考版 + 节拍分析 ──
     # 基于 Qwen3-4B + TanXS 中文网文 LoRA 微调
@@ -229,6 +229,28 @@ narrative_index:
   retrieve_top_k: 3
 
 # ============================================================
+# L10: 场景级写作参考检索引擎 (v8.0)
+# 模块: scene_search.py
+# 用途: 新人作者输入"怎么写拍卖场冲突" → 从33本书中检索最相似场景 + 技法分析
+# 决策依据: RAG 在网文创作场景的最佳落地形式 — 写前参考 > 写后分析
+# 检索方案: 混合检索 (工业标准) — BM25 (关键词) + BGE (语义) + RRF 融合
+#   - BM25 通道: rank_bm25.BM25Okapi + jieba 分词 (词频饱和 + 长度归一化)
+#   - BGE 通道:  sentence_transformers + BAAI/bge-small-zh-v1.5 (512维, L2归一化)
+#   - RRF 融合:  Reciprocal Rank Fusion, k=60 (Cormack et al. 2009)
+#   - 性能: BEIR/MTEB 基准显示 hybrid 比 BM25/BGE 单通道高 5-15% NDCG@10
+#   - 模型缓存: .hf_cache/ (已存在, 无需联网下载)
+# ============================================================
+scene_search:
+  enabled: true
+  method: "hybrid_bm25_bge"                   # 检索方法: 混合检索 BM25 + BGE + RRF
+  embedding_model: "BAAI/bge-small-zh-v1.5"   # 中文优化，512维，CPU可运行
+  rrf_k: 60                                    # RRF 平滑参数 (工业标准默认值)
+  top_k: 5                                     # 默认返回结果数
+  min_scene_chars: 200                         # 场景最小字符数
+  max_scene_chars: 1500                        # 场景最大字符数（超出则切分）
+  cache_dir: "data/processed/{genre}/scene_index/"  # 缓存目录模板
+
+# ============================================================
 # L9: 叙事节拍分析器 + 节奏曲线
 # 模块: beat_analyzer.py / rhythm_curve.py / pleasure_density.py
 # 决策依据: 4 套叙事理论按类型自动匹配；节奏曲线 P1 启用
@@ -300,6 +322,23 @@ detection:
     l7_ngram_ppl:
       enabled: true
       fatal_threshold_ratio: 0.6         # N-gram PPL < 基线均值×0.6 = 过于可预测
+
+    # v7.6: 代码层 L5/L6 专用配置 (style_detection_loop.py)
+    l5_character_consistency:
+      enabled: true
+      max_rare_names: 3                   # 低频异常角色名 ≤ 3
+      max_similar_pairs: 2                # 相似名变体对 ≤ 2
+    l6_ai_tic_phrases:
+      enabled: true
+      max_density: 1.0                    # AI口头禅密度 ≤ 1.0/千字
+      max_unique: 8                       # 独特口头禅种类 ≤ 8
+
+    # v7.7: L7 人味度检测 (第一人称+心理总结去AI味)
+    l7_human_likeness:
+      enabled: true
+      min_score: 40                       # 人味度 < 40 = FAIL
+      min_psych_density: 0.5              # 心理活动密度 ≥ 0.5/千字
+      max_omniscient_leaks: 2             # 上帝视角泄露 ≤ 2
 
   # S3_qc 专用：AI 指纹词密度（每万字计数，与 l3 窗口法互补）
     ai_word_density:
@@ -627,7 +666,7 @@ hardware_guard:
 # 模块: prototype/server.py
 # ============================================================================
 prototype:
-  port: 8080                             # 前端原型服务端口
+  port: 8088                             # 与 api_server.port 保持一致；静态文件由 FastAPI 挂载
   genre: "末世"                           # 默认服务题材，对应 data/reports/{genre}
   data_dir: "data/reports"               # 报告数据根目录（相对项目根）
   auto_open_browser: false               # 启动时是否自动打开浏览器
@@ -677,3 +716,22 @@ nsfw_roleplay:
     age_verification: true               # 海外版需年龄验证
     content_rating: "18+"                # 内容分级
     blocked_keywords: []                 # 法律红线关键词（如未成年人相关）
+
+# ============================================================================
+# v8.0: API server 配置（SSOT）
+# 模块: src/xiaoshuo/api/server.py
+# 说明: FastAPI 单服务同时提供 API 与 prototype/ 静态文件，前端同源部署。
+# ============================================================================
+api_server:
+  host: "127.0.0.1"
+  port: 8089                           # 后端服务端口；CLI --port 可覆盖
+  static_dir: "prototype"              # 前端静态文件目录（相对项目根）
+  static_mount: "/"                    # 静态文件挂载路径
+  cors:
+    allow_origins:                     # 同源部署时仍保留，防止直接跨站调用 API
+      - "http://localhost:8088"
+      - "http://127.0.0.1:8088"
+      - "http://localhost:8089"
+      - "http://127.0.0.1:8089"
+    allow_methods: ["GET", "POST", "OPTIONS"]
+    allow_headers: ["*"]
