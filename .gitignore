@@ -28,6 +28,12 @@ logs/
 memory/
 
 # 🧠 大模型文件（不要上传到 GitHub）
+
+# 🤖 运行时缓存/临时文件
+.hf_cache/
+.reasonix/
+tmp/
+*.bak
 *.gguf
 *.bin
 D:/DaMoXing/
