@@ -1,3 +1,5 @@
+"use strict";
+
 const HW_THRESHOLDS = {
   gpu: { warn: 75, danger: 85 },
   vram: { warn: 80, danger: 90 },
@@ -5,7 +7,7 @@ const HW_THRESHOLDS = {
   ram: { warn: 85, danger: 94 },
   power: { warn: 80, danger: 95 },  // GPU 利用率
 };
-const HW_POLL_INTERVAL = 5000;  // 硬件轮询间隔 (ms)
+const HW_POLL_INTERVAL = 10000;  // 硬件轮询间隔 (ms)，降低频率避免多标签页压垮后端
 let hwMetrics = { gpu: 0, vram: 0, cpu: 0, ram: 0, power: 0 };
 let hwInterval = null;
 function getHwStatus(key, value) {
@@ -26,6 +28,7 @@ function getOverallHwStatus() {
 function formatHwValue(key, value) {
   if (key === 'gpu') return value + '°C';
   if (key === 'power') return value + '%';  // GPU 利用率
+  if (key === 'vram' || key === 'ram') return value + '%';  // 显存/内存
   return value + '%';
 }
 function renderHardwareMonitor() {
@@ -158,42 +161,79 @@ async function fetchHardwareMetrics() {
     hwMetrics.power = data.gpu.util || 0;  // 用GPU利用率替代功耗
     renderHardwareMonitor();
     renderHardwarePageGauges();
+    renderVramBreakdown(data.gpu);  // 更新显存分配详情
   } else {
     console.warn('[HW] 硬件数据获取失败:', error);
   }
 }
 async function fetchModelInfo() {
-  const { ok, data, error } = await apiGet('/api/model-info');
-  if (!ok || !data) {
+  const { ok, data, error } = await apiGet('/api/model/status');
+  if (!ok || !data || data.error) {
     console.warn('[HW] 模型信息获取失败:', error);
     return;
   }
+  const mainModel = data.models && data.models.main_model;
   const dashName = $('#dash-model-name');
   const dashStatus = $('#dash-model-status');
   const modelName = $('#model-name');
   const modelMeta = $('#model-meta');
-  if (dashName) dashName.textContent = data.name;
+  const isRunning = mainModel && (mainModel.running || mainModel.healthy);
+  if (dashName && mainModel) dashName.textContent = mainModel.name || '未知';
   if (dashStatus) {
-    dashStatus.textContent = data.status === 'running' ? '在线' : '离线';
+    dashStatus.textContent = isRunning ? '在线' : '离线';
     const modelEl = dashStatus.parentElement;
     if (modelEl) {
       modelEl.classList.remove('warn', 'danger');
-      if (data.status !== 'running') modelEl.classList.add('danger');
+      if (!isRunning) modelEl.classList.add('danger');
     }
   }
-  if (modelName) modelName.textContent = data.name;
-  if (modelMeta) {
-    modelMeta.textContent = `ctx ${data.n_ctx} · ${data.quant} · localhost:${data.port}`;
+  if (modelName && mainModel) modelName.textContent = mainModel.name || '未知';
+  if (modelMeta && mainModel) {
+    modelMeta.textContent = 'port:' + (mainModel.port || 8000) + ' · enabled:' + (mainModel.enabled ? 'yes' : 'no');
   }
+}
+
+function renderVramBreakdown(gpuData) {
+  const usedMb = gpuData.vram_used_mb || 0;
+  const totalMb = gpuData.vram_total_mb || 0;
+  if (!totalMb) return;
+  const freeMb = Math.max(0, totalMb - usedMb);
+  const usedPct = (usedMb / totalMb * 100).toFixed(1);
+  const freePct = (freeMb / totalMb * 100).toFixed(1);
+
+  const usedEl = $('#vram-seg-used');
+  const freeEl = $('#vram-seg-free');
+  const usedGbEl = $('#vram-used-gb');
+  const freeGbEl = $('#vram-free-gb');
+  const totalGbEl = $('#vram-total-gb');
+
+  if (usedEl) usedEl.style.width = Math.max(usedPct, 4) + '%';
+  if (freeEl) freeEl.style.width = Math.max(freePct, 4) + '%';
+  if (usedGbEl) usedGbEl.textContent = (usedMb / 1024).toFixed(1) + 'GB';
+  if (freeGbEl) freeGbEl.textContent = (freeMb / 1024).toFixed(1) + 'GB';
+  if (totalGbEl) totalGbEl.textContent = (totalMb / 1024).toFixed(1) + 'GB';
 }
 
 function initHardwareMonitor() {
   renderHardwareMonitor();
   renderHardwarePageGauges();
   if (hwInterval) clearInterval(hwInterval);
-  fetchHardwareMetrics();  // 立即获取一次
-  fetchModelInfo();        // 获取模型信息
+  setTimeout(fetchHardwareMetrics, 300);  // 延迟避免初始化竞态
+  setTimeout(fetchModelInfo, 300);        // 延迟避免初始化竞态
   hwInterval = setInterval(fetchHardwareMetrics, HW_POLL_INTERVAL);
+  // 页面不可见时暂停轮询，减少多标签页压力
+  if (!document._hwVisibilityBound) {
+    document._hwVisibilityBound = true;
+    document.addEventListener('visibilitychange', function() {
+      if (document.hidden) {
+        if (hwInterval) clearInterval(hwInterval);
+        hwInterval = null;
+      } else {
+        fetchHardwareMetrics();
+        if (!hwInterval) hwInterval = setInterval(fetchHardwareMetrics, HW_POLL_INTERVAL);
+      }
+    });
+  }
 }
 function toggleHardwareDropdown(e) {
   if (e) e.stopPropagation();

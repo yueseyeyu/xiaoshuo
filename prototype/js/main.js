@@ -1,3 +1,20 @@
+"use strict";
+
+// ============================================================
+// 错误边界 — v8.1
+// ============================================================
+function safeRender(fn, name) {
+  try {
+    fn();
+  } catch (e) {
+    console.error('[ErrorBoundary] ' + name + ': ' + e.message, e);
+    const el = document.getElementById(name) || document.getElementById('section-' + name);
+    if (el) {
+      el.innerHTML = '<div class="error-boundary"><p>[FAIL] ' + name + ' 渲染失败</p><p class="text-muted">' + e.message + '</p></div>';
+    }
+  }
+}
+
 // ============================================================
 // 应用生命周期与导航
 // ============================================================
@@ -8,66 +25,79 @@ async function loadAppVersion() {
   if (ok && data && data.version) {
     if (badge) badge.textContent = 'v' + data.version;
     if (title) title.textContent = '番茄小说 AI 辅助创作系统 v' + data.version;
+    // v8.1: 动态更新 CSS 版本号
+    const cssLink = document.querySelector('link[href*="styles.css"]');
+    if (cssLink) {
+      cssLink.href = cssLink.href.replace(/v=\d+/, 'v=' + data.version);
+    }
   } else if (badge) {
     badge.textContent = 'v?';
   }
 }
 
 async function init() {
-  await loadAppVersion();
-  await loadLibraryData();
-  loadTasks();
-  // 固定默认暗色主题，不再读取 localStorage 中的旧主题
-  setTheme('midnight');
-  loadAccentPresets();
-  loadProject();
-  updateTopbarProjectName();
-  loadApiData();  // 异步加载 API 数据，不阻塞渲染
-  renderGenreTabs();
-  renderLibrary();
-  renderTaskBookChecklist();
-  renderTasks();
-  renderPipelineStates();
-  updateWordCount();
-  $('#editor-textarea').addEventListener('input', () => {
+  try {
+    await loadAppVersion();
+    await loadLibraryData();
+    loadTasks();
+    // 固定默认暗色主题，不再读取 localStorage 中的旧主题
+    setTheme('midnight');
+    loadAccentPresets();
+    await loadProject();
+    updateTopbarProjectName();
+    loadApiData();  // 异步加载 API 数据，不阻塞渲染
+    safeRender(renderGenreTabs, 'genre-tabs');
+    safeRender(renderLibrary, 'library');
+    safeRender(renderTaskBookChecklist, 'task-checklist');
+    safeRender(renderTasks, 'tasks');
+    safeRender(renderPipelineStates, 'pipeline');
     updateWordCount();
-    updateSelectionCount();
-    updateSaveStatus('saving');
-    scheduleSaveStatusSaved();
-    try {
-      localStorage.setItem('draft_content', $('#editor-textarea').value || '');
-      localStorage.setItem('draft_title', $('#editor-title').value || '');
-    } catch (e) {}
-  });
-  $('#editor-textarea').addEventListener('mouseup', updateSelectionCount);
-  $('#editor-textarea').addEventListener('keyup', updateSelectionCount);
-  $('#editor-textarea').addEventListener('select', updateSelectionCount);
-  $('#editor-title').addEventListener('input', () => {
-    updateWordCount();
-    updateSaveStatus('saving');
-    scheduleSaveStatusSaved();
-    try {
-      localStorage.setItem('draft_title', $('#editor-title').value || '');
-    } catch (e) {}
-  });
-  initHardwareMonitor();
-  initDesignEditButtons();
-  initTaskTypeHandler();
-  restoreSettings();
-  populateProjectSwitcher();
-  restoreDraft();
-  restoreRoute();
-  window.addEventListener('hashchange', restoreRoute);
-  $$('.theme-dot').forEach((d) => {
-    d.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        setTheme(d.dataset.theme);
+    $('#editor-textarea').addEventListener('input', () => {
+      updateWordCount();
+      updateSelectionCount();
+      updateSaveStatus('saving');
+      scheduleSaveStatusSaved();
+      try {
+        localStorage.setItem('draft_content', $('#editor-textarea').value || '');
+        localStorage.setItem('draft_title', $('#editor-title').value || '');
+      } catch (e) {}
+    });
+    $('#editor-textarea').addEventListener('mouseup', updateSelectionCount);
+    $('#editor-textarea').addEventListener('keyup', updateSelectionCount);
+    $('#editor-textarea').addEventListener('select', updateSelectionCount);
+    $('#editor-title').addEventListener('input', () => {
+      updateWordCount();
+      updateSaveStatus('saving');
+      scheduleSaveStatusSaved();
+      try {
+        localStorage.setItem('draft_title', $('#editor-title').value || '');
+      } catch (e) {}
+    });
+    safeRender(initHardwareMonitor, 'hardware');
+    initDesignEditButtons();
+    initTaskTypeHandler();
+    restoreSettings();
+    await populateProjectSwitcher();
+    restoreDraft();
+    restoreRoute();
+    window.addEventListener('hashchange', restoreRoute);
+    $$('.theme-dot').forEach((d) => {
+      d.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setTheme(d.dataset.theme);
       }
     });
   });
-  checkModelStatus();
-  registerInterval(setInterval(checkModelStatus, 30000));
+  setTimeout(checkModelStatus, 500);
+  registerInterval(setInterval(checkModelStatus, 10000));  // 每 10 秒轮询，提升状态更新实时性
+  } catch (e) {
+    console.error('[FATAL] init failed: ' + e.message, e);
+    const app = document.getElementById('app');
+    if (app) {
+      app.innerHTML = '<div class="error-boundary fatal"><h2>应用初始化失败</h2><p>' + e.message + '</p><button onclick="location.reload()">重新加载</button></div>';
+    }
+  }
 }
 
 function updateTopbarProjectName() {
@@ -80,9 +110,10 @@ async function checkModelStatus() {
   const pill = $('#model-status-pill');
   const dot = $('#model-status-dot');
   const text = $('#model-status-text');
+  const btn = $('#model-toggle-btn');
   if (!pill || !text) return;
   const settingsBadge = $('#nav-badge-settings');
-  function setStatus(cls, label, badgeClass) {
+  function setStatus(cls, label, running, badgeClass) {
     pill.classList.remove('status-online', 'status-offline', 'status-error');
     pill.classList.add(cls);
     text.textContent = label;
@@ -90,16 +121,47 @@ async function checkModelStatus() {
       settingsBadge.className = 'nav-badge';
       if (badgeClass) settingsBadge.classList.add(badgeClass);
     }
+    if (btn) {
+      btn.classList.toggle('running', running);
+      btn.title = running ? '停止模型' : '启动模型';
+    }
   }
-  const { ok, data } = await apiGet('/api/model-info');
-  if (!ok || !data) {
-    setStatus('status-offline', '本地模型未启用', 'warn');
+  // v8.2: 使用新的 /api/model/status 端点
+  const { ok, data } = await apiGet('/api/model/status');
+  if (!ok || !data || data.error) {
+    setStatus('status-offline', '模型状态未知', false, 'warn');
     return;
   }
-  if (data.status === 'running') {
-    setStatus('status-online', data.name);
+  // 检查主模型是否在线
+  const mainModel = data.models && data.models.main_model;
+  if (mainModel && (mainModel.running || mainModel.healthy)) {
+    setStatus('status-online', mainModel.name || '模型运行中', true);
   } else {
-    setStatus('status-offline', data.name + ' · 未连接', 'warn');
+    setStatus('status-offline', '模型未运行', false, 'warn');
+  }
+}
+
+async function toggleModel() {
+  const btn = $('#model-toggle-btn');
+  const text = $('#model-status-text');
+  if (!btn || !text) return;
+  const isRunning = btn.classList.contains('running');
+  btn.disabled = true;
+  try {
+    if (isRunning) {
+      text.textContent = '正在停止...';
+      await apiPost('/api/model/stop', {});
+    } else {
+      text.textContent = '正在启动...';
+      await apiPost('/api/model/start', {});
+    }
+  } catch (e) {
+    console.error('[ModelToggle] failed:', e);
+    showToast('模型操作失败: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    // 等 8 秒后刷新状态（模型加载通常需要 15-30 秒，避免过早显示"未启动"）
+    setTimeout(checkModelStatus, 8000);
   }
 }
 
@@ -133,10 +195,11 @@ function navigate(page) {
     }
   } catch (e) {}
   if (page === 'dashboard') { updateActivityTimes(); }
-  if (page === 'writing') { renderWritingToc(); renderOutlinePanel(); renderImportedReport(); initInstructionsPanel(); }
+  if (page === 'writing') { loadWritingProjectData(); loadWritingChapter(WRITING_CURRENT_CHAPTER); renderImportedReport(); initInstructionsPanel(); }
   if (page === 'disassembly') { loadDisassemblyData(); }
   if (page === 'settings') { loadSettingsConfig(); }
   if (page === 'logs') { initLogsPage(); }
+  if (page === 'design') { loadDesignData(); }
   updateDeaiHintVisibility();
   reportOperation('navigate', { page: page });
 }
@@ -151,16 +214,6 @@ function updateDeaiHintVisibility() {
 // ============================================================
 // 主题与品牌色
 // ============================================================
-const THEME_ORDER = ['midnight', 'light', 'obsidian'];
-const ACCENT_PRESETS = [
-  { id: 'serene',   name: '静谧蓝', accent: '#38BDF8', accentRgb: '56,189,248' },
-  { id: 'arctic',   name: '极光青', accent: '#22D3EE', accentRgb: '34,211,238' },
-  { id: 'lavender', name: '薰衣紫', accent: '#A78BFA', accentRgb: '167,139,250' },
-  { id: 'aurora',   name: '极光靛', accent: '#818CF8', accentRgb: '129,140,248' },
-];
-let accentPresets = [];
-let currentAccentId = null;
-
 function setTheme(theme) {
   currentTheme = theme;
   document.body.setAttribute('data-theme', theme);

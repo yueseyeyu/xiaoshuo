@@ -3,8 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>番茄小说 AI 辅助创作系统</title>
-  <link rel="stylesheet" href="styles.css?v=808">
+  <link rel="stylesheet" href="styles.css?v=822">
 </head>
 <body data-theme="midnight">
 <div id="app-shell" class="app-shell no-detail">
@@ -13,7 +16,7 @@
     <button class="hamburger" aria-label="菜单" onclick="toggleMobileSidebar()">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
     </button>
-    <div class="brand-logo">小</div>
+    <div class="brand-logo">番</div>
     <span class="brand-text">番茄小说 AI 辅助创作</span>
     <span class="topbar-project-name" id="topbar-project-name"></span>
     <span class="version-badge" id="version-badge">v8.0.0</span>
@@ -37,7 +40,7 @@
             <div class="hw-metric-value" id="hw-gpu-value">--</div>
           </div>
           <div class="hw-metric hw-metric-primary" data-key="vram">
-            <div class="hw-metric-meta"><span class="hw-metric-name">VRAM 占用</span><span class="hw-metric-status" id="hw-vram-status">正常</span></div>
+            <div class="hw-metric-meta"><span class="hw-metric-name">显存占用</span><span class="hw-metric-status" id="hw-vram-status">正常</span></div>
             <div class="hw-metric-value" id="hw-vram-value">--</div>
           </div>
           <div class="hw-divider"></div>
@@ -46,7 +49,7 @@
             <span class="hw-metric-value-sm" id="hw-cpu-value">--</span>
           </div>
           <div class="hw-metric hw-metric-secondary" data-key="ram">
-            <span class="hw-metric-name">RAM 占用</span>
+            <span class="hw-metric-name">内存占用</span>
             <span class="hw-metric-value-sm" id="hw-ram-value">--</span>
           </div>
         </div>
@@ -57,14 +60,17 @@
       </div>
       <div class="model-status-pill" id="model-status-pill" title="本地大模型状态">
         <span class="model-status-dot" id="model-status-dot"></span>
-        <span id="model-status-text">本地模型未启用</span>
+        <span id="model-status-text">本地模型未启动</span>
       </div>
+      <button class="model-toggle-btn" id="model-toggle-btn" title="启动/停止模型" onclick="toggleModel()" aria-label="切换模型状态">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5,3 19,12 5,21"/></svg>
+      </button>
     </div>
     <span class="save-status" id="save-status"></span>
     <div class="topbar-accent-switcher" id="topbar-accent-switcher">
       <button class="preset-dot" data-preset="serene" aria-label="静谧蓝" onclick="setAccentPreset('serene')"></button>
       <button class="preset-dot" data-preset="arctic" aria-label="极光青" onclick="setAccentPreset('arctic')"></button>
-      <button class="preset-dot" data-preset="lavender" aria-label="薰衣紫" onclick="setAccentPreset('lavender')"></button>
+      <button class="preset-dot" data-preset="lavender" aria-label="薰衣草" onclick="setAccentPreset('lavender')"></button>
       <button class="preset-dot" data-preset="aurora" aria-label="极光靛" onclick="setAccentPreset('aurora')"></button>
     </div>
     <button class="icon-btn settings-btn" aria-label="设置" onclick="navigate('settings')">
@@ -125,17 +131,18 @@
 <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeMobileSidebar()"></div>
 <main class="main" id="main">
 <section id="page-dashboard" class="page active">
-  <div class="page-header"><h2>工作台 · 《末日模拟器》</h2><span class="text-muted" id="dashboard-subtitle">当前无进行中的项目</span></div>
+  <div class="page-header"><h2 id="dashboard-page-title">工作台</h2><span class="text-muted" id="dashboard-subtitle">当前无进行中的项目</span></div>
   <div class="dashboard-workstation" id="dashboard-workstation">
     <div class="dashboard-main" id="dashboard-main">
       <div id="hero-has-project" class="hero-station">
         <div class="hero-station-left">
           <div class="hero-greeting" id="hero-greeting">下午好，作者</div>
           <h1 class="hero-title" id="hero-title">《末日模拟器》</h1>
-          <div class="hero-meta"><span id="hero-volumes">5</span>卷 · <span id="hero-chapters">300</span>章 · 当前处理题材：<span class="hero-genre" id="hero-genre">末世</span></div>
+          <div class="hero-meta"><span id="hero-volumes">5</span> 卷· <span id="hero-chapters">300</span> 章· 当前处理题材：<span class="hero-genre" id="hero-genre">末世</span></div>
           <div class="hero-actions">
             <button class="btn btn-secondary" onclick="navigate('design')">查看大纲</button>
             <button class="btn btn-secondary" onclick="navigate('library')">进入书库</button>
+            <button class="btn btn-ghost btn-sm" id="exit-demo-btn" onclick="exitDemoProject()" style="display:none;">退出示例项目</button>
           </div>
         </div>
         <div class="hero-station-right">
@@ -149,7 +156,7 @@
           <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
         </div>
         <h1 class="empty-state-title">开始你的第一部作品</h1>
-        <p class="empty-state-desc">拆书、节奏分析、技法提取与写作辅助，全部围绕你的创作流程。</p>
+        <p class="empty-state-desc">拆书、节奏分析、技法提取与写作辅助，全部围绕你的创作流程设计</p>
         <div class="empty-state-actions">
           <button class="btn btn-primary" onclick="createProject()">创建新作品</button>
           <button class="btn btn-secondary" onclick="navigate('library')">导入参考书籍</button>
@@ -160,7 +167,7 @@
             <div class="feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h7v2H4zm0 5h7v2H4zm0 5h7v2H4zm9-10h7v2h-7zm0 5h7v2h-7zm0 5h7v2h-7z"/></svg></div>
             <div><b>拆书分析</b><span>自动拆解节奏、人设与爽点</span></div>
           </button>
-          <button class="empty-state-feature" onclick="navigate('rhythm')">
+          <button class="empty-state-feature" onclick="navigate('reports')">
             <div class="feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
             <div><b>节奏曲线</b><span>可视化章节的节奏与张力</span></div>
           </button>
@@ -179,25 +186,25 @@
         <div class="stage-bar-track">
           <div class="stage-bar-step completed" data-stage="1" title="已入库 52 本书，覆盖 10 个题材">
             <div class="stage-bar-dot"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
-            <div class="stage-bar-info"><span class="stage-bar-num">①</span><span class="stage-bar-name">准备素材</span></div>
+            <div class="stage-bar-info"><span class="stage-bar-num">9</span><span class="stage-bar-name">准备素材</span></div>
           </div>
           <div class="stage-bar-connector completed"></div>
           <div class="stage-bar-step completed" data-stage="2" title="已完成《全球高武》等 6 本书拆书分析">
             <div class="stage-bar-dot"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
-            <div class="stage-bar-info"><span class="stage-bar-num">②</span><span class="stage-bar-name">分析爆款</span></div>
+            <div class="stage-bar-info"><span class="stage-bar-num">9</span><span class="stage-bar-name">分析爆款</span></div>
           </div>
           <div class="stage-bar-connector running"></div>
-          <div class="stage-bar-step running" data-stage="3" title="跨书合成运行中（7/9）· 预计剩余 8 分钟">
+          <div class="stage-bar-step running" data-stage="3" title="跨书合成运行中（7/9）共预计剩余 8 分钟">
             <div class="stage-bar-dot"><span class="stage-bar-pulse"></span></div>
-            <div class="stage-bar-info"><span class="stage-bar-num">③</span><span class="stage-bar-name">获取指导</span></div>
+            <div class="stage-bar-info"><span class="stage-bar-num">9</span><span class="stage-bar-name">获取指导</span></div>
           </div>
           <div class="stage-bar-connector pending"></div>
           <div class="stage-bar-step pending" data-stage="4" title="下一章：第127章《暴雨前的寂静》">
             <div class="stage-bar-dot"></div>
-            <div class="stage-bar-info"><span class="stage-bar-num">④</span><span class="stage-bar-name">手写正文</span></div>
+            <div class="stage-bar-info"><span class="stage-bar-num">9</span><span class="stage-bar-name">手写正文</span></div>
           </div>
         </div>
-        <div class="stage-bar-status" id="stage-bar-status">当前：③ 获取指导 — 跨书合成运行中（7/9）· 预计剩余 8 分钟</div>
+        <div class="stage-bar-status" id="stage-bar-status">当前：③ 获取指导 · 跨书合成运行中（7/9）· 预计剩余 8 分钟</div>
       </div>
       <div class="library-kpi-row">
         <div class="library-kpi-card kpi-indigo">
@@ -221,7 +228,7 @@
         <div class="pipeline-header" onclick="togglePipelineDetail()">
           <div class="pipeline-header-left">
             <h3>技术管线详情</h3>
-            <span class="pipeline-header-sub">当前阶段：获取指导 · 第 7/9 步 · 末世题材</span>
+            <span class="pipeline-header-sub">当前阶段：获取指导· 第 7/9 步· 末世题材</span>
           </div>
           <div class="pipeline-header-right">
             <span class="pipeline-status">跨书合成运行中</span>
@@ -244,12 +251,12 @@
         <div class="pipeline-track" id="pipeline-track">
           <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v13H3V8M1 3h22v5H1z"/><path d="M12 12v8"/></svg><div class="stage-dot completed"></div><div class="stage-name">①入库</div></div>
           <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg><div class="stage-dot completed"></div><div class="stage-name">②拆书</div></div>
-          <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg><div class="stage-dot completed"></div><div class="stage-name">①评分</div></div>
+          <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg><div class="stage-dot completed"></div><div class="stage-name">③评分</div></div>
           <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg><div class="stage-dot completed"></div><div class="stage-name">④关卡</div></div>
           <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg><div class="stage-dot completed"></div><div class="stage-name">⑤桥接</div></div>
           <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg><div class="stage-dot completed"></div><div class="stage-name">⑥摘要</div></div>
-          <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg><div class="stage-dot running"></div><div class="stage-name running">⑧跨书</div></div>
-          <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg><div class="stage-dot pending"></div><div class="stage-name">⑨技法</div></div>
+          <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg><div class="stage-dot running"></div><div class="stage-name running">⑦跨书</div></div>
+          <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg><div class="stage-dot pending"></div><div class="stage-name">⑧技法</div></div>
           <div class="pipeline-stage"><svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg><div class="stage-dot pending"></div><div class="stage-name">⑨指导</div></div>
         </div>
       </div>
@@ -258,17 +265,17 @@
         <div class="activity-list">
           <div class="activity-item">
             <div class="activity-status completed"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
-            <div class="activity-body"><div class="activity-title">完成了27章《暴雨前的寂静》初稿</div><div class="activity-desc">字数 2,340 · 节奏评分 8.2 · 耗时 42 分钟</div></div>
+            <div class="activity-body"><div class="activity-title">完成第127章《暴雨前的寂静》初稿</div><div class="activity-desc">字数 2,340 · 节奏评分 8.2 · 耗时 42 分钟</div></div>
             <div class="activity-time" data-timestamp="2h">2小时前</div>
           </div>
           <div class="activity-item">
             <div class="activity-status completed"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
-            <div class="activity-body"><div class="activity-title">拆书分析完成《全球高武》</div><div class="activity-desc">提炼技法卡片 12 张 · 节奏曲线已生成 · 耗时 12 分钟</div></div>
+            <div class="activity-body"><div class="activity-title">拆书分析完成《全球高武》</div><div class="activity-desc">提炼技法卡片 12 张· 节奏曲线已生成· 耗时 12 分钟</div></div>
             <div class="activity-time" data-timestamp="5h">5小时前</div>
           </div>
           <div class="activity-item">
             <div class="activity-status running"></div>
-            <div class="activity-body"><div class="activity-title">跨书合成发现末世题材新趋势</div><div class="activity-desc">「团体生存」「种田」组合出现频率最高 · 已运行 8 分钟</div></div>
+            <div class="activity-body"><div class="activity-title">跨书合成发现末世题材新趋势</div><div class="activity-desc">「团体生存」「种田」组合出现频率最高· 已运行8 分钟</div></div>
             <div class="activity-time" data-timestamp="1d">昨天</div>
           </div>
         </div>
@@ -285,12 +292,12 @@
               <span class="health-value" id="dash-gpu-value">68°C</span>
             </div>
             <div class="health-row" data-key="vram" title="8GB 显存 · 阈值：注意 80% / 危险 90%">
-              <span class="health-key">VRAM</span>
+              <span class="health-key">显存</span>
               <div class="health-bar-wrap"><div class="health-bar"><span style="width:72%" id="dash-vram-bar"></span></div></div>
               <span class="health-value" id="dash-vram-value">72%</span>
             </div>
             <div class="health-row" data-key="ram" title="阈值：注意 85% / 危险 94%">
-              <span class="health-key">RAM</span>
+              <span class="health-key">内存</span>
               <div class="health-bar-wrap"><div class="health-bar"><span style="width:55%" id="dash-ram-bar"></span></div></div>
               <span class="health-value" id="dash-ram-value">55%</span>
             </div>
@@ -307,7 +314,7 @@
         <div class="side-card-title">写作进度</div>
         <div class="writing-progress-card">
           <div class="progress-ring-lg"><span>42%</span></div>
-          <div class="progress-info"><b>第27章</b><span>共2700字 · 剩余173字</span><span class="progress-extra">今日 1,240 字 · 预计 12 分钟</span></div>
+          <div class="progress-info"><b>第127章</b><span>约 700 字· 剩余 173 章</span><span class="progress-extra">今日 1,240 字· 预计 12 分钟</span></div>
         </div>
       </div>
       <div class="side-card">
@@ -332,7 +339,7 @@
   <div class="library-toolbar">
     <div class="genre-tabs" id="genre-tabs"></div>
     <div class="library-toolbar-right">
-      <input type="text" class="library-search" id="library-search" placeholder="搜索书名、作者、题材.." oninput="renderLibrary()">
+      <input type="text" class="library-search" id="library-search" placeholder="搜索书名、作者、题材..." oninput="renderLibrary()">
       <div class="library-view-toggle" id="library-view-toggle">
         <button class="view-btn active" data-view="list" onclick="setLibraryView('list')" title="列表视图">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
@@ -376,7 +383,7 @@
   <div class="page-header"><h2>拆书</h2><button class="btn btn-primary" onclick="openTaskModal()">新建任务</button></div>
   <div class="kpi-row" id="disassembly-kpi-row">
     <div class="kpi-card"><div class="kpi-value" id="dis-kpi-books">0</div><div class="kpi-label">已拆书籍</div></div>
-    <div class="kpi-card kpi-dynamic"><div class="kpi-value" id="dis-kpi-chapters">0</div><div class="kpi-label">总章节</div></div>
+    <div class="kpi-card kpi-dynamic"><div class="kpi-value" id="dis-kpi-chapters">0</div><div class="kpi-label">总章数</div></div>
     <div class="kpi-card kpi-dynamic"><div class="kpi-value" id="dis-kpi-words">0</div><div class="kpi-label">总字数</div></div>
     <div class="kpi-card kpi-dynamic"><div class="kpi-value" id="dis-kpi-avg">0</div><div class="kpi-label">平均章字数</div></div>
   </div>
@@ -384,7 +391,7 @@
     <div class="disassembly-main">
       <div class="disassembly-empty-state" id="disassembly-empty-state">
         <svg class="stage-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:48px;height:48px;opacity:.4;margin-bottom:12px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-        <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px;">拆书数据区</div>
+        <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px;">拆书数据目录</div>
         <div style="font-size:12px;color:var(--text-secondary);">左侧拆书列表中选择一本书查看情绪/节奏/冲突分布与前30章逐章数据</div>
       </div>
     </div>
@@ -392,7 +399,7 @@
       <div class="side-card">
         <div class="side-card-title">拆书列表</div>
         <div class="side-card-body" id="disassembly-book-list">
-          <div class="text-muted" style="font-size:13px;padding:8px 0;">加载拆书数据中...</div>
+          <div class="text-muted" style="font-size:13px;padding:8px 0;">加载拆书数据目录中...</div>
         </div>
       </div>
       <div class="side-card">
@@ -435,10 +442,10 @@
         <div class="report-card" data-report-type="tech" onclick="openReportDetail(2)">
           <div class="report-header"><span class="lifecycle-dot amber"></span><h3>技法卡片库</h3><button class="report-refresh" title="重新生成" onclick="regenerateReport(2)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg></button></div>
           <p class="report-insight">已提炼 156 张技法卡片，其中“悬念铺设”类占比 23%，可直接插入写作指导。</p>
-          <div class="report-meta"><span>156 张卡片 · 24 个标签</span><div class="report-tags"><span class="report-tag">技法</span><span class="report-tag">卡片</span></div></div>
+          <div class="report-meta"><span>156 张卡片· 24 个标签</span><div class="report-tags"><span class="report-tag">技法</span><span class="report-tag">卡片</span></div></div>
         </div>
         <div class="report-card" data-report-type="rhythm" onclick="openReportDetail(3)">
-          <div class="report-header"><span class="lifecycle-dot purple"></span><h3>第27章节奏分析</h3><button class="report-refresh" title="重新生成" onclick="regenerateReport(3)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg></button></div>
+          <div class="report-header"><span class="lifecycle-dot purple"></span><h3>第127章节奏分析</h3><button class="report-refresh" title="重新生成" onclick="regenerateReport(3)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg></button></div>
           <p class="report-insight">本章爽点密度偏低，结尾悬念不足。建议增加一个突发事件或情绪反转。</p>
           <div class="report-meta"><span>2026-06-20 · 节奏评分 7.1</span><div class="report-tags"><span class="report-tag">节奏</span><span class="report-tag">章节</span></div></div>
         </div>
@@ -475,7 +482,7 @@
       <div class="report-summary-card">
         <h3>最近生成</h3>
         <div class="summary-row"><span>创作指导摘要</span><span class="summary-row-value">今天</span></div>
-        <div class="summary-row"><span>第27章节奏分析</span><span class="summary-row-value">昨天</span></div>
+        <div class="summary-row"><span>第127章节奏分析</span><span class="summary-row-value">昨天</span></div>
         <div class="summary-row"><span>主角成长弧线</span><span class="summary-row-value">2天前</span></div>
       </div>
       <div class="report-summary-card">
@@ -511,6 +518,14 @@
       <button class="subnav-item" data-sub="factions" onclick="showDesign('factions')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>势力</button>
     </nav>
     <div class="design-content">
+      <div id="design-empty-state" class="design-empty-state" style="display:none;">
+        <div class="empty-state">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/></svg>
+          <h3>尚未选择创作作品</h3>
+          <p>设计页内容与你正在创作的作品绑定。<br>先去工作台创建一个项目，或查看示例项目体验。</p>
+          <button class="btn btn-primary" onclick="navigate('dashboard')">去工作台</button>
+        </div>
+      </div>
       <div class="design-pane active" id="design-rough">
         <div class="volume-grid"><div class="volume-card">
   <div class="volume-header"><span class="volume-title">第一卷</span><span class="volume-range">1-60 章</span></div>
@@ -553,7 +568,7 @@
         <div class="segment-grid">
           <div class="segment-card">
             <div class="segment-header">
-              <div class="segment-title">第 1-10 章 · 灾变初临</div>
+              <div class="segment-title">第1-10 章· 灾变初临</div>
               <div class="segment-meta"><span class="segment-progress-text">7 / 10</span><span class="segment-status in-progress">进行中</span></div>
             </div>
             <div class="segment-fields">
@@ -561,16 +576,16 @@
               <div class="segment-field"><b>核心冲突</b><p>主角与监考老师/丧尸化的同学对峙，必须在规则崩坏中保护自己和苏婉。</p></div>
               <div class="segment-field"><b>段结果</b><p>觉醒模拟器，首次梦中预演未来4小时，成功逃离考场。</p></div>
             </div>
-            <div class="segment-beats" title="10章迷你节拍，hover查看章标题">
-              <div class="segment-beat written" data-title="第1章：考场异变"><span>1</span></div>
-              <div class="segment-beat written" data-title="第2章：初次模拟"><span>2</span></div>
-              <div class="segment-beat written" data-title="第3章：能力觉醒"><span>3</span></div>
-              <div class="segment-beat written" data-title="第4章：突围"><span>4</span></div>
-              <div class="segment-beat written" data-title="第5章：临时小队"><span>5</span></div>
-              <div class="segment-beat written" data-title="第6章：物资搜寻"><span>6</span></div>
-              <div class="segment-beat written" data-title="第7章：冲突爆发"><span>7</span></div>
-              <div class="segment-beat outlined" data-title="第8章：决策"><span>8</span></div>
-              <div class="segment-beat outlined" data-title="第9章：首次胜利"><span>9</span></div>
+            <div class="segment-beats" title="10章迷你节拍，hover查看章标签">
+              <div class="segment-beat written" data-title="第1章：考场异变"></div>
+              <div class="segment-beat written" data-title="第2章：初次模拟"></div>
+              <div class="segment-beat written" data-title="第3章：能力觉醒"></div>
+              <div class="segment-beat written" data-title="第4章：突围"></div>
+              <div class="segment-beat written" data-title="第5章：临时小队"></div>
+              <div class="segment-beat written" data-title="第6章：物资搜寻"></div>
+              <div class="segment-beat written" data-title="第7章：冲突爆发"></div>
+              <div class="segment-beat outlined" data-title="第8章：决策"></div>
+              <div class="segment-beat outlined" data-title="第9章：首次胜利"></div>
               <div class="segment-beat blank" data-title="第10章：段尾钩子"><span>10</span></div>
             </div>
             <div class="segment-progress"><div class="segment-progress-bar" style="width:70%"></div></div>
@@ -583,12 +598,12 @@
               </div>
             </div>
             <div class="segment-tags"><span class="tag tag-type-plot">觉醒</span><span class="tag tag-type-emotion">逃亡</span><span class="tag tag-type-location">校园</span></div>
-            <div class="segment-connections"><span class="conn-prev">—</span><span>承上：故事起点</span><span class="conn-next">启下：废墟秩序</span></div>
+            <div class="segment-connections"><span class="conn-prev">←</span><span>承上：故事起点</span><span class="conn-next">启下：废墟秩序</span></div>
           </div>
 
           <div class="segment-card">
             <div class="segment-header">
-              <div class="segment-title">第 11-20 章 · 废墟秩序</div>
+              <div class="segment-title">第11-20 章· 废墟秩序</div>
               <div class="segment-meta"><span class="segment-progress-text">3 / 10</span><span class="segment-status in-progress">进行中</span></div>
             </div>
             <div class="segment-fields">
@@ -606,7 +621,7 @@
               <div class="segment-beat blank" data-title="第17章：据点危机"><span>17</span></div>
               <div class="segment-beat blank" data-title="第18章：信任考验"><span>18</span></div>
               <div class="segment-beat blank" data-title="第19章：联盟雏形"><span>19</span></div>
-              <div class="segment-beat blank" data-title="第20章：新威胁"><span>20</span></div>
+              <div class="segment-beat blank" data-title="第30章：新威胁"><span>20</span></div>
             </div>
             <div class="segment-progress"><div class="segment-progress-bar" style="width:30%"></div></div>
             <div class="segment-charts">
@@ -614,12 +629,12 @@
               <div class="mini-chart" title="冲突强度"><svg viewBox="0 0 100 24" preserveAspectRatio="none"><polyline points="0,16 11,12 22,14 33,10 44,6 55,8 66,4 77,6 88,8 100,6" fill="none" stroke="#F59E0B" stroke-width="2"/></svg></div>
             </div>
             <div class="segment-tags"><span class="tag tag-type-plot">据点</span><span class="tag tag-type-character">团体</span><span class="tag tag-type-plot">资源</span></div>
-            <div class="segment-connections"><span class="conn-prev">承上：灾变初临</span><span>—</span><span class="conn-next">启下：暗流涌动</span></div>
+            <div class="segment-connections"><span class="conn-prev">承上：灾变初临</span><span>→</span><span class="conn-next">启下：暗流涌动</span></div>
           </div>
 
           <div class="segment-card">
             <div class="segment-header">
-              <div class="segment-title">第 21-30 章 · 暗流涌动</div>
+              <div class="segment-title">第21-30 章· 暗流涌动</div>
               <div class="segment-meta"><span class="segment-progress-text">0 / 10</span><span class="segment-status planned">规划中</span></div>
             </div>
             <div class="segment-fields">
@@ -628,15 +643,15 @@
               <div class="segment-field"><b>段结果</b><p>击退掠夺者，但内部裂痕加深，为下一段的冲突埋下伏笔。</p></div>
             </div>
             <div class="segment-beats">
-              <div class="segment-beat outlined" data-title="第21章：外部信号"><span>21</span></div>
-              <div class="segment-beat outlined" data-title="第22章：黑塔传闻"><span>22</span></div>
-              <div class="segment-beat outlined" data-title="第23章：资源危机"><span>23</span></div>
-              <div class="segment-beat blank" data-title="第24章：分歧"><span>24</span></div>
-              <div class="segment-beat blank" data-title="第25章：掠夺者"><span>25</span></div>
-              <div class="segment-beat blank" data-title="第26章：防守"><span>26</span></div>
-              <div class="segment-beat blank" data-title="第27章：暴雨前的寂静"><span>27</span></div>
-              <div class="segment-beat blank" data-title="第28章：背叛"><span>28</span></div>
-              <div class="segment-beat blank" data-title="第29章：反击"><span>29</span></div>
+              <div class="segment-beat outlined" data-title="第11章：外部信号"><span>21</span></div>
+              <div class="segment-beat outlined" data-title="第12章：黑塔传闻"><span>22</span></div>
+              <div class="segment-beat outlined" data-title="第13章：资源危机"><span>23</span></div>
+              <div class="segment-beat blank" data-title="第14章：分歧"><span>24</span></div>
+              <div class="segment-beat blank" data-title="第15章：掠夺者"><span>25</span></div>
+              <div class="segment-beat blank" data-title="第16章：防守"><span>26</span></div>
+              <div class="segment-beat blank" data-title="第17章：暴雨前的寂静"><span>27</span></div>
+              <div class="segment-beat blank" data-title="第18章：背叛"><span>28</span></div>
+              <div class="segment-beat blank" data-title="第19章：反击"><span>29</span></div>
               <div class="segment-beat blank" data-title="第30章：裂痕"><span>30</span></div>
             </div>
             <div class="segment-progress"><div class="segment-progress-bar" style="width:0%"></div></div>
@@ -645,12 +660,12 @@
               <div class="mini-chart" title="冲突强度"><svg viewBox="0 0 100 24" preserveAspectRatio="none"><polyline points="0,18 11,16 22,14 33,12 44,10 55,8 66,10 77,6 88,8 100,4" fill="none" stroke="#F59E0B" stroke-width="2"/></svg></div>
             </div>
             <div class="segment-tags"><span class="tag tag-type-plot">内讧</span><span class="tag tag-type-emotion">权谋</span><span class="tag tag-type-character">冲突</span></div>
-            <div class="segment-connections"><span class="conn-prev">承上：废墟秩序</span><span>—</span><span class="conn-next">启下：进化之路</span></div>
+            <div class="segment-connections"><span class="conn-prev">承上：废墟秩序</span><span>→</span><span class="conn-next">启下：进化之路</span></div>
           </div>
 
           <div class="segment-card">
             <div class="segment-header">
-              <div class="segment-title">第 31-40 章 · 进化之路</div>
+              <div class="segment-title">第31-40 章· 进化之路</div>
               <div class="segment-meta"><span class="segment-progress-text">0 / 10</span><span class="segment-status planned">规划中</span></div>
             </div>
             <div class="segment-fields">
@@ -659,16 +674,16 @@
               <div class="segment-field"><b>段结果</b><p>遭遇首个Boss级变异体，发现进化背后的秘密线索。</p></div>
             </div>
             <div class="segment-beats">
-              <div class="segment-beat blank" data-title="第31章：二次变异"><span>31</span></div>
-              <div class="segment-beat blank" data-title="第32章：能力进化"><span>32</span></div>
-              <div class="segment-beat blank" data-title="第33章：城市核心"><span>33</span></div>
-              <div class="segment-beat blank" data-title="第34章：副本探索"><span>34</span></div>
-              <div class="segment-beat blank" data-title="第35章：首次Boss战"><span>35</span></div>
-              <div class="segment-beat blank" data-title="第36章：代价"><span>36</span></div>
-              <div class="segment-beat blank" data-title="第37章：线索"><span>37</span></div>
-              <div class="segment-beat blank" data-title="第38章：联盟"><span>38</span></div>
-              <div class="segment-beat blank" data-title="第39章：陷阱"><span>39</span></div>
-              <div class="segment-beat blank" data-title="第40章：真相碎片"><span>40</span></div>
+              <div class="segment-beat blank" data-title="第11章：二次变异"><span>31</span></div>
+              <div class="segment-beat blank" data-title="第12章：能力进化"><span>32</span></div>
+              <div class="segment-beat blank" data-title="第13章：城市核心"><span>33</span></div>
+              <div class="segment-beat blank" data-title="第14章：副本探索"><span>34</span></div>
+              <div class="segment-beat blank" data-title="第15章：首次Boss战"><span>35</span></div>
+              <div class="segment-beat blank" data-title="第16章：代价"><span>36</span></div>
+              <div class="segment-beat blank" data-title="第17章：线索"><span>37</span></div>
+              <div class="segment-beat blank" data-title="第18章：联盟"><span>38</span></div>
+              <div class="segment-beat blank" data-title="第19章：陷阱"><span>39</span></div>
+              <div class="segment-beat blank" data-title="第30章：真相碎片"><span>40</span></div>
             </div>
             <div class="segment-progress"><div class="segment-progress-bar" style="width:0%"></div></div>
             <div class="segment-charts">
@@ -676,7 +691,7 @@
               <div class="mini-chart" title="冲突强度"><svg viewBox="0 0 100 24" preserveAspectRatio="none"><polyline points="0,16 11,14 22,12 33,10 44,8 55,6 66,8 77,4 88,6 100,2" fill="none" stroke="#F59E0B" stroke-width="2"/></svg></div>
             </div>
             <div class="segment-tags"><span class="tag tag-type-plot">进化</span><span class="tag tag-type-plot">副本</span><span class="tag tag-type-character">Boss</span></div>
-            <div class="segment-connections"><span class="conn-prev">承上：暗流涌动</span><span>—</span><span class="conn-next">启下：新纪元</span></div>
+            <div class="segment-connections"><span class="conn-prev">承上：暗流涌动</span><span>→</span><span class="conn-next">启下：新纪元</span></div>
           </div>
         </div>
       </div>
@@ -695,7 +710,7 @@
             </div>
             <div class="world-dimension">
               <h5><span class="world-dim-dot" style="background:var(--accent)"></span>时间线</h5>
-              <ul><li>病毒爆发：高考当天，全球同时失控</li><li>秩序崩溃：72小时内城市陷入混乱</li><li>新秩序建立：幸存者据点与势力割据</li></ul>
+              <ul><li>病毒爆发：高考当天，全球同时失控</li><li>秩序崩溃：2小时内城市陷入混乱</li><li>新秩序建立：幸存者据点与势力割据</li></ul>
             </div>
             <div class="world-dimension">
               <h5><span class="world-dim-dot" style="background:var(--success)"></span>核心空间</h5>
@@ -705,7 +720,7 @@
         </div>
 
         <div class="world-timeline-card">
-          <h4>末日时间轴</h4>
+          <h4>末日时间线</h4>
           <div class="world-timeline">
             <div class="timeline-item"><span class="timeline-dot" style="background:#EF4444"></span><div><b>Day 0</b><p>病毒爆发，高考考场末日降临</p></div></div>
             <div class="timeline-item"><span class="timeline-dot" style="background:#F59E0B"></span><div><b>Day 1-3</b><p>秩序崩溃，城市陷入混乱</p></div></div>
@@ -740,7 +755,7 @@
   <line x1="150" y1="180" x2="450" y2="180" stroke="var(--border)"/>
   <circle cx="300" cy="80" r="28" fill="var(--surface)" stroke="var(--accent)" stroke-width="2"/><text x="300" y="85" text-anchor="middle" fill="var(--text)" font-size="12">末日模拟器</text>
   <circle cx="150" cy="180" r="28" fill="var(--surface)" stroke="var(--accent)" stroke-width="2"/><text x="150" y="185" text-anchor="middle" fill="var(--text)" font-size="12">主角</text>
-  <circle cx="450" cy="180" r="28" fill="var(--surface)" stroke="var(--accent)" stroke-width="2"/><text x="450" y="185" text-anchor="middle" fill="var(--text)" font-size="12">势力A</text>
+  <circle cx="450" cy="180" r="28" fill="var(--surface)" stroke="var(--accent)" stroke-width="2"/><text x="450" y="185" text-anchor="middle" fill="var(--text)" font-size="12">黑塔</text>
   <circle cx="300" cy="240" r="24" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/><text x="300" y="245" text-anchor="middle" fill="var(--text-secondary)" font-size="11">病毒源头</text>
 </svg></div>
         <div class="design-card">
@@ -762,26 +777,30 @@
         <div class="character-more-bar"><button class="btn btn-secondary btn-sm" onclick="toggleHiddenChars(this)">展开全部角色</button></div>
       </div>
     </div>
-    <aside class="design-sidebar">
+    <aside class="design-sidebar" id="design-sidebar">
       <div class="design-status-card">
         <h4>当前状态</h4>
-        <div class="status-row"><span>总章节</span><b>300</b></div>
-        <div class="status-row"><span>已写作</span><b class="status-good">75</b></div>
-        <div class="status-row"><span>规划中</span><b class="status-warn">225</b></div>
-        <div class="status-progress"><div class="status-progress-bar" style="width:25%"></div></div>
-        <div class="status-hint">写作进度 25%</div>
+        <div class="status-row"><span>总章数</span><b id="design-status-total">300</b></div>
+        <div class="status-row"><span>已写作</span><b class="status-good" id="design-status-written">75</b></div>
+        <div class="status-row"><span>规划中</span><b class="status-warn" id="design-status-planned">225</b></div>
+        <div class="status-progress"><div class="status-progress-bar" id="design-status-bar" style="width:25%"></div></div>
+        <div class="status-hint" id="design-status-hint">写作进度 25%</div>
       </div>
       <div class="design-status-card">
         <h4>最近修改</h4>
-        <div class="recent-edit"><b>第一卷 · 灾变初临</b><span>2小时前</span></div>
-        <div class="recent-edit"><b>第27章节奏分析</b><span>昨天</span></div>
-        <div class="recent-edit"><b>角色：变异体零号</b><span>3天前</span></div>
+        <div id="design-recent-edits">
+          <div class="recent-edit"><b>第一卷· 灾变初临</b><span>2小时前</span></div>
+          <div class="recent-edit"><b>第127章节奏分析</b><span>昨天</span></div>
+          <div class="recent-edit"><b>角色：变异体零号</b><span>3天前</span></div>
+        </div>
       </div>
       <div class="design-status-card">
         <h4>AI 待办</h4>
-        <div class="ai-todo"><span class="todo-dot"></span>生成第 21-30 章细纲</div>
-        <div class="ai-todo"><span class="todo-dot"></span>优化势力冲突线</div>
-        <div class="ai-todo"><span class="todo-dot"></span>检查世界观一致性</div>
+        <div id="design-ai-todos">
+          <div class="ai-todo"><span class="todo-dot"></span>生成第21-30 章细纲</div>
+          <div class="ai-todo"><span class="todo-dot"></span>优化势力冲突。</div>
+          <div class="ai-todo"><span class="todo-dot"></span>检查世界观一致性</div>
+        </div>
         <button class="btn btn-primary btn-sm" style="width:100%;margin-top:var(--space-2);" onclick="showToast('AI待办执行开发中')">一键处理</button>
       </div>
     </aside>
@@ -808,17 +827,17 @@
       <div class="chapter-context">
         <span class="context-book">《末日模拟器》</span>
         <span class="context-sep">·</span>
-        <span class="context-vol">第三卷 暗流涌动</span>
+        <span class="context-vol">第三卷·暗流涌动</span>
         <span class="context-sep">·</span>
-        <span class="context-chap">第 127 章 / 共 300 章</span>
+        <span class="context-chap">第127 章/ 第300 章</span>
       </div>
       <div class="chapter-nav">
-        <button class="btn btn-icon btn-sm" title="上一章 (Ctrl+[)">←</button>
+        <button class="btn btn-icon btn-sm" title="上一章(Ctrl+[)">←</button>
         <div class="chapter-progress-group">
-          <span class="chapter-progress-text" id="chapter-progress-text">本章 15 / 2000 字 · 0.75%</span>
+          <span class="chapter-progress-text" id="chapter-progress-text">本章 15 / 2000 字· 0.75%</span>
           <div class="progress-mini" title="本章进度"><div class="progress-mini-bar" id="chapter-progress-bar" style="width:0.75%"></div></div>
         </div>
-        <button class="btn btn-icon btn-sm" title="下一章 (Ctrl+])">→</button>
+        <button class="btn btn-icon btn-sm" title="下一章(Ctrl+])">→</button>
       </div>
     </div>
     <div class="writing-toolbar-center">
@@ -833,10 +852,10 @@
             <span class="menu-icon">🛡</span>AI指纹检测 <kbd>Ctrl+Shift+A</kbd>
           </button>
           <button class="dropdown-item" onclick="toggleAiCompare(); closeWritingMore();">
-            <span class="menu-icon">⇄</span>AI 对比 <kbd>Ctrl+Shift+C</kbd>
+            <span class="menu-icon">🔍</span>AI 对比 <kbd>Ctrl+Shift+C</kbd>
           </button>
           <button class="dropdown-item" onclick="toggleInstructionsPanel(); closeWritingMore();">
-            <span class="menu-icon">⌘</span>逐章指令 <kbd>Ctrl+Shift+I</kbd>
+            <span class="menu-icon">📋</span>逐章指令 <kbd>Ctrl+Shift+I</kbd>
           </button>
         </div>
       </div>
@@ -845,6 +864,15 @@
       <span class="word-count" id="editor-word-count">0 / 2000 字</span>
       <span class="save-status" id="writing-save-status"><span class="save-dot"></span>已保存</span>
       <button class="btn btn-primary btn-sm" onclick="saveDraft()">保存草稿</button>
+    </div>
+  </div>
+
+  <div id="writing-empty-state" class="writing-empty-state" style="display:none;">
+    <div class="empty-state">
+      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/></svg>
+      <h3>尚未选择创作作品</h3>
+      <p>写作页与你正在创作的作品绑定。<br>先去工作台创建一个项目，或查看示例项目体验。</p>
+      <button class="btn btn-primary" onclick="navigate('dashboard')">去工作台</button>
     </div>
   </div>
 
@@ -861,11 +889,11 @@
     <div class="editor-pane">
       <div class="editor-header">
         <div class="editor-breadcrumbs">
-          <span>第三卷</span><span class="breadcrumb-sep">/</span><span>第 127 章</span>
+          <span>第三卷</span><span class="breadcrumb-sep">/</span><span>第127 章</span>
         </div>
         <input type="text" class="editor-title" id="editor-title" value="暴雨前的寂静" placeholder="章节标题">
       </div>
-      <textarea class="editor-textarea" id="editor-textarea" placeholder="开始写作..">天空阴沉得像是被谁泼了一层墨。</textarea>
+      <textarea class="editor-textarea" id="editor-textarea" placeholder="开始写作...">天空阴沉得像是被谁泼了一层墨。</textarea>
       <div class="editor-footer">
         <div class="editor-footer-left">
           <span id="editor-para-count">本段 15 字</span>
@@ -903,7 +931,7 @@
           <div class="panel-header" onclick="togglePanel('outline')">大纲参考</div>
           <div class="panel-body" id="outline-panel-body">
             <div class="outline-section"><b>当前卷</b><p id="outline-vol-info">第三卷：暗流涌动</p></div>
-            <div class="outline-section"><b>当前段</b><p id="outline-segment-goal">第 21-30 章：引入外部势力觊觎据点资源，内部出现分歧，主角面临信任与利益的考验。</p></div>
+            <div class="outline-section"><b>当前卷</b><p id="outline-segment-goal">共21-30 章：引入外部势力觊觎据点资源，内部出现分歧，主角面临信任与利益的考验。</p></div>
             <div class="outline-section"><b>角色</b><div id="outline-chars">林默 / 苏婉 / 老K</div></div>
             <div class="outline-section"><b>场景目标</b><p id="outline-scene-goal">用模拟器预演撤离方案，平衡团队分歧。</p></div>
           </div>
@@ -915,7 +943,7 @@
           <div class="panel-body">
             <div class="quick-char"><b>林默</b><span class="quick-char-tag">主角</span><p>冷静，擅长用模拟器做决策。</p></div>
             <div class="quick-char"><b>苏婉</b><span class="quick-char-tag">女主</span><p>医学生，心软但专业。</p></div>
-            <div class="quick-char"><b>老K</b><span class="quick-char-tag">导师</span><p>退役特种兵， survival-first。</p></div>
+            <div class="quick-char"><b>老K</b><span class="quick-char-tag">导师</span><p>退役特种兵，survival-first</p></div>
           </div>
         </div>
       </div>
@@ -940,7 +968,7 @@
         <div class="panel panel-accent" id="self-check-panel">
           <div class="panel-header" onclick="togglePanel('self-check')">AI指纹检测清单</div>
           <div class="panel-body">
-            <label class="check-item"><input type="checkbox" checked> 避免"首先/其次/最后"机械衔接</label>
+            <label class="check-item"><input type="checkbox" checked> 避免"首先/其次/最共机械衔接</label>
             <label class="check-item"><input type="checkbox"> 检查是否有过度解释性总结</label>
             <label class="check-item"><input type="checkbox" checked> 确保动词优先，少用形容词堆叠</label>
             <label class="check-item"><input type="checkbox"> 对话是否带有角色个性</label>
@@ -951,7 +979,7 @@
           <div class="panel-header" onclick="togglePanel('ai-compare')">AI对比分析</div>
           <div class="panel-body">
             <div class="ai-compare-diff">
-              <div class="diff-original">天空阴沉得像是被谁泼了<span class="diff-del">一层墨</span>。</div>
+              <div class="diff-original">天空阴沉得像是被谁泼span class="diff-del">一层墨</span>。</div>
               <div class="diff-revised">天色沉得像泼翻的<span class="diff-ins">墨汁，压得人喘不过气</span>。</div>
             </div>
             <div class="ai-compare-note">建议保留原文，画面更克制。</div>
@@ -962,10 +990,10 @@
           <div class="panel-body">
             <div class="style-calibrate-status" id="style-calibrate-status">累积 0 条风格规则</div>
             <div class="style-calibrate-rules" id="style-calibrate-rules">
-              <div class="style-calibrate-empty">暂无规则，完成 S3 评审后自动积累</div>
+              <div class="style-calibrate-empty">暂无规则，完成S3 评审后自动积累</div>
             </div>
             <div class="style-calibrate-actions">
-              <button class="btn btn-secondary btn-sm" onclick="calibrateStyle()">校准当前章</button>
+              <button class="btn btn-secondary btn-sm" onclick="calibrateStyle()">校准当前卷</button>
               <button class="btn btn-secondary btn-sm" onclick="loadStyleRules()">刷新</button>
             </div>
           </div>
@@ -990,7 +1018,7 @@
           <div class="panel-header" onclick="togglePanel('scene-search')">场景参考</div>
           <div class="panel-body">
             <div class="scene-search-input-row">
-              <input type="text" id="scene-search-input" class="scene-search-input" placeholder="怎么写拍卖场冲突…" onkeydown="if(event.key==='Enter')searchScene()">
+              <input type="text" id="scene-search-input" class="scene-search-input" placeholder="怎么写拍卖场冲突？" onkeydown="if(event.key==='Enter')searchScene()">
               <button class="btn btn-primary btn-sm" onclick="searchScene()">搜索</button>
             </div>
             <div class="scene-search-status" id="scene-search-status"></div>
@@ -1028,7 +1056,7 @@
           <div class="model-metrics">
             <div><b>TTFT</b><span>180ms</span></div>
             <div><b>速度</b><span>24 tok/s</span></div>
-            <div><b>VRAM</b><span>4.2GB</span></div>
+            <div><b>显存</b><span>4.2GB</span></div>
           </div>
         </div>
         <div class="model-status-card standby">
@@ -1040,9 +1068,9 @@
           <div class="model-name">DeepSeek-R1-0528</div>
           <div class="model-meta">ctx 8192 · localhost:8002</div>
           <div class="model-metrics">
-            <div><b>TTFT</b><span>—</span></div>
-            <div><b>速度</b><span>—</span></div>
-            <div><b>VRAM</b><span>0GB</span></div>
+            <div><b>TTFT</b><span>ms</span></div>
+            <div><b>速度</b><span>tokens/s</span></div>
+            <div><b>显存</b><span>0GB</span></div>
           </div>
         </div>
       </div>
@@ -1053,13 +1081,13 @@
             <div class="metric-value" id="gauge-gpu-value">68°C</div>
             <div class="metric-label">GPU 温度</div>
           </div>
-          <div class="metric-trend" title="最近5分钟趋势"><svg viewBox="0 0 100 24" preserveAspectRatio="none"><polyline points="0,20 20,18 40,16 60,14 80,12 100,10" fill="none" stroke="#F59E0B" stroke-width="2"/></svg></div>
+          <div class="metric-trend" title="最共分钟趋势"><svg viewBox="0 0 100 24" preserveAspectRatio="none"><polyline points="0,20 20,18 40,16 60,14 80,12 100,10" fill="none" stroke="#F59E0B" stroke-width="2"/></svg></div>
           <div class="metric-status warn">注意</div>
         </div>
         <div class="metric-card status-warn" id="gauge-vram">
           <div class="metric-main">
             <div class="metric-value" id="gauge-vram-value">72%</div>
-            <div class="metric-label">VRAM 占用</div>
+            <div class="metric-label">显存占用</div>
           </div>
           <div class="metric-bar"><span style="width:72%" id="gauge-vram-bar"></span></div>
           <div class="metric-trend"><svg viewBox="0 0 100 24" preserveAspectRatio="none"><polyline points="0,18 20,16 40,14 60,16 80,12 100,8" fill="none" stroke="#F59E0B" stroke-width="2"/></svg></div>
@@ -1067,7 +1095,7 @@
         <div class="metric-card status-normal" id="gauge-ram">
           <div class="metric-main">
             <div class="metric-value" id="gauge-ram-value">55%</div>
-            <div class="metric-label">RAM 占用</div>
+            <div class="metric-label">内存占用</div>
           </div>
           <div class="metric-bar"><span style="width:55%" id="gauge-ram-bar"></span></div>
           <div class="metric-trend"><svg viewBox="0 0 100 24" preserveAspectRatio="none"><polyline points="0,14 20,16 40,14 60,16 80,14 100,15" fill="none" stroke="#38BDF8" stroke-width="2"/></svg></div>
@@ -1091,19 +1119,16 @@
       </div>
 
       <div class="vram-breakdown-card">
-        <h4>VRAM 分配详情</h4>
-        <div class="vram-bar">
-          <div class="vram-segment model-main" style="width:52.5%"><span>主模型 4.2GB</span></div>
-          <div class="vram-segment system" style="width:12.5%"><span>系统 1.0GB</span></div>
-          <div class="vram-segment cache" style="width:7.5%"><span>KV Cache 0.6GB</span></div>
-          <div class="vram-segment free" style="width:27.5%"><span>空闲 2.2GB</span></div>
+        <h4>显存分配详情</h4>
+        <div class="vram-bar" id="vram-bar">
+          <div class="vram-segment model-main" id="vram-seg-used" style="width:52.5%"><span>模型占用 <b id="vram-used-gb">4.2GB</b></span></div>
+          <div class="vram-segment free" id="vram-seg-free" style="width:47.5%"><span>空闲 <b id="vram-free-gb">2.2GB</b></span></div>
         </div>
         <div class="vram-legend">
-          <span><i style="background:#38BDF8"></i>主模型</span>
-          <span><i style="background:#94A3B8"></i>系统</span>
-          <span><i style="background:#F59E0B"></i>KV Cache</span>
+          <span><i style="background:#38BDF8"></i>模型占用</span>
           <span><i style="background:var(--border)"></i>空闲</span>
         </div>
+        <div class="vram-total">总计 <b id="vram-total-gb">8.0GB</b></div>
       </div>
 
     </div>
@@ -1147,7 +1172,7 @@
       <div class="theme-switcher" style="margin-top:8px; gap:10px;" id="preset-switcher">
         <button class="preset-dot" data-preset="serene" aria-label="静谧蓝" onclick="setAccentPreset('serene')"></button>
         <button class="preset-dot" data-preset="arctic" aria-label="极光青" onclick="setAccentPreset('arctic')"></button>
-        <button class="preset-dot" data-preset="lavender" aria-label="薰衣紫" onclick="setAccentPreset('lavender')"></button>
+        <button class="preset-dot" data-preset="lavender" aria-label="薰衣草" onclick="setAccentPreset('lavender')"></button>
         <button class="preset-dot" data-preset="aurora" aria-label="极光靛" onclick="setAccentPreset('aurora')"></button>
       </div>
     </div>
@@ -1157,9 +1182,9 @@
       <label class="settings-row"><span>自动入库</span><input type="checkbox" id="setting-auto-import" data-setting="auto-import" onchange="toggleSetting('auto-import')" checked></label>
       <label class="settings-row"><span>拆书分析</span><input type="checkbox" id="setting-auto-rhythm" data-setting="auto-rhythm" onchange="toggleSetting('auto-rhythm')" checked></label>
       <label class="settings-row"><span>顶部显示硬件状态</span><input type="checkbox" id="setting-show-hw-monitor" data-setting="show-hw-monitor" onchange="toggleSetting('show-hw-monitor')" checked></label>
-      <label class="settings-row"><span>拆书并行度</span><select id="settings-parallel" class="settings-input" onchange="saveSetting('parallelism', this.value)"><option value="1">1 路</option><option value="2" selected>2 路</option><option value="4">4 路</option></select></label>
+      <label class="settings-row"><span>拆书并行数</span><select id="settings-parallel" class="settings-input" onchange="saveSetting('parallelism', this.value)"><option value="1">1 本</option><option value="2" selected>2 本</option><option value="4">4 本</option></select></label>
       <label class="settings-row"><span>S3 评审严格度</span><select id="settings-s3-strict" class="settings-input" onchange="saveSetting('s3Strictness', this.value)"><option value="loose">宽松</option><option value="normal" selected>标准</option><option value="strict">严格</option></select></label>
-      <label class="settings-row"><span>缓存保留时长</span><select id="settings-cache-ttl" class="settings-input" onchange="saveSetting('cacheTtl', this.value)"><option value="1">1 天</option><option value="7" selected>7 天</option><option value="30">30 天</option></select></label>
+      <label class="settings-row"><span>缓存保留时长</span><select id="settings-cache-ttl" class="settings-input" onchange="saveSetting('cacheTtl', this.value)"><option value="1">1 本</option><option value="7" selected>7 分</option><option value="30">30 秒</option></select></label>
     </div>
 
     <div class="settings-card">
@@ -1175,7 +1200,7 @@
 
     <div class="settings-card">
       <div class="settings-title">数据管理</div>
-      <div class="settings-row"><span>数据库</span><span>52 本书 / 1.8 GB</span></div>
+      <div class="settings-row"><span>数据目录</span><span>52 本书 / 1.8 GB</span></div>
       <div class="settings-row"><span>缓存</span><span>1.2 GB</span></div>
       <div class="settings-row"><span>配置备份</span><span>2026-06-27 自动</span></div>
       <div class="settings-actions">
@@ -1221,7 +1246,7 @@
     </div>
   </div>
   <div class="logs-stats" id="logs-stats">
-    <span>共 <b id="logs-total">0</b> 条记录</span>
+    <span>共<b id="logs-total">0</b> 条记录</span>
     <span class="logs-stats-divider">|</span>
     <span>耗时: <b id="logs-query-time">0</b>ms</span>
   </div>
@@ -1244,7 +1269,7 @@
   </div>
   <div class="logs-pagination" id="logs-pagination">
     <button class="btn btn-secondary btn-sm" id="logs-prev" disabled onclick="logsPrevPage()">上一页</button>
-    <span id="logs-page-info">第 1 页</span>
+    <span id="logs-page-info">第1页</span>
     <button class="btn btn-secondary btn-sm" id="logs-next" disabled onclick="logsNextPage()">下一页</button>
   </div>
 </section>
@@ -1320,7 +1345,7 @@
       </div>
       <div class="form-row"><label>规划卷数</label><input type="number" id="cp-volumes" min="1" max="20" value="5"></div>
       <div class="form-row"><label>预计总章数</label><input type="number" id="cp-chapters" min="1" max="2000" value="300"></div>
-      <div class="form-row"><label>作品简介<span class="form-hint">（可选）</span></label><textarea id="cp-desc" rows="2" placeholder="简单描述你的故事方向.."></textarea></div>
+      <div class="form-row"><label>作品简介<span class="form-hint">（可选）</span></label><textarea id="cp-desc" rows="2" placeholder="简单描述你的故事方向..."></textarea></div>
     </div>
     <div class="modal-footer"><button class="btn btn-secondary" onclick="closeCreateProjectModal()">取消</button><button class="btn btn-primary" onclick="confirmCreateProject()">创建作品</button></div>
   </div>
@@ -1337,26 +1362,29 @@
 <div id="toast-container"></div>
 </div>
 
-<button class="continue-writing-fab" id="continue-writing-fab" onclick="navigate('writing')" title="继续写作">
+<button class="continue-writing-fab" id="continue-writing-fab" onclick="navigate('writing')" title="继续写作" style="display:none;">
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
   <span class="fab-label">继续写作</span>
-  <span class="fab-meta" id="fab-meta">第127章《暴雨前的寂静》</span>
+  <span class="fab-meta" id="fab-meta"></span>
 </button>
 
-<script src="app.js?v=808"></script>
-  <script src="js/api.js?v=808"></script>
-  <script src="js/main.js?v=808"></script>
-  <script src="js/components/dashboard.js?v=808"></script>
-  <script src="js/components/style-calibrate.js?v=808"></script>
-  <script src="js/components/logs.js?v=808"></script>
-  <script src="js/components/disassembly.js?v=808"></script>
-  <script src="js/components/library.js?v=808"></script>
-  <script src="js/components/tasks.js?v=808"></script>
-  <script src="js/components/hardware.js?v=808"></script>
-  <script src="js/components/settings.js?v=808"></script>
-  <script src="js/components/writing.js?v=808"></script>
-  <script src="js/components/design.js?v=808"></script>
-  <script src="js/components/reports.js?v=808"></script>
+<script src="js/state.js?v=822"></script>
+<script src="js/utils.js?v=822"></script>
+<script src="app.js?v=822"></script>
+  <script src="js/api.js?v=822"></script>
+  <script src="js/api/project.js?v=822"></script>
+  <script src="js/main.js?v=822"></script>
+  <script src="js/components/dashboard.js?v=822"></script>
+  <script src="js/components/style-calibrate.js?v=822"></script>
+  <script src="js/components/logs.js?v=822"></script>
+  <script src="js/components/disassembly.js?v=822"></script>
+  <script src="js/components/library.js?v=822"></script>
+  <script src="js/components/tasks.js?v=822"></script>
+  <script src="js/components/hardware.js?v=822"></script>
+  <script src="js/components/settings.js?v=822"></script>
+  <script src="js/components/writing.js?v=822"></script>
+  <script src="js/components/design.js?v=822"></script>
+  <script src="js/components/reports.js?v=822"></script>
 <script>init();</script>
 <div class="loading-overlay" id="loading-overlay"><div class="loading-spinner"></div></div></body>
 </html>

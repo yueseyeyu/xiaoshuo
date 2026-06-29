@@ -5,26 +5,23 @@
 启动方式:
     python -m xiaoshuo.api.server --port 8089
     # 端口/CORS 默认值来自 config.yaml::api_server；CLI 参数可覆盖 host/port
-    # 前端原型服务运行在 config.yaml::prototype.port (8088)，通过 CORS 跨域调用本服务
+    # v8.x 整合：原型静态文件由本服务统一挂载 (config.yaml::api_server.static_dir)
+    # 旧 prototype/server.py (端口 8088) 已废弃删除
 """
 
 from __future__ import annotations
 
 import argparse
-import atexit
-import csv
 import json
 import logging
 import os
-import re
 import subprocess
 import sys
-import threading
 import time
 import urllib.request
+import psutil
 from collections import OrderedDict
 from pathlib import Path
-from typing import Optional
 
 import uvicorn
 
@@ -34,35 +31,50 @@ os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-import psutil
 
 from xiaoshuo import __version__ as APP_VERSION
 from xiaoshuo.pipeline.scene_search import SceneSearch
 from xiaoshuo.pipeline.canon.extractor import CanonExtractor
-from xiaoshuo.agents.cross_review import scan_fingerprints
+from xiaoshuo.agents.cross_review import scan_fingerprints, estimate_ai_rate
 from xiaoshuo.agents.outline_builder import build_chapter_blueprint
 from xiaoshuo.agents.model_orchestrator import get_orchestrator
 from xiaoshuo.infra.config_manager import get_config_section, get_config
-from xiaoshuo.infra.hardware_guardian import (
-    _init_nvml,
-    _read_gpu_temp_pynvml,
-    _read_vram_used_pynvml,
-    _read_fan_speed_pynvml,
-    _read_gpu_temp_smi,
-    _read_vram_used_smi,
-    _read_fan_speed_smi,
-)
 from xiaoshuo.infra.pipeline_state import clear_stage, mark_error
+
+# v8.1: 模块化拆分 — 模型、工具函数、硬件服务
+from xiaoshuo.api.models import (
+    SceneResult, SearchResponse, IndexStats,
+    StyleRuleItem, StyleCalibrateRequest, StyleCalibrateResponse,
+    StyleRulesResponse, FingerprintHit, ComplianceScanResponse,
+)
+from xiaoshuo.api.utils import (
+    get_available_books, get_genre_counts, get_chapter_instructions,
+    safe_read_json,
+)
+from xiaoshuo.api.services.hardware import (
+    hardware_state, hardware_lock,
+    start_hardware_monitor, stop_hardware_monitor, get_hardware_snapshot,
+)
+from xiaoshuo.api.services.project_service import (
+    list_projects, get_project, create_project, update_project, delete_project,
+    get_skeleton, update_skeleton,
+    get_world, update_world,
+    get_characters, update_characters,
+    get_factions, update_factions,
+    get_chapters, get_chapter, update_chapter,
+    get_demo_project, promote_project,
+)
+from xiaoshuo.api.app_state import app_state
 
 # ── 从 config.yaml 读取 API 配置（SSOT） ──
 _API_CFG = get_config_section("api_server", default={}) or {}
 _CORS_CFG = _API_CFG.get("cors", {}) if isinstance(_API_CFG, dict) else {}
 _DEFAULT_HOST = str(_API_CFG.get("host", "127.0.0.1")) if isinstance(_API_CFG, dict) else "127.0.0.1"
-_DEFAULT_PORT = int(_API_CFG.get("port", 8088)) if isinstance(_API_CFG, dict) else 8088
+_DEFAULT_PORT = int(_API_CFG.get("port", 8089)) if isinstance(_API_CFG, dict) else 8089
 _STATIC_DIR = str(_API_CFG.get("static_dir", "prototype")) if isinstance(_API_CFG, dict) else "prototype"
 _STATIC_MOUNT = str(_API_CFG.get("static_mount", "/")) if isinstance(_API_CFG, dict) else "/"
 
@@ -74,109 +86,7 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 _search_engines: dict[str, SceneSearch] = {}
 
-# 硬件监控状态
-hardware_state = {
-    "gpu_temp": None, "vram_used_mb": None, "vram_total_mb": None,
-    "fan_speed": None, "sys_memory_used_gb": None, "sys_memory_total_gb": None,
-    "gpu_available": False, "updated_at": None,
-}
-hardware_lock = threading.Lock()
-hardware_running = False
-
-# 内存日志队列
-MAX_LOGS = 500
-log_records: list[dict] = []
-log_lock = threading.Lock()
-
-# 拆书进程管理
-analyze_process: Optional[subprocess.Popen] = None
-analyze_lock = threading.Lock()
-_startup_state = {
-    "status": "idle", "message": "", "progress": 0, "error": "",
-}
-
-# NVML 缓存
-_nvml_cached = None
-_nvml_handle_cached = None
-_nvml_init_attempted = False
-
-# novel_index.json 缓存
-_novel_index_cache: dict[str, dict] = {}
-_novel_index_mtime: float = 0
-
-
-# ====================== 硬件监控 ======================
-
-def _get_cached_nvml():
-    global _nvml_cached, _nvml_handle_cached, _nvml_init_attempted
-    if _nvml_cached is not None:
-        return _nvml_cached, _nvml_handle_cached
-    if _nvml_init_attempted:
-        return None, None
-    _nvml_init_attempted = True
-    _nvml_cached, _nvml_handle_cached = _init_nvml()
-    return _nvml_cached, _nvml_handle_cached
-
-
-def _shutdown_cached_nvml():
-    global _nvml_cached
-    if _nvml_cached is not None:
-        try:
-            _nvml_cached.nvmlShutdown()
-        except Exception:
-            pass
-        _nvml_cached = None
-
-
-atexit.register(_shutdown_cached_nvml)
-
-
-def _read_hardware_once() -> dict:
-    result = {
-        "gpu_temp": None, "vram_used_mb": None, "vram_total_mb": None,
-        "fan_speed": None, "sys_memory_used_gb": None, "sys_memory_total_gb": None,
-        "gpu_available": False,
-    }
-    pynvml, handle = _get_cached_nvml()
-    if pynvml is not None and handle is not None:
-        result["gpu_available"] = True
-        result["gpu_temp"] = _read_gpu_temp_pynvml(pynvml, handle)
-        result["vram_used_mb"] = _read_vram_used_pynvml(pynvml, handle)
-        result["fan_speed"] = _read_fan_speed_pynvml(pynvml, handle)
-        try:
-            mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
-            result["vram_total_mb"] = mem.total // (1024 * 1024)
-        except Exception:
-            pass
-    else:
-        result["gpu_temp"] = _read_gpu_temp_smi()
-        result["vram_used_mb"] = _read_vram_used_smi()
-        result["fan_speed"] = _read_fan_speed_smi()
-        result["gpu_available"] = (
-            result["gpu_temp"] is not None
-            or result["vram_used_mb"] is not None
-            or result["fan_speed"] is not None
-        )
-    try:
-        mem = psutil.virtual_memory()
-        result["sys_memory_used_gb"] = round(mem.used / (1024 ** 3), 2)
-        result["sys_memory_total_gb"] = round(mem.total / (1024 ** 3), 2)
-    except Exception:
-        pass
-    return result
-
-
-def _hardware_loop():
-    global hardware_state
-    while hardware_running:
-        data = _read_hardware_once()
-        data["updated_at"] = time.strftime("%H:%M:%S")
-        with hardware_lock:
-            hardware_state = data
-        time.sleep(1)
-
-
-# ====================== LLM 服务管理 ======================
+# ── LLM 服务管理 ──
 
 def _get_llm_port() -> int:
     cfg = get_config_section("model_orchestration", default={})
@@ -189,21 +99,30 @@ def _get_llm_port() -> int:
     return int(rhythm_cfg.get("llm_port", 8000))
 
 
+# LLM 健康状态缓存，避免每次请求都进行网络探测导致 4s 延迟
+_llm_health_cache: dict[str, bool | float] = {"value": False, "at": 0.0}
+_LLM_HEALTH_TTL = 10.0  # 秒
+
+
 def _llm_server_healthy() -> bool:
+    now = time.time()
+    if now - _llm_health_cache["at"] < _LLM_HEALTH_TTL:
+        return bool(_llm_health_cache["value"])
     port = _get_llm_port()
+    healthy = False
     try:
-        urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2)
-        return True
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=1)
+        healthy = True
     except Exception:
-        pass
-    try:
-        urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/models", timeout=2)
-        return True
-    except Exception:
-        return False
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/models", timeout=1)
+            healthy = True
+        except Exception:
+            healthy = False
+    _llm_health_cache["value"] = healthy
+    _llm_health_cache["at"] = now
+    return healthy
 
-
-# ====================== 辅助函数 ======================
 
 def _get_engine(genre: str) -> SceneSearch:
     if genre not in _search_engines:
@@ -211,280 +130,78 @@ def _get_engine(genre: str) -> SceneSearch:
     return _search_engines[genre]
 
 
-def _safe_read_json(path: Path, default=None) -> dict:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return default if default is not None else {}
-
-
-def _load_novel_index() -> dict[str, dict]:
-    """读取 novel_index.json 并按题材建立 file->metadata 索引"""
-    global _novel_index_cache, _novel_index_mtime
-    path = PROJECT_ROOT / "data" / "raw" / "novel_index.json"
-    try:
-        mtime = path.stat().st_mtime
-        if _novel_index_cache and mtime == _novel_index_mtime:
-            return _novel_index_cache
-        data = json.loads(path.read_text(encoding="utf-8"))
-        result: dict[str, dict] = {}
-        for g, info in (data.get("genres") or {}).items():
-            result[g] = {}
-            for novel in info.get("novels", []):
-                result[g][novel.get("file", "")] = novel
-        _novel_index_cache = result
-        _novel_index_mtime = mtime
-        return result
-    except Exception:
-        return {}
-
-
-def _parse_title_author(name: str, meta: dict | None = None) -> tuple[str, str]:
-    """从文件名或元数据解析书名和作者"""
-    author = ""
-    title = name
-    if meta:
-        author = (meta.get("author") or "").strip()
-        file_name = (meta.get("file") or "").strip()
-        if file_name:
-            title = file_name.replace(".txt", "").strip()
-    # 统一从标题末尾提取作者
-    m = re.search(r"作者[：:]\s*(.+)$", title)
-    if m:
-        author = author or m.group(1).strip()
-        title = title[:m.start()].strip()
-    # 去掉常见后缀与书名号
-    title = re.sub(r"[（(](校对版|精校版|校对全本|全本|番外|完结)[^）)]*[）)]", "", title)
-    title = title.strip("《》 ").strip()
-    return title, author or "未知作者"
-
-
-def _estimate_word_count(size_kb: int) -> int:
-    """按约 1.8 字节/字估算中文字数"""
-    return max(0, round(size_kb * 1024 / 1.8))
-
-
-def _get_book_tags(genre: str, name: str) -> list[str]:
-    """从 labels 文件读取高频标签"""
-    labels_dir = PROJECT_ROOT / "data" / "processed" / genre / "labels"
-    candidate = labels_dir / f"{name}_labels.csv"
-    if not candidate.exists():
-        return []
-    try:
-        counts: dict[str, float] = {}
-        with open(candidate, encoding="utf-8-sig", newline="") as f:
-            for row in csv.DictReader(f):
-                if (row.get("ch_num") or "").lower() == "summary":
-                    continue
-                for k, v in row.items():
-                    if k == "ch_num":
-                        continue
-                    try:
-                        val = float(v or 0)
-                    except ValueError:
-                        continue
-                    if val > 0:
-                        tag = re.sub(r"^(regex_|llm_)", "", k)
-                        counts[tag] = counts.get(tag, 0.0) + val
-        return [tag for tag, _ in sorted(counts.items(), key=lambda x: x[1], reverse=True)[:3]]
-    except Exception:
-        return []
-
-
-def _get_book_score(genre: str, name: str) -> float | None:
-    """从 scores 文件读取平均 hook/retention 评分"""
-    scores_dir = PROJECT_ROOT / "data" / "processed" / genre / "scores"
-    candidate = scores_dir / f"{name}_llm.csv"
-    if not candidate.exists():
-        return None
-    try:
-        scores: list[float] = []
-        with open(candidate, encoding="utf-8-sig", newline="") as f:
-            for row in csv.DictReader(f):
-                for key in ("llm_retention", "llm_hook"):
-                    val = row.get(key)
-                    if val:
-                        try:
-                            scores.append(float(val))
-                        except ValueError:
-                            pass
-        if not scores:
-            return None
-        return round(sum(scores) / len(scores), 1)
-    except Exception:
-        return None
-
-
-def _get_available_books(genre: str = "末世") -> list[dict]:
-    """从 data/processed/ 读取已处理的书列表"""
-    processed = PROJECT_ROOT / "data" / "processed" / genre
-    books = []
-    index = _load_novel_index()
-    meta_by_file = index.get(genre, {})
-    if (processed / "rhythm").exists():
-        for f in sorted((processed / "rhythm").glob("rhythm_*.csv")):
-            stem = f.stem.replace("rhythm_", "")
-            meta = None
-            for file_name, m in meta_by_file.items():
-                if file_name.replace(".txt", "").strip() == stem:
-                    meta = m
-                    break
-            title, author = _parse_title_author(stem, meta)
-            size_kb = meta.get("size_kb", 0) if meta else 0
-            word_count = _estimate_word_count(size_kb)
-            tags = _get_book_tags(genre, stem)
-            score = _get_book_score(genre, stem)
-            books.append({
-                "title": title,
-                "author": author,
-                "genre": genre,
-                "wordCount": word_count,
-                "size_kb": size_kb,
-                "status": "analyzed",
-                "file": f.name,
-                "tags": tags,
-                "score": score,
-            })
-    return books
-
-
-def _get_genre_counts() -> tuple[list[str], list[list]]:
-    """扫描 data/processed/ 下所有题材及书籍数量"""
-    processed_root = PROJECT_ROOT / "data" / "processed"
-    counts = []
-    genres = []
-    if processed_root.exists():
-        for genre_dir in sorted(d for d in processed_root.iterdir() if d.is_dir()):
-            rhythm_dir = genre_dir / "rhythm"
-            if rhythm_dir.exists():
-                count = len(list(rhythm_dir.glob("rhythm_*.csv")))
-                if count > 0:
-                    genres.append(genre_dir.name)
-                    counts.append([genre_dir.name, count])
-    return genres, counts
-
-
-def _get_chapter_instructions(book: str, chapter: int, genre: str = "末世") -> dict:
-    """从已有的 writing_instructions 数据中读取"""
-    books_dir = PROJECT_ROOT / "data" / "processed" / genre / "writing_instructions"
-    if not books_dir.exists():
-        return {"book": book, "chapter": chapter, "instructions": [], "error": "no data"}
-    # 尝试找到匹配的指令文件
-    safe_name = book.replace(" ", "_")
-    candidate = books_dir / f"{safe_name}_instructions.csv"
-    if candidate.exists():
-        rows = []
-        with open(candidate, encoding="utf-8-sig") as f:
-            for r in csv.DictReader(f):
-                rows.append(r)
-        return {"book": book, "chapter": chapter, "instructions": rows, "total": len(rows)}
-    return {"book": book, "chapter": chapter, "instructions": [], "total": 0}
-
-
 # ====================== FastAPI 生命周期 ======================
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global hardware_running
-    hardware_running = True
-    t = threading.Thread(target=_hardware_loop, daemon=True)
-    t.start()
-    logging.info("硬件监控已启动")
+    start_hardware_monitor()
+    from xiaoshuo.api.services import hardware as hw_mod
+    logging.info("硬件监控已启动 hardware_running=%s", hw_mod.hardware_running)
+    # 启动时预热 LLM 健康缓存，避免首次 /api/progress 请求被探测延迟阻塞
+    import asyncio
+    try:
+        await asyncio.wait_for(asyncio.to_thread(_llm_server_healthy), timeout=5)
+    except Exception:
+        pass
     yield
-    hardware_running = False
-    _shutdown_cached_nvml()
+    stop_hardware_monitor()
     logging.info("硬件监控已停止")
 
 
 app = FastAPI(title="番茄小说 AI 创作辅助系统", version=APP_VERSION, lifespan=lifespan)
 
+# ── API 限流中间件（v8.1） ──
+_rate_limit_store: dict[str, list[float]] = {}
+_RATE_LIMIT_WINDOW = 60  # 秒
+_RATE_LIMIT_MAX = 120    # 每窗口最大请求数
+
+@app.middleware("http")
+async def rate_limit_middleware(request, call_next):
+    from fastapi.responses import JSONResponse
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    window_start = now - _RATE_LIMIT_WINDOW
+    # 清理过期记录
+    _rate_limit_store[client_ip] = [t for t in _rate_limit_store.get(client_ip, []) if t > window_start]
+    if len(_rate_limit_store.setdefault(client_ip, [])) >= _RATE_LIMIT_MAX:
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Too Many Requests", "retry_after": _RATE_LIMIT_WINDOW},
+        )
+    _rate_limit_store[client_ip].append(now)
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def request_logging_middleware(request, call_next):
+    """捕获所有 API 请求到日志记录器（供前端日志页面展示）"""
+    t0 = time.time()
+    response = await call_next(request)
+    duration_ms = round((time.time() - t0) * 1000)
+    # 跳过日志相关端点和静态文件，避免日志刷屏
+    skip_paths = ("/api/logs", "/api/logs/", "/favicon.ico")
+    if not any(request.url.path.startswith(p) for p in skip_paths):
+        app_state.add_log({
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "method": request.method,
+            "path": request.url.path + ("?" + request.url.query if request.url.query else ""),
+            "status": response.status_code,
+            "duration_ms": duration_ms,
+            "client_ip": request.client.host if request.client else "unknown",
+            "params": dict(request.query_params) if request.query_params else {},
+        })
+    return response
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_CORS_CFG.get("allow_origins", [
-        "http://localhost:8088",
-        "http://127.0.0.1:8088",
+        "http://localhost:8089",
+        "http://127.0.0.1:8089",
         "http://localhost:3000",
     ]),
     allow_methods=_CORS_CFG.get("allow_methods", ["GET", "POST", "OPTIONS"]),
     allow_headers=_CORS_CFG.get("allow_headers", ["*"]),
 )
-
-# ====================== 响应模型 ======================
-
-class SceneResult(BaseModel):
-    rank: int
-    similarity: float
-    book_name: str
-    chapter: int
-    scene_index: int
-    char_count: int
-    text_preview: str
-    emotion: str
-    pace: str
-    conflict_level: str
-    pleasure_type: str
-    dominant_sub: str
-    technique_summary: str
-
-
-class SearchResponse(BaseModel):
-    query: str
-    genre: str
-    total_scenes: int
-    results: list[SceneResult]
-
-
-class IndexStats(BaseModel):
-    genre: str
-    total_scenes: int
-    total_books: int
-
-
-class StyleRuleItem(BaseModel):
-    dimension: str
-    rule: str
-    weight: float
-    source: str
-    evidence: str
-
-
-class StyleCalibrateRequest(BaseModel):
-    chapter_id: int = 0
-    text: str
-    version: str = ""
-
-
-class StyleCalibrateResponse(BaseModel):
-    ok: bool
-    rule_count: int
-    rules: list[StyleRuleItem]
-    new_findings: int
-    version: str = ""
-    error: Optional[str] = None
-
-
-class StyleRulesResponse(BaseModel):
-    ok: bool
-    rule_count: int
-    rules: list[StyleRuleItem]
-    version: str = ""
-    error: Optional[str] = None
-
-
-# v8.0: 平台合规预检 (S6 AI指纹词扫描)
-class FingerprintHit(BaseModel):
-    word: str
-    count: int
-
-class ComplianceScanResponse(BaseModel):
-    ok: bool
-    risk_level: str
-    total_count: int
-    high_risk_count: int
-    by_category: dict[str, list[FingerprintHit]]
-    high_risk_hits: list[FingerprintHit]
-    error: Optional[str] = None
-
 
 # ====================== 核心 API 路由 ======================
 
@@ -493,15 +210,31 @@ async def health():
     return {"status": "ok", "version": APP_VERSION}
 
 
+@app.get("/favicon.ico")
+async def favicon():
+    """返回透明 favicon，避免 404 噪音"""
+    from fastapi.responses import Response
+    # 1x1 透明 PNG
+    return Response(content=b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x00\x00\x02\x00\x01\xe5\x27\xde\xfc\x00\x00\x00\x00IEND\xaeB`\x82', media_type="image/png")
+
+
 @app.get("/api/config")
 async def get_config_endpoint():
     """返回前端配置（非敏感字段）"""
     cfg = get_config()
+    # 透传前端品牌色预设 (从 prototype.theme_presets 读)
+    theme_presets = []
+    try:
+        prototype_cfg = cfg.get("prototype", {}) if isinstance(cfg, dict) else {}
+        theme_presets = prototype_cfg.get("theme_presets", []) if isinstance(prototype_cfg, dict) else []
+    except Exception:
+        pass
     return {
         "version": APP_VERSION,
         "genre": cfg.get("default_genre", "末世"),
         "llm_port": _get_llm_port(),
         "mode": cfg.get("mode", "local"),
+        "theme_presets": theme_presets,
     }
 
 
@@ -573,21 +306,28 @@ def style_rules(version: str = Query("")):
         return StyleRulesResponse(ok=False, rule_count=0, rules=[], version=version, error=str(e))
 
 
-# v8.0: 平台合规预检 (S6 AI指纹词扫描)
+# v8.0: 平台合规预检 (S6 AI指纹词扫描 + v8.1 AI率预估)
 @app.get("/api/compliance/scan", response_model=ComplianceScanResponse)
 def compliance_scan(text: str = Query(..., min_length=1)):
     """扫描文本中的 AI 指纹词，输出风险等级和详情。
     对话中的指纹词默认豁免 (exempt_dialogue=true)。
+    v8.1: 新增 AI 率预估 (基于指纹词密度)，对标番茄 30% 红线。
     """
     try:
-        result = scan_fingerprints(text, exempt_dialogue=True)
+        fingerprint_result = scan_fingerprints(text, exempt_dialogue=True)
+        ai_rate_result = estimate_ai_rate(text, fingerprint_result)
         return ComplianceScanResponse(
             ok=True,
-            risk_level=result["risk_level"],
-            total_count=result["total_count"],
-            high_risk_count=result["high_risk_count"],
-            by_category=result["by_category"],
-            high_risk_hits=result["high_risk_hits"],
+            risk_level=fingerprint_result["risk_level"],
+            total_count=fingerprint_result["total_count"],
+            high_risk_count=fingerprint_result["high_risk_count"],
+            by_category=fingerprint_result["by_category"],
+            high_risk_hits=fingerprint_result["high_risk_hits"],
+            # v8.1: AI 率预估
+            ai_rate=ai_rate_result["ai_rate_pct"],
+            ai_rate_level=ai_rate_result["risk_level"],
+            ai_rate_passed=ai_rate_result["passed"],
+            ai_rate_recommendation=ai_rate_result["recommendation"],
         )
     except Exception as e:
         return ComplianceScanResponse(
@@ -600,8 +340,8 @@ def compliance_scan(text: str = Query(..., min_length=1)):
 
 @app.get("/api/books")
 async def get_books(genre: str = Query("末世")):
-    books = _get_available_books(genre)
-    genres, counts = _get_genre_counts()
+    books = get_available_books(PROJECT_ROOT, genre)
+    genres, counts = get_genre_counts(PROJECT_ROOT)
     return {
         "books": books,
         "count": len(books),
@@ -613,7 +353,7 @@ async def get_books(genre: str = Query("末世")):
 
 @app.get("/api/disassembly/books")
 async def disassembly_books(genre: str = Query("末世")):
-    books = _get_available_books(genre)
+    books = get_available_books(PROJECT_ROOT, genre)
     return {
         "books": [
             {
@@ -643,8 +383,11 @@ async def disassembly_book(name: str = Query(...), genre: str = Query("末世"))
 # ── 写作指令 ──
 
 @app.get("/api/instructions")
-async def instructions(book: str = Query(...), ch: int = Query(1), genre: str = Query("末世")):
-    return _get_chapter_instructions(book, ch, genre)
+async def instructions(book: str = Query(""), ch: int = Query(1), genre: str = Query("末世")):
+    if not book:
+        books = get_available_books(PROJECT_ROOT, genre)
+        return {"books": [b.get("title", "") for b in books], "genre": genre}
+    return get_chapter_instructions(PROJECT_ROOT, book, ch, genre)
 
 
 @app.get("/api/guidance")
@@ -652,7 +395,7 @@ async def guidance(genre: str = Query("末世")):
     """返回综合写作指导"""
     guidance_path = PROJECT_ROOT / "data" / "processed" / genre / "writing_guidance.json"
     if guidance_path.exists():
-        return _safe_read_json(guidance_path, {"guidance": [], "genre": genre})
+        return safe_read_json(guidance_path, {"guidance": [], "genre": genre})
     return {"guidance": [], "genre": genre, "error": "no data"}
 
 
@@ -661,7 +404,7 @@ async def techniques(genre: str = Query("末世")):
     """返回写作技法库"""
     techniques_path = PROJECT_ROOT / "data" / "processed" / "techniques.json"
     if techniques_path.exists():
-        return _safe_read_json(techniques_path, {"techniques": [], "genre": genre})
+        return safe_read_json(techniques_path, {"techniques": [], "genre": genre})
     # Fallback: 从 scene_search 提取
     return {"techniques": [], "genre": genre, "source": "fallback"}
 
@@ -702,8 +445,10 @@ async def chapter_blueprint(
 
 
 @app.get("/api/diagnosis")
-async def diagnosis(book: str = Query(...), chapter: int = Query(1), genre: str = Query("末世")):
+async def diagnosis(book: str = Query(""), chapter: int = Query(1), genre: str = Query("末世")):
     """返回章节诊断信息"""
+    if not book:
+        return {"book": "", "chapter": 0, "diagnosis": [], "error": "no book specified"}
     return {"book": book, "chapter": chapter, "diagnosis": [], "error": "not implemented"}
 
 
@@ -712,13 +457,34 @@ async def diagnosis(book: str = Query(...), chapter: int = Query(1), genre: str 
 @app.get("/api/tasks")
 async def get_tasks():
     tasks_path = PROJECT_ROOT / "data" / "tasks.json"
-    return _safe_read_json(tasks_path, {"tasks": []})
+    return safe_read_json(tasks_path, {"tasks": []})
+
+
+@app.post("/api/tasks")
+async def create_task(body: dict):
+    """创建新的拆书分析任务"""
+    tasks_path = PROJECT_ROOT / "data" / "tasks.json"
+    tasks = safe_read_json(tasks_path, {"tasks": []})
+    new_task = {
+        "id": str(int(time.time() * 1000)),
+        "name": body.get("name", "未命名任务"),
+        "type": body.get("type", "disassembly"),
+        "genre": body.get("genre", "末世"),
+        "books": body.get("books", []),
+        "status": "pending",
+        "progress": 0,
+        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    tasks.setdefault("tasks", []).append(new_task)
+    safe_write_json(tasks_path, tasks)
+    return {"ok": True, "task": new_task}
 
 
 @app.get("/api/task")
 async def get_task(id: str = Query(...)):
     tasks_path = PROJECT_ROOT / "data" / "tasks.json"
-    tasks = _safe_read_json(tasks_path, {"tasks": []})
+    tasks = safe_read_json(tasks_path, {"tasks": []})
     for t in tasks.get("tasks", []):
         if str(t.get("id", "")) == id:
             return t
@@ -730,18 +496,27 @@ async def get_task(id: str = Query(...)):
 @app.get("/api/progress")
 async def get_progress():
     """获取当前拆书进度"""
-    with analyze_lock:
-        running = analyze_process is not None and analyze_process.poll() is None
+    running = app_state.analyze_process is not None and app_state.analyze_process.poll() is None
     return {
         "running": running,
-        "startup_state": _startup_state,
+        "startup_state": app_state.get_startup_state(),
         "llm_healthy": _llm_server_healthy(),
     }
+
+
+def safe_write_json(path: Path, data: dict):
+    """安全写入 JSON 文件"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    tmp.replace(path)
 
 
 def _format_hardware_response(state: dict) -> dict:
     """将扁平硬件状态转换为前端期望的嵌套百分比结构"""
     gpu_temp = state.get("gpu_temp") or 0
+    gpu_util = state.get("gpu_util") or 0
     vram_used = state.get("vram_used_mb") or 0
     vram_total = state.get("vram_total_mb") or 1
     sys_used = state.get("sys_memory_used_gb") or 0
@@ -750,12 +525,17 @@ def _format_hardware_response(state: dict) -> dict:
     return {
         "gpu": {
             "temp": gpu_temp,
-            "util": fan_speed,
+            "util": gpu_util,
             "vram_pct": round(min(vram_used / vram_total * 100, 100), 1) if vram_total else 0,
+            "vram_used_mb": vram_used,
+            "vram_total_mb": vram_total,
+            "fan_speed": fan_speed,
         },
-        "cpu": {"pct": 0},
-        "ram": {"pct": round(min(sys_used / sys_total * 100, 100), 1) if sys_total else 0},
+        "cpu": {"pct": state.get("cpu_percent", 0.0)},
+        "ram": {"pct": round(min(sys_used / sys_total * 100, 100), 1) if sys_total else 0,
+                "used_gb": sys_used, "total_gb": sys_total},
         "updated_at": state.get("updated_at", ""),
+        "gpu_available": state.get("gpu_available", False),
     }
 
 
@@ -767,13 +547,12 @@ async def get_hardware():
 
 @app.get("/api/status")
 async def get_status():
-    with analyze_lock:
-        running = analyze_process is not None and analyze_process.poll() is None
+    running = app_state.analyze_process is not None and app_state.analyze_process.poll() is None
     with hardware_lock:
         hw = _format_hardware_response(hardware_state)
     return {
         "running": running,
-        "state": _startup_state,
+        "state": app_state.get_startup_state(),
         "llm_healthy": _llm_server_healthy(),
         "hardware": hw,
     }
@@ -793,59 +572,84 @@ async def get_model_info():
     }
 
 
+@app.get("/api/model/status")
+async def get_model_status():
+    """返回所有模型运行状态（替代旧 /api/model-info 的单模型视图）"""
+    try:
+        orch = get_orchestrator()
+        return orch.status()
+    except Exception as e:
+        logging.exception("model/status failed")
+        return {"error": str(e), "mode": "unknown", "models": {}}
+
+
+@app.post("/api/model/start")
+async def start_model():
+    """启动所有已配置模型"""
+    orch = get_orchestrator()
+    success = orch.start_all(wait=False)
+    return {"success": success, "status": orch.status()}
+
+
+@app.post("/api/model/stop")
+async def stop_model():
+    """停止所有运行中的模型"""
+    orch = get_orchestrator()
+    orch.stop_all()
+    return {"success": True, "status": orch.status()}
+
+
 @app.get("/api/startup-status")
 async def get_startup_status():
-    return dict(_startup_state)
+    return app_state.get_startup_state()
 
 
 @app.post("/api/start")
 async def start_analysis(genre: str = "末世", books: str = ""):
-    global analyze_process, _startup_state
-    with analyze_lock:
-        if analyze_process is not None and analyze_process.poll() is None:
-            return {"ok": False, "message": "拆书流程已在运行中"}
-        script = PROJECT_ROOT / "src" / "xiaoshuo" / "pipeline" / "analyze_all.py"
-        cmd = [sys.executable, str(script), "--genre", genre]
-        if books:
-            cmd.extend(["--books", books])
-        _startup_state = {"status": "running", "message": "启动中...", "progress": 0, "error": ""}
-        try:
-            analyze_process = subprocess.Popen(
-                cmd, cwd=str(PROJECT_ROOT),
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT / "src")},
-                creationflags=subprocess.CREATE_NO_WINDOW,
-            )
-            return {"ok": True, "message": f"已启动 (PID {analyze_process.pid})"}
-        except Exception as e:
-            _startup_state = {"status": "error", "message": str(e), "progress": 0, "error": str(e)}
-            return {"ok": False, "message": str(e)}
+    if app_state.analyze_process is not None and app_state.analyze_process.poll() is None:
+        return {"ok": False, "message": "拆书流程已在运行中"}
+    script = PROJECT_ROOT / "src" / "xiaoshuo" / "pipeline" / "analyze_all.py"
+    cmd = [sys.executable, str(script), "--genre", genre]
+    if books:
+        cmd.extend(["--books", books])
+    app_state.set_startup_state(status="running", message="启动中...", progress=0)
+    try:
+        proc = subprocess.Popen(
+            cmd, cwd=str(PROJECT_ROOT),
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT / "src")},
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        app_state.analyze_process = proc
+        return {"ok": True, "message": f"已启动 (PID {proc.pid})"}
+    except Exception as e:
+        app_state.set_startup_state(status="error", message=str(e), error=str(e))
+        return {"ok": False, "message": str(e)}
 
 
 @app.post("/api/stop")
 async def stop_analysis():
-    global analyze_process, _startup_state
-    with analyze_lock:
-        if analyze_process is None or analyze_process.poll() is not None:
-            analyze_process = None
-            clear_stage()
-            _startup_state = {"status": "idle", "message": "", "progress": 0, "error": ""}
-            return {"ok": False, "message": "没有运行中的拆书流程"}
-        pid = analyze_process.pid
+    proc = app_state.analyze_process
+    if proc is None or proc.poll() is not None:
+        app_state.analyze_process = None
+        clear_stage()
+        app_state.set_startup_state(status="idle")
+        return {"ok": False, "message": "没有运行中的拆书流程"}
+    pid = proc.pid
+    try:
+        proc.terminate()
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
         try:
-            analyze_process.terminate()
-            analyze_process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            try:
-                analyze_process.kill()
-            except Exception:
-                pass
+            proc.kill()
         except Exception:
             pass
-        analyze_process = None
-        clear_stage()
-        _startup_state = {"status": "idle", "message": "", "progress": 0, "error": ""}
-        return {"ok": True, "message": f"已停止拆书流程 (PID {pid})"}
+    except Exception:
+        pass
+    app_state.analyze_process = None
+    clear_stage()
+    app_state.set_startup_state(status="idle")
+    return {"ok": True, "message": f"已停止拆书流程 (PID {pid})"}
 
 
 # ── 日志 ──
@@ -859,8 +663,7 @@ async def get_logs(
     search: str = Query(""),
     category: str = Query("access"),
 ):
-    with log_lock:
-        records = list(log_records)
+    records = list(reversed(app_state.log_records))
     if date:
         records = [r for r in records if r.get("time", "").startswith(date)]
     if level:
@@ -875,43 +678,211 @@ async def get_logs(
 @app.get("/api/logs/dates")
 async def get_log_dates():
     dates = OrderedDict()
-    with log_lock:
-        for r in log_records:
-            d = r.get("time", "")[:10] or "unknown"
-            dates[d] = dates.get(d, 0) + 1
-    return {"access": list(dates.keys()), "operation": list(dates.keys())}
+    for r in app_state.log_records:
+        d = r.get("time", "")[:10] or "unknown"
+        dates[d] = dates.get(d, 0) + 1
+    date_list = list(dates.keys())
+    return {"dates": date_list, "access": date_list, "operation": date_list}
 
 
 @app.get("/api/logs/operations")
 async def get_log_operations():
-    with log_lock:
-        ops = [r for r in log_records if "operation" in r.get("message", "").lower()]
-        return {"operations": ops[-50:]}
+    ops = app_state.get_logs_filtered("operation")
+    return {"operations": ops[-50:]}
 
 
 class OperationLogRequest(BaseModel):
     action: str = ""
-    detail: str = ""
+    detail: str | dict = ""
 
 
 @app.post("/api/logs/operations")
 async def post_log_operations(req: OperationLogRequest):
-    with log_lock:
-        log_records.append({
-            "time": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "level": "INFO",
-            "message": f"operation: {req.action} - {req.detail}",
-        })
-        if len(log_records) > MAX_LOGS:
-            log_records.pop(0)
+    app_state.add_log({
+        "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "level": "INFO",
+        "message": f"operation: {req.action} - {req.detail}",
+    })
     return {"ok": True}
+
+
+# ====================== Project CRUD（一书一档） ======================
+
+@app.get("/api/projects")
+async def api_list_projects(include_demo: bool = Query(True)):
+    """列出所有创作项目（仅 meta 摘要）。include_demo=false 可过滤示例项目。"""
+    return list_projects(include_demo=include_demo)
+
+
+@app.get("/api/projects/demo")
+async def api_get_demo_project():
+    """获取示例项目模板（只读，不创建文件）"""
+    return get_demo_project()
+
+
+@app.post("/api/projects")
+async def api_create_project(body: dict):
+    """创建新项目。body: { meta: { title, genre, ... }, from_demo: bool }"""
+    try:
+        project = create_project(body)
+        return {"ok": True, "project": project}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to create project: {e}")
+
+
+@app.get("/api/projects/{project_id}")
+async def api_get_project(project_id: str):
+    """获取完整项目数据"""
+    project = get_project(project_id)
+    if project is None:
+        raise HTTPException(404, f"Project not found: {project_id}")
+    return project
+
+
+@app.put("/api/projects/{project_id}")
+async def api_update_project(project_id: str, body: dict):
+    """更新项目元数据"""
+    project = update_project(project_id, body)
+    if project is None:
+        raise HTTPException(404, f"Project not found: {project_id}")
+    return {"ok": True, "project": project}
+
+
+@app.delete("/api/projects/{project_id}")
+async def api_delete_project(project_id: str):
+    """删除项目"""
+    if not delete_project(project_id):
+        raise HTTPException(404, f"Project not found: {project_id}")
+    return {"ok": True}
+
+
+@app.post("/api/projects/{project_id}/promote")
+async def api_promote_project(project_id: str):
+    """将示例项目转为正式项目（清除 is_demo 标记）"""
+    project = promote_project(project_id)
+    if project is None:
+        raise HTTPException(404, f"Project not found or not a demo: {project_id}")
+    return {"ok": True, "project": project}
+
+
+@app.get("/api/projects/{project_id}/skeleton")
+async def api_get_skeleton(project_id: str):
+    """获取项目粗纲/细纲"""
+    skeleton = get_skeleton(project_id)
+    if skeleton is None:
+        raise HTTPException(404, f"Project not found: {project_id}")
+    return skeleton
+
+
+@app.put("/api/projects/{project_id}/skeleton")
+async def api_update_skeleton(project_id: str, body: dict):
+    """更新项目粗纲/细纲"""
+    skeleton = update_skeleton(project_id, body)
+    if skeleton is None:
+        raise HTTPException(404, f"Project not found: {project_id}")
+    return {"ok": True, "skeleton": skeleton}
+
+
+@app.get("/api/projects/{project_id}/world")
+async def api_get_world(project_id: str):
+    """获取项目世界观"""
+    world = get_world(project_id)
+    if world is None:
+        raise HTTPException(404, f"Project not found: {project_id}")
+    return world
+
+
+@app.put("/api/projects/{project_id}/world")
+async def api_update_world(project_id: str, body: dict):
+    """更新项目世界观"""
+    world = update_world(project_id, body)
+    if world is None:
+        raise HTTPException(404, f"Project not found: {project_id}")
+    return {"ok": True, "world": world}
+
+
+@app.get("/api/projects/{project_id}/characters")
+async def api_get_characters(project_id: str):
+    """获取项目角色列表"""
+    chars = get_characters(project_id)
+    if chars is None:
+        raise HTTPException(404, f"Project not found: {project_id}")
+    return chars
+
+
+@app.put("/api/projects/{project_id}/characters")
+async def api_update_characters(project_id: str, body: dict):
+    """更新项目角色列表"""
+    chars = update_characters(project_id, body)
+    if chars is None:
+        raise HTTPException(404, f"Project not found: {project_id}")
+    return {"ok": True, "characters": chars}
+
+
+@app.get("/api/projects/{project_id}/factions")
+async def api_get_factions(project_id: str):
+    """获取项目势力列表"""
+    factions = get_factions(project_id)
+    if factions is None:
+        raise HTTPException(404, f"Project not found: {project_id}")
+    return factions
+
+
+@app.put("/api/projects/{project_id}/factions")
+async def api_update_factions(project_id: str, body: dict):
+    """更新项目势力列表"""
+    factions = update_factions(project_id, body)
+    if factions is None:
+        raise HTTPException(404, f"Project not found: {project_id}")
+    return {"ok": True, "factions": factions}
+
+
+@app.get("/api/projects/{project_id}/chapters")
+async def api_get_chapters(project_id: str):
+    """获取项目章节列表"""
+    chapters = get_chapters(project_id)
+    if chapters is None:
+        raise HTTPException(404, f"Project not found: {project_id}")
+    return chapters
+
+
+@app.get("/api/projects/{project_id}/chapters/{chapter_num}")
+async def api_get_chapter(project_id: str, chapter_num: int):
+    """获取单章详情"""
+    chapter = get_chapter(project_id, chapter_num)
+    if chapter is None:
+        raise HTTPException(404, f"Chapter not found: {chapter_num}")
+    return chapter
+
+
+@app.put("/api/projects/{project_id}/chapters/{chapter_num}")
+async def api_update_chapter(project_id: str, chapter_num: int, body: dict):
+    """更新单章"""
+    chapter = update_chapter(project_id, chapter_num, body)
+    if chapter is None:
+        raise HTTPException(404, f"Project not found: {project_id}")
+    return {"ok": True, "chapter": chapter}
 
 
 # ====================== 静态文件服务 ======================
 
+class NoCacheStaticFiles(StaticFiles):
+    """禁用浏览器缓存的静态文件服务，确保前端修改能立即生效。"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
+
+
 _FRONTEND_DIR = PROJECT_ROOT / _STATIC_DIR
 if _FRONTEND_DIR.exists():
-    app.mount(_STATIC_MOUNT, StaticFiles(directory=str(_FRONTEND_DIR), html=True), name="frontend")
+    app.mount(_STATIC_MOUNT, NoCacheStaticFiles(directory=str(_FRONTEND_DIR), html=True), name="frontend")
 
 
 # ====================== 启动入口 ======================
