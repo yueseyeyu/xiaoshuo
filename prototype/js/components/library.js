@@ -1,6 +1,8 @@
+"use strict";
+
 async function loadLibraryData() {
   if (DATA) return DATA;
-  const { ok, data, error } = await apiGet('/api/books');
+  const { ok, data, error } = await apiGet('/api/books', 60000);
   if (ok && data) {
     DATA = data;
     return DATA;

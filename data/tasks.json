@@ -1,0 +1,30 @@
+{
+  "tasks": [
+    {
+      "id": "1782701969113",
+      "name": "test",
+      "type": "disassembly",
+      "genre": "末世",
+      "books": [
+        "book1"
+      ],
+      "status": "pending",
+      "progress": 0,
+      "created_at": "2026-06-29 10:59:29",
+      "updated_at": "2026-06-29 10:59:29"
+    },
+    {
+      "id": "1782702509158",
+      "name": "test-task",
+      "type": "disassembly",
+      "genre": "末世",
+      "books": [
+        "book1"
+      ],
+      "status": "pending",
+      "progress": 0,
+      "created_at": "2026-06-29 11:08:29",
+      "updated_at": "2026-06-29 11:08:29"
+    }
+  ]
+}

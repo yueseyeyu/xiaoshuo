@@ -230,13 +230,13 @@ def load_guidance_benchmarks(genre: str = "末世") -> dict:
     guidance_path = root / "data" / "reports" / genre / "creative_guidance" / f"{genre}_创作指导.json"
 
     if not guidance_path.exists():
-        print(f"[WARN] 创作指导数据不存在: {guidance_path}")
+        _logger.warning(f"[WARN] 创作指导数据不存在: {guidance_path}")
         return {}
 
     try:
         data = json.loads(guidance_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, IOError) as e:
-        print(f"[WARN] 创作指导数据读取失败: {e}")
+        _logger.warning(f"[WARN] 创作指导数据读取失败: {e}")
         return {}
 
     # Extract pct_benchmarks from rough_outline section
@@ -394,23 +394,23 @@ def print_rhythm_plan(chapter_count: int, genre: str = "末世") -> None:
     """Print a human-readable rhythm plan table."""
     plan = generate_rhythm_plan(chapter_count, genre)
     if not plan:
-        print("[WARN] 无节奏基准数据")
+        _logger.warning("[WARN] 无节奏基准数据")
         return
 
     print(f"\n{'='*70}")
-    print(f"  节奏基准计划 | genre={genre} | chapters={chapter_count}")
+    _logger.info(f"  节奏基准计划 | genre={genre} | chapters={chapter_count}")
     print(f"{'='*70}")
-    print(f"  {'Ch':>4s}  {'进度':>5s}  {'钩子密度':>8s}  {'冲突密度':>8s}  {'爽点密度':>8s}")
+    _logger.info(f"  {'Ch':>4s}  {'进度':>5s}  {'钩子密度':>8s}  {'冲突密度':>8s}  {'爽点密度':>8s}")
     print(f"  {'-'*4}  {'-'*5}  {'-'*8}  {'-'*8}  {'-'*8}")
 
     for ch in sorted(plan.keys()):
         p = plan[ch]
-        print(f"  {ch:4d}  {p['progress_pct']:4.1f}%  {p['hook_target']:8.4f}  {p['conflict_target']:8.4f}  {p['pleasure_target']:8.4f}")
+        _logger.info(f"  {ch:4d}  {p['progress_pct']:4.1f}%  {p['hook_target']:8.4f}  {p['conflict_target']:8.4f}  {p['pleasure_target']:8.4f}")
 
     print(f"{'='*70}")
     guidance = load_guidance_benchmarks(genre)
     if guidance.get("hook_rule"):
-        print(f"  Rule: {guidance['hook_rule']}")
+        _logger.info(f"  Rule: {guidance['hook_rule']}")
 
 
 # ============================================================
@@ -464,7 +464,7 @@ def run_outline_build(orch, genre: str, total_chapters: int, guidance_path=None)
 
     # ── Step 1: Rough outline (总纲) ──
     _logger.info("Step 1/3: Generating rough outline...")
-    print("\n  [1/3] Generating rough outline...")
+    _logger.info("\n  [1/3] Generating rough outline...")
 
     rough_msgs = [
         {"role": "system", "content": ROUGH_OUTLINE_SYSP},
@@ -487,13 +487,13 @@ def run_outline_build(orch, genre: str, total_chapters: int, guidance_path=None)
         _logger.info("Rough outline generated: %d chars", len(rough_outline))
     else:
         _logger.error("Rough outline failed: %s", rough_result["error"])
-        print(f"  [FAIL] Rough outline: {rough_result['error']}")
+        _logger.error(f"  [FAIL] Rough outline: {rough_result['error']}")
 
     # ── Step 2: Volume outlines (卷纲) ──
     # Estimate volume count: ~40 chapters per volume
     volume_count = max(1, total_chapters // 40)
     _logger.info("Step 2/3: Generating %d volume outlines...", volume_count)
-    print(f"  [2/3] Generating {volume_count} volume outlines...")
+    _logger.info(f"  [2/3] Generating {volume_count} volume outlines...")
 
     volume_msgs = [
         {"role": "system", "content": VOLUME_OUTLINE_SYSP},
@@ -516,11 +516,11 @@ def run_outline_build(orch, genre: str, total_chapters: int, guidance_path=None)
         _logger.info("Volume outlines generated: %d chars", len(volume_outline))
     else:
         _logger.error("Volume outlines failed: %s", volume_result["error"])
-        print(f"  [FAIL] Volume outlines: {volume_result['error']}")
+        _logger.error(f"  [FAIL] Volume outlines: {volume_result['error']}")
 
     # ── Step 3: Chapter outlines (章纲) with rhythm injection ──
     _logger.info("Step 3/3: Generating chapter outlines with rhythm injection...")
-    print(f"  [3/3] Generating chapter outlines ({total_chapters} chapters)...")
+    _logger.info(f"  [3/3] Generating chapter outlines ({total_chapters} chapters)...")
 
     chapter_msgs = [
         {"role": "system", "content": CHAPTER_OUTLINE_SYSP},
@@ -544,7 +544,7 @@ def run_outline_build(orch, genre: str, total_chapters: int, guidance_path=None)
         _logger.info("Chapter outlines generated: %d chars", len(chapter_text))
     else:
         _logger.error("Chapter outlines failed: %s", chapter_result["error"])
-        print(f"  [FAIL] Chapter outlines: {chapter_result['error']}")
+        _logger.error(f"  [FAIL] Chapter outlines: {chapter_result['error']}")
 
     # ── Parse chapter outline into structured data ──
     chapter_data = _parse_chapter_outline(chapter_text, total_chapters)

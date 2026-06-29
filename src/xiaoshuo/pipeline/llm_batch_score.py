@@ -22,6 +22,8 @@ import yaml
 from pathlib import Path
 
 from xiaoshuo import PROJECT_ROOT
+from xiaoshuo.infra.logging_config import get_logger
+logger = get_logger(__name__)
 # L1-1: LLMLingua-2 lazy init (thread-safe, ~10-15% prompt processing speedup)
 _lingua_lock = threading.Lock()
 _lingua = None  # None=not tried, False=failed, obj=ready

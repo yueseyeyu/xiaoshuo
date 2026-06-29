@@ -1,3 +1,6 @@
+"use strict";
+
+// 设计面板编辑状态由 app.js 全局声明，design.js 直接使用
 function renderDesignFromSkeleton(data) {
   // 渲染粗纲（卷卡片）
   const roughPane = $('#design-rough');
@@ -39,8 +42,12 @@ function renderDesignFromSkeleton(data) {
       worldCore.querySelector('h4').textContent = '世界观核心';
       worldCore.querySelector('p').textContent = data.world.core;
     }
-    // 渲染势力
-    renderFactionsFromData(data.world.factions || []);
+  }
+
+  // 渲染势力
+  if (data.factions) {
+    DESIGN_DATA.factions = data.factions;
+    renderFactionsFromData(data.factions || []);
   }
 
   // 渲染角色
@@ -62,6 +69,73 @@ function renderDesignFromSkeleton(data) {
   initDesignEditButtons();
   showToast('骨架已渲染到设计页');
 }
+function updateDesignEmptyState() {
+  const empty = $('#design-empty-state');
+  const panes = document.querySelectorAll('.design-pane');
+  const sidebar = $('#design-sidebar');
+  const hasProject = currentProject && currentProject.id;
+  if (empty) {
+    empty.style.display = hasProject ? 'none' : 'flex';
+  }
+  if (sidebar) {
+    sidebar.style.display = hasProject ? '' : 'none';
+  }
+  panes.forEach(p => {
+    if (!hasProject) {
+      p.style.display = 'none';
+    } else {
+      p.style.display = p.classList.contains('active') ? '' : 'none';
+    }
+  });
+}
+
+function renderDesignSidebar() {
+  const totalEl = $('#design-status-total');
+  const writtenEl = $('#design-status-written');
+  const plannedEl = $('#design-status-planned');
+  const barEl = $('#design-status-bar');
+  const hintEl = $('#design-status-hint');
+  if (!currentProject) return;
+  const total = currentProject.totalChapters || 0;
+  const written = currentProject.writtenChapters || 0;
+  const planned = Math.max(0, total - written);
+  const pct = total > 0 ? Math.round((written / total) * 100) : 0;
+  if (totalEl) totalEl.textContent = String(total);
+  if (writtenEl) writtenEl.textContent = String(written);
+  if (plannedEl) plannedEl.textContent = String(planned);
+  if (barEl) barEl.style.width = pct + '%';
+  if (hintEl) hintEl.textContent = '写作进度 ' + pct + '%';
+}
+
+async function loadDesignData() {
+  updateDesignEmptyState();
+  if (!currentProject || !currentProject.id) return;
+  try {
+    const [skeletonRes, worldRes, charsRes, factionsRes] = await Promise.all([
+      ProjectAPI.getSkeleton(currentProject.id),
+      ProjectAPI.getWorld(currentProject.id),
+      ProjectAPI.getCharacters(currentProject.id),
+      ProjectAPI.getFactions(currentProject.id),
+    ]);
+    renderDesignSidebar();
+    const data = {
+      volumes: (skeletonRes && skeletonRes.volumes) || [],
+      chapters: (skeletonRes && skeletonRes.chapters) || [],
+      world: (worldRes && worldRes.core !== undefined) ? worldRes : { core: '', powers: '' },
+      characters: (charsRes && charsRes.characters) || [],
+      factions: (factionsRes && factionsRes.factions) || [],
+    };
+    // 兼容：旧版势力可能还在 world.factions 里
+    if (!data.factions.length && data.world.factions) {
+      data.factions = data.world.factions;
+    }
+    renderDesignFromSkeleton(data);
+  } catch (e) {
+    console.error('loadDesignData failed', e);
+    showToast('加载设计数据失败');
+  }
+}
+
 function renderFactionsFromData(factions) {
   const factionsPane = $('#design-factions');
   if (!factionsPane) return;
@@ -87,14 +161,20 @@ function initDesignEditButtons() {
   renderFactions();
 }
 function openDesignDrawer(title, bodyHtml) {
-  $('#design-edit-title').textContent = title;
-  $('#design-edit-body').innerHTML = bodyHtml + '<div class="report-ai-suggestions" id="design-ai-box" style="display:none"></div>';
-  $('#design-edit-modal').classList.add('open');
-  $('#design-edit-overlay').classList.add('open');
+  const titleEl = $('#design-edit-title');
+  const bodyEl = $('#design-edit-body');
+  const modal = $('#design-edit-modal');
+  const overlay = $('#design-edit-overlay');
+  if (titleEl) titleEl.textContent = title;
+  if (bodyEl) bodyEl.innerHTML = bodyHtml + '<div class="report-ai-suggestions" id="design-ai-box" style="display:none"></div>';
+  if (modal) modal.classList.add('open');
+  if (overlay) overlay.classList.add('open');
 }
 function closeDesignEdit() {
-  $('#design-edit-modal').classList.remove('open');
-  $('#design-edit-overlay').classList.remove('open');
+  const modal = $('#design-edit-modal');
+  const overlay = $('#design-edit-overlay');
+  if (modal) modal.classList.remove('open');
+  if (overlay) overlay.classList.remove('open');
   designEditType = null;
   designEditIndex = null;
 }
@@ -184,41 +264,72 @@ function aiSuggestDesign() {
   else text = '<h4>AI 世界观建议</h4><ul><li>为能力体系设置清晰的限制条件，避免无敌感。</li><li>势力之间应有明确的利益冲突。</li><li>世界观揭示应分阶段放出，保持神秘感。</li></ul>';
   box.innerHTML = text;
 }
-function saveDesignEdit() {
-  if (designEditType === 'volume') {
-    const v = DESIGN_DATA.volumes[designEditIndex];
-    v.title = $('#design-edit-title-input').value;
-    v.range = $('#design-edit-range').value;
-    v.subtitle = $('#design-edit-subtitle').value;
-    v.summary = $('#design-edit-summary').value;
-    v.tags = $('#design-edit-tags').value.split(',').map(t => t.trim()).filter(Boolean);
-  } else if (designEditType === 'chapter') {
-    const c = DESIGN_DATA.chapters[designEditIndex];
-    c.goal = $('#design-edit-goal').value;
-    c.conflict = $('#design-edit-conflict').value;
-    c.result = $('#design-edit-result').value;
-    c.scenes = $('#design-edit-scenes').value.split('\n').map(t => t.trim()).filter(Boolean);
-  } else if (designEditType === 'character') {
-    const c = DESIGN_DATA.characters[designEditIndex];
-    c.name = $('#design-edit-name').value;
-    c.role = $('#design-edit-role').value;
-    c.desc = $('#design-edit-desc').value;
-  } else if (designEditType === 'world') {
-    DESIGN_DATA.world.core = $('#design-edit-core').value;
-    DESIGN_DATA.world.powers = $('#design-edit-powers').value;
-  } else if (designEditType === 'faction') {
-    const f = DESIGN_DATA.world.factions[designEditIndex];
-    f.name = $('#design-edit-faction-name').value;
-    f.desc = $('#design-edit-faction-desc').value;
+async function saveDesignEdit() {
+  if (!currentProject || !currentProject.id) {
+    showToast('请先选择或创建一个项目');
+    return;
   }
-  renderDesign();
-  showToast('已保存');
-  closeDesignEdit();
+  const pid = currentProject.id;
+  try {
+    if (designEditType === 'volume') {
+      const v = DESIGN_DATA.volumes[designEditIndex];
+      v.title = $('#design-edit-title-input').value;
+      v.range = $('#design-edit-range').value;
+      v.subtitle = $('#design-edit-subtitle').value;
+      v.summary = $('#design-edit-summary').value;
+      v.tags = $('#design-edit-tags').value.split(',').map(t => t.trim()).filter(Boolean);
+      await ProjectAPI.updateSkeleton(pid, { volumes: DESIGN_DATA.volumes, chapters: DESIGN_DATA.chapters });
+    } else if (designEditType === 'chapter') {
+      const c = DESIGN_DATA.chapters[designEditIndex];
+      c.goal = $('#design-edit-goal').value;
+      c.conflict = $('#design-edit-conflict').value;
+      c.result = $('#design-edit-result').value;
+      c.scenes = $('#design-edit-scenes').value.split('\n').map(t => t.trim()).filter(Boolean);
+      await ProjectAPI.updateSkeleton(pid, { volumes: DESIGN_DATA.volumes, chapters: DESIGN_DATA.chapters });
+    } else if (designEditType === 'character') {
+      const c = DESIGN_DATA.characters[designEditIndex];
+      c.name = $('#design-edit-name').value;
+      c.role = $('#design-edit-role').value;
+      c.desc = $('#design-edit-desc').value;
+      await ProjectAPI.updateCharacters(pid, DESIGN_DATA.characters);
+    } else if (designEditType === 'world') {
+      DESIGN_DATA.world.core = $('#design-edit-core').value;
+      DESIGN_DATA.world.powers = $('#design-edit-powers').value;
+      await ProjectAPI.updateWorld(pid, DESIGN_DATA.world);
+    } else if (designEditType === 'faction') {
+      const factions = DESIGN_DATA.factions || DESIGN_DATA.world.factions || [];
+      const f = factions[designEditIndex];
+      f.name = $('#design-edit-faction-name').value;
+      f.desc = $('#design-edit-faction-desc').value;
+      DESIGN_DATA.factions = factions;
+      // 清理旧版 world.factions，避免数据重复
+      if (DESIGN_DATA.world && DESIGN_DATA.world.factions) {
+        delete DESIGN_DATA.world.factions;
+      }
+      await ProjectAPI.updateFactions(pid, factions);
+    }
+    renderDesign();
+    await refreshProjectData();
+    showToast('已保存');
+    closeDesignEdit();
+  } catch (e) {
+    console.error('saveDesignEdit failed', e);
+    showToast('保存失败');
+  }
+}
+
+async function refreshProjectData() {
+  if (!currentProject || !currentProject.id) return;
+  const project = await ProjectAPI.get(currentProject.id);
+  if (project) {
+    appState.projectData = project;
+  }
 }
 function renderFactions() {
   const list = $('#faction-list');
   if (!list) return;
-  list.innerHTML = DESIGN_DATA.world.factions.map((f, idx) =>
+  const factions = DESIGN_DATA.factions || DESIGN_DATA.world.factions || [];
+  list.innerHTML = factions.map((f, idx) =>
     '<div class="faction-item" onclick="openFactionEdit(' + idx + ')">' +
       '<div class="faction-item-body"><b>' + escapeHtml(f.name || '') + '</b><p>' + escapeHtml(f.desc || '') + '</p></div>' +
       '<button class="faction-edit-icon" title="编辑" onclick="event.stopPropagation();openFactionEdit(' + idx + ')">' +
@@ -230,7 +341,8 @@ function renderFactions() {
 function openFactionEdit(idx) {
   designEditType = 'faction';
   designEditIndex = idx;
-  const f = DESIGN_DATA.world.factions[idx];
+  const factions = DESIGN_DATA.factions || DESIGN_DATA.world.factions || [];
+  const f = factions[idx];
   openDesignDrawer('编辑势力：' + f.name,
     '<div class="report-detail-field"><label>势力名称</label><input type="text" id="design-edit-faction-name" value="' + escapeHtml(f.name || '') + '"></div>' +
     '<div class="report-detail-field"><label>势力描述</label><textarea id="design-edit-faction-desc">' + escapeHtml(f.desc || '') + '</textarea></div>'
@@ -267,8 +379,15 @@ function renderDesign() {
   renderOutlinePanel();
 }
 function showDesign(name) {
-  $$('.design-pane').forEach((p) => p.classList.remove('active'));
-  const target = $('#design-' + name);
-  if (target) target.classList.add('active');
   $$('.subnav-item').forEach((s) => s.classList.toggle('active', s.dataset.sub === name));
+  $$('.design-pane').forEach((p) => {
+    p.classList.remove('active');
+    p.style.display = 'none';
+  });
+  const target = $('#design-' + name);
+  if (target) {
+    target.classList.add('active');
+    target.style.display = '';
+  }
+  updateDesignEmptyState();
 }

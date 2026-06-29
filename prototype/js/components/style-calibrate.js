@@ -1,12 +1,15 @@
+"use strict";
+
 // ============================================================
 // 风格校准面板 — 调用后端风格规则 API
 // ============================================================
 async function calibrateStyle() {
   const status = $('#style-calibrate-status');
   if (status) status.textContent = '校准中...';
+  const editor = $('#editor-textarea');
   const body = {
     chapter_id: WRITING_CURRENT_CHAPTER || 127,
-    text: '',
+    text: editor ? editor.value : '',
     version: ''
   };
   const { ok, data } = await apiPost('/api/style/calibrate', body);

@@ -40,8 +40,6 @@ import sys
 from pathlib import Path
 from datetime import datetime
 
-# v8.0 重构: src/ 加入 sys.path，启用包绝对 import
-sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 from xiaoshuo import __version__
 
 

@@ -1,8 +1,11 @@
+"use strict";
+
 // ============================================================
-// 全局状态管理
+// 全局状态管理 — SSOT (Single Source of Truth)
+// 所有组件通过此文件访问全局状态，禁止在其他文件中声明同名变量
 // ============================================================
 
-// 旧组件直接使用的全局变量（重构过渡期兼容）
+// ── 应用级全局变量 ──
 let DATA = null;
 let tasks = [];
 let disassemblyData = null;
@@ -18,6 +21,7 @@ let selectedBookIds = new Set();
 let accentPresets = [];
 let currentAccentId = null;
 
+// ── 主题/品牌色预设 ──
 const THEME_ORDER = ['midnight', 'light', 'obsidian'];
 const ACCENT_PRESETS = [
   { id: 'serene',   name: '静谧蓝', accent: '#38BDF8', accentRgb: '56,189,248' },
@@ -26,7 +30,7 @@ const ACCENT_PRESETS = [
   { id: 'aurora',   name: '极光靛', accent: '#818CF8', accentRgb: '129,140,248' },
 ];
 
-// 计划迁移到 appState 的内部状态（目前暂无组件引用）
+// ── 内部状态（逐步迁移到此处） ──
 const appState = {
   apiData: {
     stats: null,
@@ -42,6 +46,7 @@ const appState = {
   logsCurrentPage: 0,
   logsTotalCount: 0,
   importedReportData: null,
+  projectData: null,
   currentBook: null,
   writingCurrentChapter: 127,
   instructionsLoaded: false,
@@ -53,7 +58,7 @@ const appState = {
   writingMoreOpen: false,
 };
 
-// 轮询/定时器注册表：页面卸载或 SPA 切换时统一清理
+// ── 轮询/定时器注册表 ──
 const appIntervals = new Set();
 const appPolls = new Set();
 function registerInterval(id) { appIntervals.add(id); return id; }

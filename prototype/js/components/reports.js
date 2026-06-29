@@ -1,3 +1,5 @@
+"use strict";
+
 function renderReports() {
   const grid = $('#report-grid');
   if (!grid) return;
@@ -183,8 +185,10 @@ function openReportDetail(idx) {
   }, 100);
 }
 function closeReportDetail() {
-  $('#report-detail').classList.remove('open');
-  $('#report-detail-overlay').classList.remove('open');
+  const detail = $('#report-detail');
+  const overlay = $('#report-detail-overlay');
+  if (detail) detail.classList.remove('open');
+  if (overlay) overlay.classList.remove('open');
   currentReportIndex = null;
 }
 function aiSuggestReport() {
@@ -316,7 +320,7 @@ function filterReports(type) {
   const countEl = $('#report-count');
   if (countEl) countEl.textContent = '共 ' + visible + ' 份报告';
 }
-function regenerateReport(idx) {
-  event.stopPropagation();
+function regenerateReport(idx, event) {
+  if (event) event.stopPropagation();
   showToast('正在重新生成报告 #' + (idx + 1));
 }

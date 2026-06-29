@@ -13,12 +13,16 @@ book_processor.py — 书籍入库流水线 v2
 import re, shutil, sys, yaml
 from pathlib import Path
 
+from xiaoshuo.infra.logging_config import get_logger
+
 ROOT = Path(__file__).resolve().parent.parent.parent.parent  # project root
 BOOKS_IN = ROOT / "books" / "in"
 BOOKS_REVIEW = ROOT / "books" / "review"
 NOVELS_RAW = ROOT / "data" / "raw" / "novels"
 CONFIG_PATH = ROOT / "config.yaml"
 NOVEL_INDEX = ROOT / "data" / "raw" / "novel_index.json"
+
+logger = get_logger(__name__)
 
 # ── Genre detection rules loaded from config.yaml (SSOT) ──
 # Previously hardcoded GENRE_KEYWORDS, TITLE_RULES, GENRE_MIN_SCORE, MIN_CONFIDENCE

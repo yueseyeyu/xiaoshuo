@@ -663,10 +663,11 @@ hardware_guard:
 
 # ============================================================================
 # 前端原型服务器配置
-# 模块: prototype/server.py
+# v8.x 整合：原型静态文件由 FastAPI 在 api_server.port 端口统一挂载 (config.yaml::api_server.port)
+# 旧 prototype/server.py 已废弃，仅保留前端配置字段供后端 /api/config 透传
 # ============================================================================
 prototype:
-  port: 8088                             # 与 api_server.port 保持一致；静态文件由 FastAPI 挂载
+  # port 已删除 (历史残留，与 api_server.port=8089 冲突)
   genre: "末世"                           # 默认服务题材，对应 data/reports/{genre}
   data_dir: "data/reports"               # 报告数据根目录（相对项目根）
   auto_open_browser: false               # 启动时是否自动打开浏览器
@@ -681,6 +682,22 @@ prototype:
       name: "番茄"
       accent: "#D97706"
       accent_rgb: "217,119,6"
+
+# ============================================================================
+# v8.1: 平台合规预检 — AI 指纹词检测与 AI 率预估
+# 模块: agents/cross_review.py (estimate_ai_rate, scan_fingerprints)
+# 参考: 番茄小说"评估期"机制 — 前 10 章 AI 查重 + 20 万字书测触发
+# ============================================================================
+compliance:
+  # AI 率阈值 (对标番茄 30% 红线)
+  ai_rate_threshold: 0.30                # 30% 红线，超过则阻断
+  ai_rate_warning: 0.20                  # 20% 警告线
+  ai_rate_safe: 0.10                     # 10% 安全线
+
+  # 指纹词密度 → AI 率映射系数
+  # 公式: ai_rate = min(1.0, fingerprint_count / (text_length * coeff))
+  # 每 100 字 1 个指纹词 ≈ 10% AI 率 (经验估算)
+  fingerprint_density_coeff: 0.01
 
 # ============================================================================
 # v7.7: NSFW 角色扮演 — 海外成人向角色扮演/微世界配置
@@ -729,8 +746,6 @@ api_server:
   static_mount: "/"                    # 静态文件挂载路径
   cors:
     allow_origins:                     # 同源部署时仍保留，防止直接跨站调用 API
-      - "http://localhost:8088"
-      - "http://127.0.0.1:8088"
       - "http://localhost:8089"
       - "http://127.0.0.1:8089"
     allow_methods: ["GET", "POST", "OPTIONS"]

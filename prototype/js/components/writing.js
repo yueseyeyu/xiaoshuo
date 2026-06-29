@@ -1,3 +1,89 @@
+"use strict";
+
+let writingProjectChapters = [];
+
+function updateWritingEmptyState() {
+  const empty = $('#writing-empty-state');
+  const toolbar = $('#writing-toolbar');
+  const layout = $('#writing-layout');
+  if (!currentProject || !currentProject.id) {
+    if (empty) empty.style.display = 'flex';
+    if (toolbar) toolbar.style.display = 'none';
+    if (layout) layout.style.display = 'none';
+  } else {
+    if (empty) empty.style.display = 'none';
+    if (toolbar) toolbar.style.display = '';
+    if (layout) layout.style.display = '';
+  }
+}
+
+async function loadWritingProjectData() {
+  updateWritingEmptyState();
+  if (!currentProject || !currentProject.id) return;
+  try {
+    const res = await ProjectAPI.getChapters(currentProject.id);
+    writingProjectChapters = (res && res.chapters) || [];
+    // 同步到 WRITING_CHAPTER_TITLES 供目录显示
+    writingProjectChapters.forEach((ch) => {
+      if (ch && ch.num && ch.title) {
+        WRITING_CHAPTER_TITLES[ch.num] = ch.title;
+      }
+    });
+  } catch (e) {
+    console.error('loadWritingProjectData failed', e);
+  }
+}
+
+async function loadWritingChapter(chapterNum) {
+  if (!currentProject || !currentProject.id) {
+    showToast('请先选择或创建一个项目');
+    return;
+  }
+  // 先保存当前章节
+  await saveWritingChapter();
+  WRITING_CURRENT_CHAPTER = chapterNum;
+  try {
+    const chapter = await ProjectAPI.getChapter(currentProject.id, chapterNum);
+    if (chapter) {
+      $('#editor-title').value = chapter.title || getChapterTitle(chapterNum);
+      $('#editor-textarea').value = chapter.content || '';
+      if (chapter.title) WRITING_CHAPTER_TITLES[chapterNum] = chapter.title;
+    } else {
+      $('#editor-title').value = getChapterTitle(chapterNum);
+      $('#editor-textarea').value = '';
+    }
+  } catch (e) {
+    console.error('loadWritingChapter failed', e);
+    $('#editor-title').value = getChapterTitle(chapterNum);
+    $('#editor-textarea').value = '';
+  }
+  updateWordCount();
+  markDraftSaved();
+  renderWritingToc();
+  renderOutlinePanel();
+}
+
+async function saveWritingChapter() {
+  if (!currentProject || !currentProject.id) return false;
+  const title = $('#editor-title').value || getChapterTitle(WRITING_CURRENT_CHAPTER);
+  const content = $('#editor-textarea').value || '';
+  const wordCount = content.replace(/\s/g, '').length;
+  try {
+    await ProjectAPI.updateChapter(currentProject.id, WRITING_CURRENT_CHAPTER, {
+      title: title,
+      content: content,
+      word_count: wordCount,
+      status: wordCount > 0 ? 'writing' : 'planned',
+      updated_at: new Date().toISOString(),
+    });
+    WRITING_CHAPTER_TITLES[WRITING_CURRENT_CHAPTER] = title;
+    return true;
+  } catch (e) {
+    console.error('saveWritingChapter failed', e);
+    return false;
+  }
+}
+
 async function loadInstructions(bookName, chapter) {
   const path = '/api/instructions?book=' + encodeURIComponent(bookName) + '&ch=' + (chapter || 1);
   const { ok, data } = await apiGet(path);
@@ -65,8 +151,8 @@ function toggleTocVolume(titleEl) {
   const chevron = titleEl.querySelector('.toc-chevron');
   if (chevron) chevron.textContent = volume.classList.contains('collapsed') ? '▸' : '▾';
 }
-function jumpToChapter(chapter) {
-  showToast('跳转至第 ' + chapter + ' 章（开发中）');
+async function jumpToChapter(chapter) {
+  await loadWritingChapter(chapter);
 }
 function toggleFocus() {
   const isFocus = document.body.classList.toggle('focus-mode');
@@ -121,7 +207,8 @@ function toggleAiCompare() {
   }
 }
 function closeFocusAiPanel() {
-  $('#focus-ai-panel').classList.remove('open');
+  const panel = $('#focus-ai-panel');
+  if (panel) panel.classList.remove('open');
 }
 function togglePanel(id) {
   const panel = $('#' + id + '-panel');
@@ -198,7 +285,7 @@ async function loadInstructionsForBook() {
       '</div>';
   }).join('');
 }
-function saveDraft() {
+async function saveDraft() {
   const title = $('#editor-title').value || '';
   const content = $('#editor-textarea').value || '';
   try {
@@ -206,6 +293,14 @@ function saveDraft() {
     localStorage.setItem('draft_content', content);
     localStorage.setItem('draft_saved_at', new Date().toISOString());
   } catch (e) {}
+  if (currentProject && currentProject.id) {
+    const ok = await saveWritingChapter();
+    if (ok) {
+      markDraftSaved();
+      showToast('已保存到项目');
+      return;
+    }
+  }
   markDraftSaved();
   showToast('草稿已保存');
 }
@@ -264,7 +359,7 @@ async function searchScene() {
       '</div>';
     }).join('');
   } catch (e) {
-    status.textContent = '连接失败，请确认后端已启动(python -m xiaoshuo.api.server --port 8088)';
+    status.textContent = '连接失败，请确认后端已启动(python -m xiaoshuo.api.server --port 8089)';
     console.error(e);
   }
 }

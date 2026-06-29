@@ -29,6 +29,8 @@ import sys
 import yaml
 from pathlib import Path
 from xiaoshuo import PROJECT_ROOT
+from xiaoshuo.infra.logging_config import get_logger
+logger = get_logger(__name__)
 from datetime import datetime
 
 # PROJECT_ROOT imported from src.xiaoshuo

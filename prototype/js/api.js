@@ -1,3 +1,5 @@
+"use strict";
+
 // ============================================================
 // API 客户端 — 统一 fetch 封装、超时、错误处理
 // ============================================================
@@ -17,15 +19,26 @@ const API_ERROR_TOAST_COOLDOWN = 5000;
  */
 async function apiFetch(path, options = {}, timeoutMs = DEFAULT_TIMEOUT) {
   const url = API_BASE + path;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // 静默轮询路径 (hardware/model/status/diagnosis) 不使用 AbortController，
+  // 避免浏览器在 setTimeout 触发前导航导致 ERR_ABORTED；同时启用 keepalive
+  // 允许请求在页面销毁后继续完成
+  const isSilent = path && (
+    path.startsWith('/api/hardware') ||
+    path.startsWith('/api/model/status') ||
+    path.startsWith('/api/diagnosis')
+  );
+  const controller = isSilent ? null : new AbortController();
+  const timer = isSilent ? null : setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { ...options, signal: controller.signal });
-    clearTimeout(timer);
+    const fetchOpts = isSilent
+      ? { ...options, keepalive: true }
+      : { ...options, signal: controller.signal, keepalive: true };
+    const res = await fetch(url, fetchOpts);
+    if (timer) clearTimeout(timer);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       const msg = `HTTP ${res.status}: ${text || res.statusText}`;
-      notifyApiError(path, msg);
+      if (!isSilent) notifyApiError(path, msg);
       return { ok: false, data: null, error: msg, status: res.status };
     }
     const contentType = res.headers.get('content-type') || '';
@@ -36,16 +49,18 @@ async function apiFetch(path, options = {}, timeoutMs = DEFAULT_TIMEOUT) {
     const text = await res.text();
     return { ok: true, data: text, error: null, status: res.status };
   } catch (err) {
-    clearTimeout(timer);
-    const msg = err.name === 'AbortError' ? '请求超时' : (err.message || '网络错误');
-    notifyApiError(path, msg);
+    if (timer) clearTimeout(timer);
+    // AbortError: 超时或浏览器取消请求 → 静默处理
+    const isAbort = err.name === 'AbortError' || (err.message && err.message.includes('aborted'));
+    const msg = isAbort ? '请求被取消' : (err.message || '网络错误');
+    if (!isAbort && !isSilent) notifyApiError(path, msg);
     return { ok: false, data: null, error: msg, status: 0 };
   }
 }
 
 function notifyApiError(path, msg) {
   // 静默上报类接口不弹 toast，避免轮询轰炸
-  if (path && (path.startsWith('/api/logs/operations') || path.startsWith('/api/hardware'))) return;
+  if (path && (path.startsWith('/api/logs/operations') || path.startsWith('/api/hardware') || path.startsWith('/api/model/status') || path.startsWith('/api/diagnosis'))) return;
   const now = Date.now();
   if (now - lastApiErrorToast < API_ERROR_TOAST_COOLDOWN) return;
   lastApiErrorToast = now;
@@ -62,6 +77,18 @@ async function apiPost(path, body, timeoutMs) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   }, timeoutMs);
+}
+
+async function apiPut(path, body, timeoutMs) {
+  return apiFetch(path, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }, timeoutMs);
+}
+
+async function apiDelete(path, timeoutMs) {
+  return apiFetch(path, { method: 'DELETE' }, timeoutMs);
 }
 
 /**

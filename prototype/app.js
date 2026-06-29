@@ -1,83 +1,13 @@
 
-let DATA = null;
-let tasks = [];
-let disassemblyData = null;
-let currentTheme = 'midnight';
-let currentGenre = '全部';
-let taskFilter = 'all';
-let selectedBookIndex = null;
-let deAiEnabled = false;
-let currentProject = null;
-let currentLibraryView = 'list';
-let librarySort = { key: 'score', dir: 'desc' };
-let selectedBookIds = new Set();
+"use strict";
 
-const $ = (s) => document.querySelector(s);
-const $$ = (s) => Array.from(document.querySelectorAll(s));
+// $ / $$ 与常用工具函数已由 js/utils.js 全局提供，此处不再重复声明
 const appShell = $('#app-shell');
 
-// 轮询/定时器注册表：页面卸载或 SPA 切换时统一清理
-const appIntervals = new Set();
-const appPolls = new Set();
-function registerInterval(id) { appIntervals.add(id); return id; }
-function clearAppIntervals() { appIntervals.forEach(clearInterval); appIntervals.clear(); }
-function registerPoll(cancelFn) { appPolls.add(cancelFn); return cancelFn; }
-function clearAppPolls() { appPolls.forEach((c) => c()); appPolls.clear(); }
-window.addEventListener('beforeunload', () => {
-  clearAppIntervals();
-  clearAppPolls();
-});
-
-
-const GENRE_PALETTES = {
-  '末世': ['#7F1D1D', '#991B1B', '#B91C1C'],
-  '仙侠': ['#064E3B', '#065F46', '#047857'],
-  '科幻': ['#1E3A8A', '#1E40AF', '#1D4ED8'],
-  '无限流': ['#581C87', '#6B21A8', '#7E22CE'],
-  '历史': ['#78350F', '#92400E', '#B45309'],
-  '悬疑': ['#1E293B', '#273649', '#334155'],
-  '奇幻': ['#701A75', '#86198F', '#A21CAF'],
-  '洪荒': ['#713F12', '#854D0E', '#A16207'],
-  '都市': ['#1E3A5F', '#1E4A70', '#1E5B80'],
-  '同人': ['#4C1D95', '#5B21B6', '#6D28D9'],
-};
-
-function hashString(str) {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) {
-    h = ((h << 5) - h) + str.charCodeAt(i);
-    h |= 0;
-  }
-  return Math.abs(h);
-}
-
-function coverText(title) {
-  const skip = '《》:：,，.．!！?？[]【】""\'\' ';
-  const chars = Array.from(title).filter((c) => !skip.includes(c));
-  if (chars.length === 0) return '?';
-  const first = chars[0];
-  const second = chars.find((c, i) => i > 0 && c !== first);
-  return second ? first + second : first;
-}
-
-function coverStyle(title, genre) {
-  const palette = GENRE_PALETTES[genre] || ['#1F2937'];
-  const idx = title ? (hashString(title) % palette.length) : 0;
-  return palette[idx];
-}
 // ============================================================
 // API 数据层 — 从后端获取真实分析数据
+// 写入 appState.apiData（在 state.js 中定义）
 // ============================================================
-const apiData = {
-  stats: null,
-  guidance: null,
-  techniques: null,
-  instructions: null,
-  diagnosis: null,
-  skeleton: null,
-  ready: false,
-};
-
 async function loadApiData() {
   const endpoints = [
     { key: 'stats', path: '/api/stats' },
@@ -87,11 +17,11 @@ async function loadApiData() {
   ];
   const results = await Promise.allSettled(
     endpoints.map((ep) => apiGet(ep.path).then((res) => {
-      if (res.ok) apiData[ep.key] = res.data;
+      if (res.ok) appState.apiData[ep.key] = res.data;
     }))
   );
   const successCount = results.filter((r) => r.status === 'fulfilled').length;
-  apiData.ready = successCount > 0;
+  appState.apiData.ready = successCount > 0;
   renderLibrary();
   renderDashboardProject();
   renderReports();
@@ -108,7 +38,7 @@ async function loadSkeletonData() {
   if (btn) { btn.textContent = '加载中...'; btn.disabled = true; }
   const { ok, data, error } = await apiGet('/api/skeleton');
   if (ok && data && data.volumes) {
-    apiData.skeleton = data;
+    appState.apiData.skeleton = data;
     renderDesignFromSkeleton(data);
     showToast('骨架数据已加载（5卷 + 节奏基准）');
   } else {
@@ -140,30 +70,76 @@ function scheduleSaveStatusSaved() {
 }
 
 
-function loadProject() {
+function isDemoProject(project) {
+  if (!project) return false;
+  return project.is_demo === true || project.isDemo === true || project.title === '《末日模拟器》';
+}
+
+function _currentProjectIdKey() {
+  return 'current_project_id';
+}
+
+async function loadProject() {
   currentProject = null;
+  appState.projectData = null;
+  let projectId = null;
   try {
-    const saved = localStorage.getItem('current_project');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (parsed && typeof parsed === 'object' && parsed.title) {
-        currentProject = parsed;
+    projectId = localStorage.getItem(_currentProjectIdKey());
+  } catch (e) {}
+  if (projectId) {
+    const project = await ProjectAPI.get(projectId);
+    if (project && project.meta) {
+      if (project.is_demo) {
+        // 示例项目不持久化：刷新后自动回到空状态首页
+        try { localStorage.removeItem(_currentProjectIdKey()); } catch (e) {}
       } else {
-        localStorage.removeItem('current_project');
+        currentProject = _normalizeProjectMeta(project);
+        appState.projectData = project;
       }
+    } else {
+      try { localStorage.removeItem(_currentProjectIdKey()); } catch (e) {}
     }
-  } catch (e) {
-    currentProject = null;
-    try { localStorage.removeItem('current_project'); } catch (err) {}
   }
   renderDashboardProject();
   updateTopbarProjectName();
+  populateProjectSwitcher();
 }
-function saveProject(project) {
-  currentProject = project;
-  try { localStorage.setItem('current_project', JSON.stringify(project)); } catch (e) {}
+
+function setCurrentProject(projectMeta) {
+  currentProject = projectMeta || null;
+  appState.projectData = null;
+  try {
+    if (projectMeta && projectMeta.id) {
+      localStorage.setItem(_currentProjectIdKey(), projectMeta.id);
+    } else {
+      localStorage.removeItem(_currentProjectIdKey());
+    }
+  } catch (e) {}
   renderDashboardProject();
   updateTopbarProjectName();
+  populateProjectSwitcher();
+}
+
+function _normalizeProjectMeta(project) {
+  if (!project) return null;
+  const meta = project.meta || project;
+  return {
+    id: project.id || meta.id,
+    title: meta.title || '未命名作品',
+    author: meta.author || '作者',
+    genre: meta.genre || '未设置',
+    volumes: meta.volumes_count || meta.volumes || 0,
+    totalChapters: meta.total_chapters || meta.totalChapters || 0,
+    writtenChapters: meta.written_chapters || meta.writtenChapters || 0,
+    cards: meta.cards || 0,
+    summary: meta.summary || '',
+    is_demo: project.is_demo === true || meta.is_demo === true || meta.title === '《末日模拟器》',
+  };
+}
+
+// 兼容旧代码：saveProject 现在只切换当前项目，不持久化完整数据（数据走后端 API）
+function saveProject(project) {
+  setCurrentProject(_normalizeProjectMeta(project));
 }
 
 
@@ -215,25 +191,6 @@ document.addEventListener('click', function(e) {
 
 
 
-
-function timeAgo(date) {
-  const now = new Date();
-  const diff = Math.floor((now - date) / 1000);
-  if (diff < 60) return '刚刚';
-  if (diff < 3600) return Math.floor(diff / 60) + '分钟前';
-  const hours = Math.floor(diff / 3600);
-  if (hours < 24) return hours + '小时前';
-  const target = new Date(date);
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const targetDay = new Date(target.getFullYear(), target.getMonth(), target.getDate());
-  const dayDiff = Math.floor((today - targetDay) / (24 * 3600 * 1000));
-  const hh = String(target.getHours()).padStart(2, '0');
-  const mm = String(target.getMinutes()).padStart(2, '0');
-  const md = String(target.getMonth() + 1).padStart(2, '0') + '-' + String(target.getDate()).padStart(2, '0');
-  if (dayDiff === 1) return '昨天 ' + hh + ':' + mm;
-  if (now.getFullYear() === target.getFullYear()) return md + ' ' + hh + ':' + mm;
-  return target.getFullYear() + '-' + md + ' ' + hh + ':' + mm;
-}
 
 function updateActivityTimes() {
   $$('.activity-time[data-timestamp]').forEach((el) => {
@@ -319,12 +276,6 @@ function getWizardStepStates() {
 
 
 
-
-
-
-function escapeHtml(str) {
-  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
-}
 
 
 
@@ -477,12 +428,6 @@ let designEditIndex = null;
 
 
 
-function fmtNumber(n) {
-  if (n >= 100000) return (n / 10000).toFixed(1) + '万';
-  if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
-  return String(n);
-}
-
 function fmtSize(n) {
   if (n >= 1024) return (n / 1024).toFixed(1) + ' MB';
   return n + ' KB';
@@ -548,31 +493,33 @@ function refreshReports() {
 
 
 
-let projects = [];
+let projectList = [];
 
-function loadProjects() {
-  try {
-    const raw = localStorage.getItem('projects');
-    projects = raw ? JSON.parse(raw) : [];
-  } catch (e) { projects = []; }
+async function loadProjectList() {
+  const res = await ProjectAPI.list(true);
+  projectList = (res && res.projects) ? res.projects : [];
+  return projectList;
 }
 
-function switchProject(index) {
-  const idx = parseInt(index);
-  if (isNaN(idx) || idx < 0 || idx >= projects.length) return;
-  currentProject = projects[idx];
-  localStorage.setItem('current_project', JSON.stringify(currentProject));
-  showToast('已切换到 ' + currentProject.title);
-  renderDashboardProject();
-  populateProjectSwitcher();
+async function switchProject(projectId) {
+  if (!projectId) return;
+  const project = await ProjectAPI.get(projectId);
+  if (project && project.meta) {
+    saveProject(project);
+    showToast('已切换到 ' + project.meta.title);
+    renderDashboardProject();
+    await populateProjectSwitcher();
+  } else {
+    showToast('切换作品失败');
+  }
 }
 
-function populateProjectSwitcher() {
-  loadProjects();
+async function populateProjectSwitcher() {
+  await loadProjectList();
   const select = $('#project-select');
   if (!select) return;
   select.innerHTML = '<option value="">切换作品</option>' +
-    projects.map((p, i) => '<option value="' + i + '"' + (currentProject && p.title === currentProject.title ? ' selected' : '') + '>' + p.title + '</option>').join('');
+    projectList.map((p) => '<option value="' + p.id + '"' + (currentProject && p.id === currentProject.id ? ' selected' : '') + '>' + (p.title || '未命名') + '</option>').join('');
 }
 
 
@@ -600,16 +547,6 @@ async function initWritingTocScroll() {
 
 
 
-
-
-function showToast(msg) {
-  const container = $('#toast-container');
-  const t = document.createElement('div');
-  t.className = 'toast';
-  t.textContent = msg;
-  container.appendChild(t);
-  setTimeout(() => { t.remove(); }, 2500);
-}
 
 
 function toggleMobileSidebar() {

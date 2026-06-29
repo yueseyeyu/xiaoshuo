@@ -1,3 +1,5 @@
+"use strict";
+
 // ============================================================
 // 工作台 / 项目卡片
 // ============================================================
@@ -19,7 +21,13 @@ function renderDashboardProject() {
   if (kpiRow) kpiRow.style.display = hasProject ? '' : 'none';
   if (stageBar) stageBar.style.display = hasProject ? '' : 'none';
   if (workstation) workstation.style.gridTemplateColumns = hasProject ? '' : '1fr';
+  const exitDemoBtn = $('#exit-demo-btn');
+  if (exitDemoBtn) exitDemoBtn.style.display = (hasProject && isDemoProject(currentProject)) ? '' : 'none';
+  const pageTitle = $('#dashboard-page-title');
+  const fab = $('#continue-writing-fab');
+  const fabMeta = $('#fab-meta');
   if (hasProject) {
+    if (pageTitle) pageTitle.textContent = '工作台· ' + (currentProject.title || '未命名作品');
     $('#hero-title').textContent = currentProject.title || '未命名作品';
     $('#hero-greeting').textContent = greetingByHour() + '，' + (currentProject.author || '作者');
     $('#hero-volumes').textContent = currentProject.volumes || 0;
@@ -30,8 +38,12 @@ function renderDashboardProject() {
     $('#hero-stat-progress').textContent = progress + '%';
     $('#hero-stat-cards').textContent = currentProject.cards || 0;
     $('#dashboard-subtitle').textContent = currentProject.genre ? (currentProject.genre + ' · ' + (currentProject.writtenChapters || 0) + '/' + (currentProject.totalChapters || 0) + ' 章') : '项目信息待完善';
+    if (fab) fab.style.display = '';
+    if (fabMeta) fabMeta.textContent = '第' + (currentProject.writtenChapters + 1 || 1) + '章';
   } else {
+    if (pageTitle) pageTitle.textContent = '工作台';
     $('#dashboard-subtitle').textContent = '当前无进行中的项目';
+    if (fab) fab.style.display = 'none';
   }
 }
 
@@ -54,44 +66,55 @@ function createProject() {
 }
 
 function closeCreateProjectModal() {
-  $('#create-project-modal').classList.remove('open');
+  const modal = $('#create-project-modal');
+  if (modal) modal.classList.remove('open');
 }
 
-function confirmCreateProject() {
+async function confirmCreateProject() {
   const title = $('#cp-title').value.trim();
   if (!title) { showToast('请输入作品名称'); return; }
   const genre = $('#cp-genre').value || '末世';
   const volumes = parseInt($('#cp-volumes').value) || 5;
   const chapters = parseInt($('#cp-chapters').value) || 300;
-  saveProject({
-    title: '《' + title.replace(/《|》/g, '') + '》',
-    author: '作者',
-    genre: genre,
-    volumes: volumes,
-    totalChapters: chapters,
-    writtenChapters: 0,
-    cards: 0,
-    createdAt: new Date().toISOString()
+  const result = await ProjectAPI.create({
+    meta: {
+      title: '《' + title.replace(/《|》/g, '') + '》',
+      author: '作者',
+      genre: genre,
+      volumes_count: volumes,
+      total_chapters: chapters,
+      written_chapters: 0,
+      summary: '',
+    }
   });
-  closeCreateProjectModal();
-  showToast('已创建作品 ' + title);
-  renderDashboardProject();
-  // 创建后引导
-  setTimeout(() => {
-    showToast('下一步：在书库中导入参考书，或在设计页规划粗纲');
-  }, 2800);
+  if (result && result.project) {
+    saveProject(result.project);
+    closeCreateProjectModal();
+    showToast('已创建作品 ' + title);
+    // 创建后引导
+    setTimeout(() => {
+      showToast('下一步：在书库中导入参考书，或在设计页规划粗纲');
+    }, 2800);
+  } else {
+    showToast('创建作品失败');
+  }
 }
 
-function loadDemoProject() {
-  saveProject({
-    title: '《末日模拟器》',
-    author: '作者',
-    genre: '末世',
-    volumes: 5,
-    totalChapters: 300,
-    writtenChapters: 127,
-    cards: 156,
-    createdAt: new Date().toISOString()
-  });
-  showToast('已加载示例项目');
+async function loadDemoProject() {
+  const result = await ProjectAPI.createFromDemo();
+  if (result && result.project) {
+    saveProject(result.project);
+    showToast('已加载示例项目');
+  } else {
+    showToast('加载示例项目失败');
+  }
+}
+
+async function exitDemoProject() {
+  const demoId = currentProject && currentProject.id;
+  setCurrentProject(null);
+  if (demoId) {
+    try { await ProjectAPI.delete(demoId); } catch (e) { console.error('delete demo failed', e); }
+  }
+  showToast('已退出示例项目');
 }

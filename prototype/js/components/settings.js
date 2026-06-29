@@ -1,3 +1,5 @@
+"use strict";
+
 function applyHwMonitorVisibility() {
   const monitor = $('#hw-monitor');
   if (!monitor) return;
@@ -40,13 +42,17 @@ async function loadSettingsConfig() {
 function restoreSettings() {
   try {
     const localModel = localStorage.getItem('setting_localModel');
-    if (localModel !== null) $('#settings-local-model').value = localModel;
+    const localModelEl = $('#settings-local-model');
+    if (localModel !== null && localModelEl) localModelEl.value = localModel;
     const localEndpoint = localStorage.getItem('setting_localEndpoint');
-    if (localEndpoint !== null) $('#settings-local-endpoint').value = localEndpoint;
+    const localEndpointEl = $('#settings-local-endpoint');
+    if (localEndpoint !== null && localEndpointEl) localEndpointEl.value = localEndpoint;
     const cloudModel = localStorage.getItem('setting_cloudModel');
-    if (cloudModel !== null) $('#settings-cloud-model').value = cloudModel;
+    const cloudModelEl = $('#settings-cloud-model');
+    if (cloudModel !== null && cloudModelEl) cloudModelEl.value = cloudModel;
     const dataDir = localStorage.getItem('setting_dataDir');
-    if (dataDir !== null) $('#settings-data-dir').value = dataDir;
+    const dataDirEl = $('#settings-data-dir');
+    if (dataDir !== null && dataDirEl) dataDirEl.value = dataDir;
     ['auto-import', 'auto-rhythm', 'show-hw-monitor'].forEach((k) => {
       const v = localStorage.getItem('setting_' + k);
       const input = $('input[data-setting="' + k + '"]');

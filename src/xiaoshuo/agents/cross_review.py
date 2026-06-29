@@ -19,6 +19,8 @@ import re
 from pathlib import Path
 
 from xiaoshuo.agents.model_orchestrator import get_orchestrator
+from xiaoshuo.infra.logging_config import get_logger
+logger = get_logger(__name__)
 
 # DeepSeek-R1 专长的微观维度 (Naming/Quantity/CharKnowledge)
 R1_SPECIALTY_DIMS = ["Naming", "Quantity", "CharKnowledge"]
@@ -137,10 +139,10 @@ def cross_review(
 
     # ── Phase 2: 辅助模型交叉标注 (DeepSeek-R1-0528, 只查专长维度) ──
     # v7.5: 单GPU串行切换 — 先停 Qwen3.5, 启动 DeepSeek-R1-0528
-    print(f"  [SWAP] 切换到交叉模型 (DeepSeek-R1-0528-8B)...")
+    logger.info(f"  [SWAP] 切换到交叉模型 (DeepSeek-R1-0528-8B)...")
     swap_ok = orch.swap_to("logic_cop_candidate", timeout=120)
     if not swap_ok:
-        print(f"  [WARN] 交叉模型不可用，仅返回主模型结果")
+        logger.warning(f"  [WARN] 交叉模型不可用，仅返回主模型结果")
         return {"primary": primary_result["content"], "secondary_patches": "",
                 "merged": f"## 主审查 (Qwen3.5-9B)\n\n{primary_result['content']}\n\n---\n## 交叉标注\n[交叉模型不可用，跳过]",
                 "has_additions": False, "primary_usage": primary_result.get("usage", {}), "secondary_usage": None,
@@ -174,7 +176,7 @@ def cross_review(
     secondary_result = orch.chat("S3_cross_check", secondary_messages, max_tokens=2048, temperature=0.6, timeout=180)
 
     # ── 切回主模型 ──
-    print(f"  [SWAP] 切回主模型 (Qwen3.5-9B)...")
+    logger.info(f"  [SWAP] 切回主模型 (Qwen3.5-9B)...")
     orch.swap_to("main_model", timeout=120)
 
     # ── Phase 3: 合并 ──
@@ -548,6 +550,102 @@ def scan_fingerprints(text: str, exempt_dialogue: bool = True) -> dict:
         result["risk_level"] = "critical"
 
     return result
+
+
+# v8.1: AI 率预估 (基于指纹词密度 + 经验系数)
+# 番茄小说平台阈值: 30% AI 率为红线，超过则审核不通过
+# 参考: 番茄小说"评估期"机制 — 前 10 章 AI 查重 + 20 万字书测触发
+# 阈值配置从 config.yaml compliance 段读取 (SSOT)
+
+
+def _load_compliance_config() -> dict:
+    """从 config.yaml 加载合规预检配置 (含默认降级)"""
+    try:
+        from xiaoshuo.infra.config_manager import get_config_section
+        cfg = get_config_section("compliance")
+        if cfg:
+            return cfg
+    except Exception:
+        pass
+    return {
+        "ai_rate_threshold": 0.30,
+        "ai_rate_warning": 0.20,
+        "ai_rate_safe": 0.10,
+        "fingerprint_density_coeff": 0.01,
+    }
+
+
+def estimate_ai_rate(text: str, fingerprint_result: dict | None = None) -> dict:
+    """估算文本的 AI 生成率 (基于指纹词密度).
+
+    Args:
+        text: 待检测文本
+        fingerprint_result: scan_fingerprints() 的结果 (可选，不传则自动扫描)
+
+    Returns:
+        {
+            "estimated_ai_rate": float,     # 0.0-1.0
+            "ai_rate_pct": float,           # 百分比表示
+            "risk_level": str,              # "safe"|"warning"|"danger"|"blocked"
+            "passed": bool,                 # 是否通过 30% 红线
+            "fingerprint_count": int,       # 指纹词总数
+            "text_length": int,             # 文本长度 (字符)
+            "threshold": float,             # 阈值 (30%)
+            "recommendation": str,          # 建议
+        }
+    """
+    cfg = _load_compliance_config()
+    threshold = cfg.get("ai_rate_threshold", 0.30)
+    warning = cfg.get("ai_rate_warning", 0.20)
+    safe = cfg.get("ai_rate_safe", 0.10)
+    coeff = cfg.get("fingerprint_density_coeff", 0.01)
+
+    if fingerprint_result is None:
+        fingerprint_result = scan_fingerprints(text, exempt_dialogue=True)
+
+    text_len = len(text.replace("\n", "").replace(" ", ""))
+    fp_count = fingerprint_result.get("total_count", 0)
+
+    if text_len == 0:
+        return {
+            "estimated_ai_rate": 0.0,
+            "ai_rate_pct": 0.0,
+            "risk_level": "safe",
+            "passed": True,
+            "fingerprint_count": 0,
+            "text_length": 0,
+            "threshold": threshold,
+            "recommendation": "文本为空",
+        }
+
+    # 指纹词密度 → AI 率估算
+    density = fp_count / text_len
+    estimated_rate = min(1.0, density / coeff)
+
+    # 风险分级
+    if estimated_rate <= safe:
+        level = "safe"
+        recommendation = "AI 率在安全范围内，可正常提交"
+    elif estimated_rate <= warning:
+        level = "warning"
+        recommendation = "AI 率接近警告线，建议人工润色指纹词密集段落"
+    elif estimated_rate <= threshold:
+        level = "danger"
+        recommendation = "AI 率接近红线 (30%)，建议大幅改写，降低指纹词密度"
+    else:
+        level = "blocked"
+        recommendation = "AI 率超过 30% 红线，禁止提交！需全面改写，降低至 20% 以下"
+
+    return {
+        "estimated_ai_rate": round(estimated_rate, 4),
+        "ai_rate_pct": round(estimated_rate * 100, 1),
+        "risk_level": level,
+        "passed": estimated_rate <= threshold,
+        "fingerprint_count": fp_count,
+        "text_length": text_len,
+        "threshold": threshold,
+        "recommendation": recommendation,
+    }
 
 
 # ============================================================

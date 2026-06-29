@@ -30,6 +30,8 @@ from pathlib import Path
 from collections import Counter
 from datetime import datetime
 from xiaoshuo.infra.config_manager import get_config
+from xiaoshuo.infra.logging_config import get_logger
+logger = get_logger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
@@ -54,7 +56,7 @@ def _load_cfg():
             "elite_factions_floor": sc.get("elite_factions_floor", defaults["elite_factions_floor"]),
         }
     except Exception as e:
-        print(f"[WARN] config.yaml 读取失败, 使用默认值: {e}")
+        logger.warning(f"[WARN] config.yaml 读取失败, 使用默认值: {e}")
         return defaults
 
 

@@ -1,3 +1,5 @@
+"use strict";
+
 function saveTasks() {
   try {
     localStorage.setItem('xiaoshuo_tasks', JSON.stringify(tasks));
@@ -95,11 +97,14 @@ function loadDemoDisassembly() {
   showToast('已加载《全球高武》示例拆书结果');
 }
 function openTaskModal() {
-  $('#task-modal').classList.add('open');
+  const modal = $('#task-modal');
+  if (!modal) return;
+  modal.classList.add('open');
   filterTaskBooks();
 }
 function closeTaskModal() {
-  $('#task-modal').classList.remove('open');
+  const modal = $('#task-modal');
+  if (modal) modal.classList.remove('open');
 }
 function renderTaskBookChecklist() {
   const container = $('#task-book-checklist');

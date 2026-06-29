@@ -7,7 +7,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-BASE = "http://127.0.0.1:8088"
+BASE = "http://127.0.0.1:8089"
 
 
 def get(path):
@@ -109,8 +109,8 @@ def main():
     print(f"[OK] /api/books {status}: count={data.get('count', 0)}")
 
     status, data = get("/api/disassembly/books")
-    assert status == 200 and isinstance(data, list)
-    print(f"[OK] /api/disassembly/books {status}: count={len(data)}")
+    assert status == 200 and "books" in data
+    print(f"[OK] /api/disassembly/books {status}: count={len(data.get('books', []))}")
 
     # Static files served by FastAPI StaticFiles
     status, html = get_raw("/")

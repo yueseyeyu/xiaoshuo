@@ -127,6 +127,36 @@ def _read_vram_used_smi():
     return None
 
 
+def _read_vram_total_smi():
+    """通过 nvidia-smi 获取显存总量 (MB)。"""
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.total",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return int(result.stdout.strip().splitlines()[0])
+    except Exception:
+        pass
+    return None
+
+
+def _read_gpu_util_smi():
+    """通过 nvidia-smi 获取 GPU 利用率 (%)。"""
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=utilization.gpu",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return int(result.stdout.strip().splitlines()[0])
+    except Exception:
+        pass
+    return None
+
+
 def _read_fan_speed_smi():
     """通过 nvidia-smi 获取风扇转速 (pynvml 不可用时降级)。"""
     try:
