@@ -12,24 +12,14 @@ PlotPilot 接入后可作为备选生成器。
 import json
 import sys
 import time
-import urllib.request
 from pathlib import Path
+from xiaoshuo import PROJECT_ROOT
 from xiaoshuo.infra.config_manager import get_config
+from xiaoshuo.infra.llm_client import get_main_model_base_url
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
-
-def _get_llama_base():
-    try:
-        cfg = get_config()
-        port = cfg.get("model_orchestration", {}).get("models", {}).get("main_model", {}).get("port", 8000)
-        return f"http://127.0.0.1:{port}"
-    except Exception:
-        return "http://127.0.0.1:8000"
-
-
-LLAMA_BASE = _get_llama_base()
+LLAMA_BASE = get_main_model_base_url()
 
 
 def generate_ai_version(genre, ch_num, context_text="", story_bible=""):

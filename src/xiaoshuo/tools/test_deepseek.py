@@ -4,7 +4,7 @@ Usage: python scripts/test_deepseek.py
 """
 import sys, csv, json, statistics, io, datetime
 from pathlib import Path
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+from xiaoshuo import PROJECT_ROOT
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 from collections import Counter
 

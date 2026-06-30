@@ -440,6 +440,17 @@ def run_outline_build(orch, genre: str, total_chapters: int, guidance_path=None)
     """
     _logger.info("Starting outline build: genre=%s, chapters=%d", genre, total_chapters)
 
+    # v8.2: 加载 CreativeContext (Part A → Part B 桥接)
+    outline_ctx = ""
+    try:
+        from xiaoshuo.agents.creative_context import CreativeContext
+        ctx = CreativeContext.load(genre)
+        outline_ctx = ctx.build_outline_context(total_chapters)
+        if outline_ctx:
+            _logger.info("CreativeContext loaded for outline building")
+    except Exception as e:
+        _logger.warning("CreativeContext load failed (non-blocking): %s", e)
+
     # ── Load world setting ──
     world_path = PROJECT_ROOT / "assets" / "canon" / "world.md"
     world = ""
@@ -472,7 +483,8 @@ def run_outline_build(orch, genre: str, total_chapters: int, guidance_path=None)
             f"题材: {genre}\n"
             f"总章节数: {total_chapters}\n"
             f"推荐模板: {template_name}\n"
-            f"世界观概要: {world[:1200] if world else '(未设定, 请先运行 worldbuild)'}\n\n"
+            f"世界观概要: {world[:1200] if world else '(未设定, 请先运行 worldbuild)'}\n"
+            f"{outline_ctx}\n\n"
             f"请生成全书总纲框架 (5段式), 给出 2 个不同方向供作者选择。"
         )}
     ]

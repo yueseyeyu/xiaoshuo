@@ -19,9 +19,10 @@ import yaml
 from pathlib import Path
 
 from xiaoshuo import PROJECT_ROOT
+from xiaoshuo.infra.llm_client import get_llm_port
 # P0: bridge to writing_instructions for per-chapter diagnostics
 try:
-    from analysis.writing_instructions import generate_chapter_instructions
+    from xiaoshuo.pipeline.writing_instructions import generate_chapter_instructions
     _instructions_available = True
 except ImportError:
     _instructions_available = False
@@ -36,17 +37,7 @@ def _rhythm_dir(genre):
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
 
-def _get_llm_port():
-    """Read LLM port from config.yaml. Falls back to 8000."""
-    try:
-        from xiaoshuo.infra.config_manager import get_config
-        cfg = get_config()
-        return cfg.get("analysis", {}).get("llm_port", 8000)
-    except Exception:
-        return 8000
-
-
-LLAMA_PORT = _get_llm_port()
+LLAMA_PORT = get_llm_port()
 LLAMA_BASE = f"http://127.0.0.1:{LLAMA_PORT}"
 
 # ── v11: 章节级缓存版本 (rule_analyze 逻辑变更时递增, 触发全量重分析) ──

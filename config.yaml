@@ -556,6 +556,57 @@ analysis:
     # known_quality_list: 从 book_filter 继承, 已知精品永不 FAIL
     # author_protected_books: 从 book_filter 继承, 作者豁免永不 FAIL/QUARANTINE
 
+  # ── 平台合规检测 v8.2 (platform_compliance.py) ──
+  # 检测作者创作内容是否符合番茄小说平台"三次评估"规则
+  platform_compliance:
+    enabled: true
+    tomato:
+      word_threshold: 80000              # 8万字门槛
+      safe_window: [80000, 140000]       # 8-14万安全窗口
+      max_attempts: 3                    # 三次评估机会
+      auto_trigger_at: 150000            # 15万字自动触发审核
+      first_10_chapters:
+        min_hook_density: 0.6            # 前10章平均钩子密度≥0.6
+        min_conflict_density: 0.4        # 前10章冲突密度≥0.4
+        max_info_dump_per_chapter: 500   # 每章世界观灌输上限(字)
+        required_hooks_per_chapter: 1    # 每章至少1个钩子
+      warning_thresholds:
+        pass_probability_low: 40         # 通过概率<40%: 红色预警
+        pass_probability_medium: 60      # 通过概率<60%: 黄色预警
+
+  # ── AI写作味检测 v8.2 (ai_flavor_detector.py) ──
+  # 检测正文是否存在AI写作痕迹，逆向拆解"去AI味指令"为检测规则
+  ai_flavor_detection:
+    enabled: true
+    negative_rules:                      # 负面检测（禁止项）
+      banned_transitions:                # 禁用过渡词
+        - "值得一提的是"
+        - "众所周知"
+        - "总而言之"
+        - "综上所述"
+        - "不可否认"
+        - "显而易见"
+        - "毫无疑问"
+        - "不言而喻"
+      banned_description_patterns:       # 禁用外貌描写模式
+        - "他有一双"
+        - "她有一头"
+        - "他的眼神"
+        - "她的嘴角"
+        - "他看起来"
+        - "她显得"
+    positive_dimensions:                 # 正面评分维度
+      dialogue_naturalness: true         # 对话口语化
+      sensory_detail_density: true       # 感官细节密度
+      emotional_restraint: true          # 情绪克制度
+      life_scene_ratio: true             # 生活化闲笔占比
+      sentence_variety: true             # 句式多样性
+    llm_classifier:
+      enabled: true                      # 使用本地Qwen3.5-9B做语义级分类
+      model: "main_model"
+      score_range: [0, 100]              # 0=高度AI味, 100=高度人味
+      pass_threshold: 60                 # ≥60分通过
+
   # ── 商业评分等级线 (genre_synthesizer.py) ──
   commercial_grades:
     high: 70                             # ≥70: 高概率签约

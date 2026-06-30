@@ -36,7 +36,6 @@ from typing import Optional
 # ============================================================
 # 常量
 # ============================================================
-PROJECT_ROOT = PROJECT_ROOT
 STATE_PATH = PROJECT_ROOT / "state.json"
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
@@ -61,7 +60,7 @@ STAGE_COMMANDS = {
     "S1": ["s1", "next"],
     "S2a": ["write", "next"],
     "S2b": ["next"],
-    "S2c": ["next"],
+    "S2c": ["compare", "next"],
     "S2d": ["write", "next"],
     "S3": ["review", "next", "rewrite"],
     "S4": ["next", "rewrite"],
@@ -304,6 +303,121 @@ class SessionManager:
         self._save()
 
         return path
+
+    def get_chapter_path(self, chapter: int) -> Optional[Path]:
+        """获取章节文件路径 (用于 S4 检测等)。"""
+        path = PROJECT_ROOT / "assets" / "chapters" / f"chapter_{chapter}.md"
+        if path.exists():
+            return path
+        return None
+
+    # ── v8.2: 合同链集成 (Part C → D 一致性保障) ──
+
+    def check_contract_before_write(self, chapter: int) -> dict:
+        """写前检查: 运行时合同 — 哪些设定生效 + 债务提醒。
+
+        Returns:
+            {"active_seeds": int, "pending_debts": list, "warnings": list}
+        """
+        try:
+            from xiaoshuo.pipeline.contract_chain import ContractSeed, DebtBoard
+            seed = ContractSeed()
+            if not seed.loaded:
+                return {"active_seeds": 0, "pending_debts": [], "warnings": ["合同种子未加载"]}
+            active = seed.relevant_seeds(chapter)
+            debts = DebtBoard(self.book or "default")
+            debts._load()
+            pending = debts.get_pending(chapter)
+            overdue = debts.overdue_debts(chapter)
+            warnings = []
+            if overdue:
+                warnings.append(f"过期债务: {len(overdue)} 条")
+            if pending:
+                warnings.append(f"待兑现债务: {len(pending)} 条")
+            return {
+                "active_seeds": len(active),
+                "pending_debts": [{"desc": d.get("summary", "")} for d in pending[:5]],
+                "warnings": warnings,
+            }
+        except Exception as e:
+            return {"active_seeds": 0, "pending_debts": [], "warnings": [f"合同链不可用: {e}"]}
+
+    def commit_chapter_to_contract(self, chapter: int, text: str) -> dict:
+        """写后提交: 章节事实沉淀 + 新债务注册。
+
+        v8.3: 使用 comparison_engine._rich_scan 生成 rhythm_row,
+        使 ChapterCommit 能正确提取钩子/冲突/爽点等事实。
+
+        Returns:
+            {"committed_facts": int, "new_debts": int, "audit_issues": list}
+        """
+        try:
+            from xiaoshuo.pipeline.contract_chain import ChapterCommit, DebtBoard
+
+            # v8.3: 从章节文本生成 rhythm_row (钩子/冲突/爽点指标)
+            rhythm_row = {}
+            try:
+                from xiaoshuo.pipeline.comparison_engine import _rich_scan
+                metrics = _rich_scan(text)
+                rhythm_row = {
+                    "wc": metrics.get("chars", 0),
+                    "hook_density": metrics.get("hook_density", 0),
+                    "hook_type": "strong" if metrics.get("hook_density", 0) > 1.0
+                                 else ("weak" if metrics.get("hook_density", 0) > 0.3 else "none"),
+                    "conflict_density": metrics.get("conflict_density", 0),
+                    "pleasure_intensity": metrics.get("pleasure_intensity", 0),
+                    "dialogue_ratio": metrics.get("dialogue_ratio", 0),
+                    "readability": metrics.get("readability", 0),
+                    "emotion": "日常",  # 默认值, 后续可由 LLM 标注
+                }
+            except ImportError:
+                pass  # comparison_engine 不可用则 rhythm_row 为空
+
+            book_name = self.book or "default"
+            commit = ChapterCommit(book_name, chapter, text, rhythm_row)
+            audit_result = commit.audit()
+
+            # v8.3: 将新债务注册到债务看板
+            debts = DebtBoard(book_name)
+            for debt in audit_result.get("new_debts", []):
+                debts.add_debt(
+                    chapter,
+                    debt.get("type", "general"),
+                    debt.get("summary", ""),
+                    debt.get("severity", "MED"),
+                )
+
+            return {
+                "committed_facts": len(audit_result.get("new_facts", [])),
+                "new_debts": len(audit_result.get("new_debts", [])),
+                "audit_issues": [],  # 审计正常无 issue
+            }
+        except Exception as e:
+            return {"committed_facts": 0, "new_debts": 0, "audit_issues": [f"提交失败: {e}"]}
+
+    # ── v8.2: S4 风格检测快捷方法 ──
+
+    def detect_style(self, chapter: int) -> dict:
+        """对指定章节执行 S4+++ 风格检测。
+
+        Returns:
+            {"verdict": "PASS"|"WARNING"|"FATAL", "flags": int, "summary": str}
+        """
+        try:
+            from xiaoshuo.agents.style_detector import StyleDetector
+            path = self.get_chapter_path(chapter)
+            if not path:
+                return {"verdict": "SKIP", "flags": 0, "summary": "章节文件不存在"}
+            text = path.read_text(encoding="utf-8")
+            detector = StyleDetector()
+            result = detector.detect(text, chapter_num=chapter)
+            return {
+                "verdict": result.verdict,
+                "flags": result.flags,
+                "summary": result.summary,
+            }
+        except Exception as e:
+            return {"verdict": "ERROR", "flags": 0, "summary": f"检测失败: {e}"}
 
     # ── 状态展示 ──
 

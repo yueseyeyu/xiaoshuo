@@ -1,11 +1,13 @@
 # 番茄小说 AI 辅助创作系统 -- 系统架构设计文档
 
-> **文档版本**: v7.5
-> **实际代码**: analysis/ 7步管线 + agents/ 10模块 + novel.py 15命令
+> **文档版本**: v8.3
+> **实际代码**: pipeline/ 7步管线 + agents/ 15模块 + novel.py 18命令
 > **关联文档**: [AI_PROTOCOL.md](AI_PROTOCOL.md) | [config.yaml](config.yaml)
 > **v7.5 审视修复**: 2026-06-19 — 13项架构优化落地（P0安全/P1并行+拆分+重构/P2基础设施）
 > **v7.5 交叉审查升级**: 2026-06-21 — 双模型顺序切换（swap_to）+ 交叉模型升级至 DeepSeek-R1-0528-Qwen3-8B + S3 评审角色深层 TASK_TEMPLATES + AI 指纹词密度/风格漂移 detection 配置
 > **v7.5 Agent 记忆系统**: 2026-06-21 — 结构化行为回溯备忘录 (SQLite + 精准Tag) + CLI 命令 + pipeline 集成钩子 (add_from_pipeline)
+> **v8.2 管线重构**: 2026-06-28 — 进程内调用替代 subprocess + S4+++ 七层检测 + 平台合规检测 + AI味检测 + 创作指导10维
+> **v8.3 B→C→D→E 闭环**: 2026-07-01 — 合同链写前/写后集成 + CreativeContext 节奏目标/技法卡片注入 + Part E 风格进化引擎 + S2c 对比分析 + 风格提示反馈
 
 ---
 
@@ -64,6 +66,29 @@
 | 交叉审查 | `agents/cross_review.py` + `agents/model_orchestrator.swap_to()` | 双模型顺序切换交叉审查（Qwen3.5-9B → DeepSeek-R1-0528-Qwen3-8B） |
 | Agent记忆 | `agents/memory_store.py` | 结构化行为回溯备忘录 (SQLite + 精准Tag, 零向量依赖) |
 
+### v8.2 管线重构新增
+
+| 模块 | 路径 | 用途 |
+|------|------|------|
+| 管线基类 | `src/xiaoshuo/pipeline/base.py` | PipelineNode 抽象基类 + _ModuleCallNode 进程内调用 |
+| 管线节点 | `src/xiaoshuo/pipeline/pipeline_nodes.py` | 各节点实现（BookProcessor/RhythmAnalyzer/QualityGate/CreativeBridge 等） |
+| 统一 LLM 客户端 | `src/xiaoshuo/infra/llm_client.py` | 统一 llm_chat() 接口，替代各模块独立调用 |
+| S4+++ 七层检测 | `src/xiaoshuo/agents/style_detector.py` | L1-L7 完整 AI 风格检测（PPL/Burstiness/指纹词/句法/语义/N-gram） |
+| 平台合规检测 | `src/xiaoshuo/pipeline/platform_compliance.py` | 番茄小说三次评估规则（8万字门槛/前10章节奏/通过概率） |
+| AI味检测 | `src/xiaoshuo/pipeline/ai_flavor_detector.py` | AI写作痕迹检测（负面规则+正面评分+人味度评分） |
+| 创作指导10维 | `src/xiaoshuo/pipeline/creative_bridge.py` | 新增三维进阶+章末钩子指导（8维→10维） |
+
+### v8.3 B→C→D→E 闭环新增
+
+| 模块 | 路径 | 用途 |
+|------|------|------|
+| 创作上下文桥接 | `src/xiaoshuo/agents/creative_context.py` | Part A→B→C 桥接：节奏目标+技法卡片+世界上下文 |
+| 风格进化引擎 | `src/xiaoshuo/agents/style_evolution.py` | Part E：作者风格画像生成+风格提示+漂移检测 |
+| 合同链集成 | `src/xiaoshuo/agents/session_manager.py` | check_contract_before_write() + commit_chapter_to_contract() |
+| S2c 对比分析 | `novel.py` _session_compare | 章节指标对比+签约概率估算 |
+| 风格命令 | `novel.py` cmd_style / _session_style | 查看风格进化状态 |
+| 写前三层准备 | `novel.py` _run_prewrite_combined | 合同链+创作指导+风格提示 三层数据驱动 |
+
 ---
 
 ## 快速导航
@@ -77,8 +102,41 @@
 
 ### 按阶段查看文档
 
-- **Part A 数据管线**: [03-核心模块](docs/design/03-modules-core.md) (book_processor -> creative_bridge)
+- **Part A 数据管线**: [03-核心模块](docs/design/03-modules-core.md) (book_processor -> creative_bridge -> CreativeContext)
 - **Part B 骨架生成**: [04-辅助模块](docs/design/04-modules-aux.md) (world_builder / outline_builder / character_designer)
-- **Part C 写作交互**: [05-数据配置](docs/design/05-data-config.md) (state_machine workflow)
-- **Part D 对比保障**: [03-核心模块](docs/design/03-modules-core.md) (comparison_engine)
-- **Part E 风格涌现**: [11-完整愿景](docs/design/11-vision.md) (chapter_decisions -> style_emergence)
+- **Part C 写作交互**: [05-数据配置](docs/design/05-data-config.md) (state_machine workflow + 合同链 + 写前三层准备)
+- **Part D 对比保障**: [03-核心模块](docs/design/03-modules-core.md) (comparison_engine + S2c 对比 + S4+++ 七层检测)
+- **Part E 风格涌现**: [11-完整愿景](docs/design/11-vision.md) (chapter_decisions -> style_evolution -> 风格提示反馈)
+
+### v8.3 B→C→D→E 闭环架构
+
+```
+Part A (拆书分析)
+  ↓ CreativeContext.load() → 节奏目标 + 技法卡片
+Part B (骨架生成)
+  ↓ world_builder / outline_builder
+Part C (写作交互)
+  ↓ _run_prewrite_combined():
+  │   1. 合同链: check_contract_before_write() → 生效设定 + 待兑现债务
+  │   2. 创作指导: CreativeContext → 节奏目标 + 技法卡片
+  │   3. 风格提示: style_evolution.get_style_hints() → 作者风格画像
+  ↓ 作者写作 (S2a write)
+  ↓ commit_chapter_to_contract(): 事实沉淀 + 新债务注册
+Part D (对比保障)
+  ↓ S2c compare: comparison_engine._rich_scan → 指标对比 + 签约概率
+  ↓ S3 review: AI 评审面板
+  ↓ S4 s4: StyleDetector.detect() → 七层 AI 风格检测
+Part E (风格进化)
+  ↓ PUBLISH 后: _auto_update_style_profile() → 风格画像更新
+  ↓ get_style_hints() → 注入下一章写前准备 (闭环)
+```
+
+### 待融入建议 (来自 Kimi 审查)
+
+| 优先级 | 建议 | 当前状态 |
+|--------|------|----------|
+| P0 | 五维审查 (D1-D5) 加入 S3 评审 | ❌ 待实现 |
+| P0 | 伏笔追踪 + 自动休眠 (novel_index) | ⚠️ 有 DebtBoard 但不完整 |
+| P0 | Specs-driven 大纲生成 | ⚠️ CreativeContext 数据已有 |
+| P1 | 动态人物弧光追踪 | ❌ 待实现 |
+| P1 | 风格 DNA 提取 (Part E 增强) | ⚠️ style_evolution 基础版已有 |

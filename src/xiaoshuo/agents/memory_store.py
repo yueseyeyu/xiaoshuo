@@ -47,9 +47,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
+from xiaoshuo import PROJECT_ROOT
+
 
 # 默认数据库路径 (相对于项目根)
-DEFAULT_DB_DIR = Path(__file__).resolve().parent.parent.parent.parent / "memory"
+DEFAULT_DB_DIR = PROJECT_ROOT / "memory"
 DEFAULT_DB_PATH = DEFAULT_DB_DIR / "memory.db"
 
 

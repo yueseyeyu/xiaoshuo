@@ -246,6 +246,12 @@ FIELD_LABELS = {
     "kl_divergence": "KL散度(差异度)",
     "low_freq_opportunities": "低频差异化机会",
     "cliche_scan": "陈词滥调扫描",
+    "progression_stages": "进阶阶段",
+    "top_reference": "对标参考",
+    "dominant_arc": "主力弧线",
+    "hook_distribution": "钩子类型分布",
+    "zero_hook_redline": "零钩子红线",
+    "first_10_chapter_rule": "首秀要求",
 }
 
 # UX: pct_benchmarks nested key labels for Chinese output
@@ -427,7 +433,9 @@ def analyze_for_guidance(genre="末世"):
     guidance["genre_selection"] = _build_genre_selection(genre, book_data, sub_types_pool)
     guidance["plot_progression"] = _build_plot_progression(book_data, arc_summaries, all_rows, total_ch_all, confidence)
     guidance["anti_homogenization"] = _build_anti_homogenization(book_data, sub_types_pool, hook_types_pool)  # P1-3
-
+    guidance["progression_guide"] = _build_progression_guide(book_data, arc_summaries, confidence)  # v8.2: 三维进阶
+    guidance["hook_guide"] = _build_hook_guide(all_rows, book_data, confidence)  # v8.2: 章末钩子
+    
     return guidance
 
 
@@ -641,6 +649,129 @@ def _build_plot_progression(book_data, arc_summaries, all_rows, total_ch, confid
     }
 
 
+# ── v8.2: 三维进阶指导 (身份/财富/麻烦) ──
+
+def _build_progression_guide(book_data, arc_summaries, confidence):
+    """Generate 3D progression guidance: identity/wealth/trouble escalation.
+    
+    Based on <一品布衣> methodology: protagonist progression should be
+    identity + wealth + trouble escalation, not simple level-up.
+    """
+    arc_dist = dict(Counter(a["arc_type"] for a in arc_summaries))
+    dominant_arc = max(arc_dist, key=arc_dist.get) if arc_dist else "上升弧"
+    
+    books = sorted(book_data, key=lambda b: -b["avg_pleasure"])
+    top3 = [b["name"] for b in books[:3]]
+    
+    stages = [
+        {
+            "stage": 1,
+            "label": "开局",
+            "identity": "底层/边缘身份",
+            "wealth": "极度匮乏",
+            "trouble": "个人生存危机",
+            "goal": "建立主角底线与反差",
+        },
+        {
+            "stage": 2,
+            "label": "崛起",
+            "identity": "小势力/团队核心",
+            "wealth": "初步积累",
+            "trouble": "地方势力对抗",
+            "goal": "身份升级 + 麻烦扩大",
+        },
+        {
+            "stage": 3,
+            "label": "扩张",
+            "identity": "区域势力/组织领袖",
+            "wealth": "资源掌控",
+            "trouble": "跨区域冲突",
+            "goal": "财富质变 + 对抗层级提升",
+        },
+        {
+            "stage": 4,
+            "label": "巅峰",
+            "identity": "世界级/顶级身份",
+            "wealth": "垄断/稀缺资源",
+            "trouble": "世界级威胁/终极对抗",
+            "goal": "身份顶点 + 麻烦终极化",
+        },
+    ]
+    
+    return {
+        "summary": f"三维进阶指导 — 身份/财富/麻烦非纯数值升级 (置信度:{confidence})",
+        "confidence": confidence,
+        "dominant_arc": dominant_arc,
+        "top_reference": top3,
+        "progression_stages": stages,
+        "disclaimer": "⚠ 进阶路径为推荐模板，实际创作中可根据世界观灵活调整",
+        "guidance": [
+            f"推荐弧线: {dominant_arc} — 主角从弱势到强势的情感轨迹",
+            "拒绝纯数值升级: 每一阶段都伴随身份变化、财富质变、麻烦扩大",
+            "阶段过渡: 前一阶段未解决的麻烦 → 下一阶段的核心冲突",
+            f"参考对标: {', '.join(top3)} — 观察这些书的进阶路径",
+        ],
+    }
+
+
+# ── v8.2: 章末钩子指导 ──
+
+def _build_hook_guide(all_rows, book_data, confidence):
+    """Generate chapter-end hook guidance based on rhythm data.
+    
+    Analyzes hook types and provides chapter-end hook templates.
+    """
+    hook_types = Counter(r.get("hook_type", "none") for r in all_rows)
+    total_hooks = sum(hook_types.values())
+    
+    hook_templates = {
+        "悬念": "在章末抛出一个未解之谜或疑问",
+        "反转": "揭示一个意外真相或身份反转",
+        "危机": "突然出现新的威胁或危险",
+        "约定": "主角做出承诺或约定，留下期待",
+        "登场": "关键人物突然出现或即将登场",
+        "发现": "主角发现重要线索或秘密",
+    }
+    
+    hook_dist = []
+    for htype, count in hook_types.most_common(6):
+        if htype == "none":
+            continue
+        pct = round(count / max(total_hooks, 1) * 100, 1)
+        template = hook_templates.get(htype, "")
+        hook_dist.append({
+            "type": htype,
+            "pct": pct,
+            "template": template,
+        })
+    
+    # Analyze zero-hook streaks
+    zero_streaks = []
+    for b in book_data:
+        if b.get("zero_hook_streak", 0) > 0:
+            zero_streaks.append(b["zero_hook_streak"])
+    avg_zero = statistics.mean(zero_streaks) if zero_streaks else 0
+    
+    return {
+        "summary": "章末钩子指导 — 每章结尾必备悬念 (基于拆书数据)",
+        "confidence": confidence,
+        "hook_distribution": hook_dist,
+        "zero_hook_redline": {
+            "avg_streak": round(avg_zero, 1),
+            "max_safe": 2,
+            "rule": "连续≥3章无钩子 = 读者弃书风险30%+",
+        },
+        "first_10_chapter_rule": "番茄首秀要求: 前10章每章结尾必须有钩子",
+        "disclaimer": "⚠ 钩子类型基于关键词正则检测(漏检率~30%), 建议结合LLM语义分析",
+        "guidance": [
+            "每章结尾必选一种钩子类型 (悬念/反转/危机/约定/登场/发现)",
+            "精品基准: " + ", ".join("%s(%.1f%%)" % (h["type"], h["pct"]) for h in hook_dist[:3]),
+            f"零钩子红线: 连续{int(avg_zero)}章零钩子已是精品极限, 前10章必须每章有钩子",
+            "钩子公式: 冲突结果 + 新悬念 = 读者不得不点下一章",
+        ],
+    }
+
+
 # ── P1-3: Anti-homogenization ──
 
 def _build_anti_homogenization(book_data, sub_types_pool, hook_types_pool):
@@ -837,15 +968,15 @@ def generate_md_report(guidance, output_path):
         f"> ⚠️ **AI声明**: 本指导由AI辅助统计分析生成，仅提供趋势参考和写作建议，不构成创作内容。AI生成正文须通过S3质量门禁。",
         gate_warning,
         "\n---\n",
-        "## 全部概览 — 8维渐进式披露\n",
+        "## 全部概览 — 10维渐进式披露\n",
         "> 不是一次性看完所有维度，而是**按你的创作阶段逐步深入**。",
-        "> 每个阶段只关注 2-3 维，完整 8 维随时可查。\n",
+        "> 每个阶段只关注 2-3 维，完整 10 维随时可查。\n",
         "| 阶段 | 维度 | 何时看 |",
         "|------|------|--------|",
         "| 🟢 **准备期** | 题材选择 / 世界观 | 开书前 — 决定写什么类型、世界长什么样 |",
         "| 🟡 **规划期** | 粗纲 / 人物 | 动笔前 — 搭骨架、设计角色 |",
-        "| 🔵 **执行期** | 细纲 / 文笔 / 情节推动 | 日更时 — 每章怎么写、节奏怎么控 |",
-        "| 🔴 **审视期** | 反同质化 | 完本后 — 检查是否跟风太紧、如何创新 |",
+        "| 🔵 **执行期** | 细纲 / 文笔 / 情节推动 / 章末钩子 | 日更时 — 每章怎么写、节奏怎么控 |",
+        "| 🔴 **审视期** | 反同质化 / 三维进阶 | 完本后 — 检查是否跟风太紧、升级路径是否合理 |",
         "\n---\n",
     ]
 
@@ -872,9 +1003,15 @@ def generate_md_report(guidance, output_path):
           "rule", "action", "guidance", "disclaimer"]),
         ("🔵 七、情节推动 [执行期]", "plot_progression",
          ["plot_waves", "turning_count", "peak_interval", "guidance", "disclaimer"]),
+        ("🔵 八、章末钩子 [执行期]", "hook_guide",
+         ["hook_distribution", "zero_hook_redline", "first_10_chapter_rule",
+          "guidance", "disclaimer"]),
         # 🔴 阶段4: 审视期
-        ("🔴 八、反同质化 [审视期]", "anti_homogenization",
+        ("🔴 九、反同质化 [审视期]", "anti_homogenization",
          ["kl_divergence", "low_freq_opportunities", "suggestions", "disclaimer"]),
+        ("🔴 十、三维进阶 [审视期]", "progression_guide",
+         ["dominant_arc", "top_reference", "progression_stages",
+          "guidance", "disclaimer"]),
     ]
 
     for title, key, fields in staged_sections:
@@ -931,7 +1068,9 @@ def main():
         "人物设计: 弧型/情感指标",
         "选材方向: 哪个子类型更火",
         "故事推进: 波次/转折/爽点间隔",
+        "章末钩子: 每章结尾怎么留悬念",
         "避免雷同: 跟爆款太像了吗",
+        "三维进阶: 身份/财富/麻烦升级路径",
     ]
     for i, d in enumerate(readable_dims, 1):
         print(f"  {i}. {d}")

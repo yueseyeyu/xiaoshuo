@@ -555,7 +555,13 @@ def cmd_worldbuild(args) -> None:
     from xiaoshuo.agents.world_builder import run_world_build
 
     orch = get_orchestrator()
-    world_content = run_world_build(orch)
+    genre = "末世"
+    try:
+        cfg = load_config()
+        genre = cfg.get("author", {}).get("genre", "末世")
+    except Exception:
+        pass
+    world_content = run_world_build(orch, genre=genre)
 
     world_path = PROJECT_ROOT / "assets" / "canon" / "world.md"
     world_path.parent.mkdir(parents=True, exist_ok=True)
@@ -567,16 +573,25 @@ def cmd_worldbuild(args) -> None:
 
 def cmd_s4(args) -> None:
     """
-    S4+++ 七层检测 — 基础版 (L1 PPL + L2 Burstiness)。
-    完整七层需 s4_plus_plus.py + voice_baseline.py (5+ 章样本积累)。
+    S4+++ 七层 AI 风格检测 — 完整版 (L1-L7)。
+    v8.2: 使用 style_detector.StyleDetector 实现完整七层检测。
     """
-    from math import sqrt, log
-    from collections import Counter
+    from xiaoshuo.agents.style_detector import StyleDetector
 
-    target = args.file
+    target = getattr(args, "file", "") or ""
     if not target:
-        print("[S4+++] 用法: python novel.py s4 --file <章节路径>")
-        return
+        # 尝试从 session 获取章节文件
+        chapter = getattr(args, "chapter", 0)
+        if chapter:
+            from xiaoshuo.agents.session_manager import SessionManager
+            sm = SessionManager()
+            ch_path = sm.get_chapter_path(chapter)
+            if ch_path and ch_path.exists():
+                target = str(ch_path)
+        if not target:
+            print("[S4+++] 用法: python novel.py s4 --file <章节路径>")
+            print("       或: python novel.py s4 --chapter 5")
+            return
 
     filepath = Path(target)
     if not filepath.exists():
@@ -588,71 +603,20 @@ def cmd_s4(args) -> None:
         print("[FAIL] 文件为空")
         return
 
-    # ── 读取检测阈值 (SSOT: config.yaml) ──
-    try:
-        cfg = yaml.safe_load(open(CONFIG_PATH, 'r', encoding='utf-8'))
-        l1 = cfg.get("detection", {}).get("layers", {}).get("l1_ppl", {})
-        l2 = cfg.get("detection", {}).get("layers", {}).get("l2_burstiness", {})
-        ppl_safe = l1.get("safe_threshold", 50)
-        ppl_warn = l1.get("warn_threshold", 40)
-        burst_safe = l2.get("safe_threshold", 0.6)
-    except Exception:
-        ppl_safe, ppl_warn = 50, 40
-        burst_safe = 0.6
+    # 执行七层检测
+    detector = StyleDetector()
+    chapter_num = getattr(args, "chapter", 0) or 0
+    result = detector.detect(text, chapter_num=chapter_num)
 
-    # ── L1: Perplexity (unigram model, 全文本) ──
-    chars = [c for c in text if c.strip()]
-    total = len(chars)
-    if total < 10:
-        print("[FAIL] 文本太短，无法计算 PPL")
-        return
-    freq = Counter(chars)
-    entropy = -sum((f / total) * log(f / total, 2) for f in freq.values())
-    ppl = 2 ** entropy
+    print(result.summary)
 
-    # ── L2: Burstiness (句长变异系数) ──
-    import re
-    sentences = re.split(r'[。！？!?\n]+', text)
-    sentences = [s.strip() for s in sentences if s.strip()]
-    if len(sentences) < 3:
-        print("[FAIL] 句子太少，无法计算 Burstiness")
-        return
-    sent_lens = [len(s) for s in sentences]
-    mean_len = sum(sent_lens) / len(sent_lens)
-    if mean_len < 1:
-        var = 0.0
-    else:
-        var = sqrt(sum((x - mean_len) ** 2 for x in sent_lens) / len(sent_lens))
-    burstiness = var / mean_len if mean_len > 0 else 0.0
-
-    # ── 判定 ──
-    ppl_status = "人类风格" if ppl > ppl_safe else ("警告" if ppl > ppl_warn else "AI嫌疑")
-    ppl_icon = "[OK]" if ppl > ppl_safe else ("[WARN]" if ppl > ppl_warn else "[FAIL]")
-    burst_status = "人类风格" if burstiness > burst_safe else "AI嫌疑"
-    burst_icon = "[OK]" if burstiness > burst_safe else "[FAIL]"
-
-    print(f"\n{'=' * 60}")
-    print(f"  S4+++ 基础检测: {filepath.name}")
-    print(f"{'=' * 60}")
-    print(f"  L1 PPL:        {ppl:.2f}  {ppl_icon} {ppl_status}")
-    print(f"     (安全阈值: >{ppl_safe}, 警告阈值: <{ppl_warn})")
-    print(f"  L2 Burstiness: {burstiness:.4f}  {burst_icon} {burst_status}")
-    print(f"     (安全阈值: >{burst_safe}, 句数: {len(sentences)})")
-    print(f"  L3-L7: 需完整 voice_baseline (5+ 章积累)")
-    print(f"{'=' * 60}")
-
-    # ── 综合判定 ──
-    flags = 0
-    if ppl <= ppl_safe:
-        flags += 1
-    if burstiness <= burst_safe:
-        flags += 1
-    if flags == 0:
-        print("  [OK] 综合: 通过基础检测，无明显 AI 痕迹")
-    elif flags == 1:
-        print("  [WARN] 综合: 1 层异常，建议人工复查")
-    else:
-        print("  [FAIL] 综合: 2 层异常，高度疑似 AI 生成")
+    # 如果 FATAL，建议回 S2d 重写
+    if result.verdict == "FATAL":
+        print("\n  [建议] 高度疑似 AI 生成，请回到 S2d 重新精修。")
+        print("  重点检查:")
+        for lr in result.layers:
+            if not lr.passed:
+                print(f"    - {lr.layer} {lr.name}: {lr.detail}")
 
 
 def cmd_deep(args) -> None:
@@ -857,13 +821,23 @@ def cmd_session(args) -> None:
         elif cmd == "review":
             _session_review(sm)
 
+        elif cmd == "compare":
+            _session_compare(sm)
+
         elif cmd == "decisions":
             _session_decisions(sm)
+
+        elif cmd == "style":
+            _session_style(sm)
 
         elif cmd == "next":
             sm.advance_stage("next")
             print(f"  [OK] Advanced to [{sm.current_stage}] {STAGE_LABELS.get(sm.current_stage, '')}")
             _print_session_status(sm)
+
+            # v8.3: PUBLISH 后自动更新风格画像
+            if sm.current_stage == "S1" and sm.current_chapter > 1:
+                _auto_update_style_profile()
 
         elif cmd == "rewrite":
             sm.advance_stage("rewrite")
@@ -910,7 +884,9 @@ def _print_session_help(sm) -> None:
     print("  s1         -- S1: Creative guidance (multi-temperature)")
     print("  write      -- S2a: Submit chapter text (write or paste)")
     print("  review     -- S3: AI review panel")
+    print("  compare    -- S2c: Comparison analysis (metrics + signing probability)")
     print("  decisions  -- Collect chapter decisions (style data)")
+    print("  style      -- Show style evolution status (Part E)")
     print("  next       -- Advance to next stage")
     print("  rewrite    -- Go back to S2d (revision)")
     print("  goto STAGE -- Jump to specific stage")
@@ -927,7 +903,8 @@ def _session_worldbuild(sm) -> None:
     from xiaoshuo.agents.world_builder import run_world_build
 
     orch = get_orchestrator()
-    world_content = run_world_build(orch, session_manager=sm)
+    genre = sm.chapter_context().get("genre", "末世")
+    world_content = run_world_build(orch, session_manager=sm, genre=genre)
 
     world_path = PROJECT_ROOT / "assets" / "canon" / "world.md"
     world_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1013,46 +990,66 @@ def _session_s1(sm) -> None:
 
 
 def _run_prewrite_combined(sm, chapter: int) -> None:
-    """v7.5: 整合 contract_chain 写前检查 + writing_instructions 指导。
-    在 write 命令前自动调用，为作者提供统一的写前准备信息。
+    """v8.3: 整合写前准备 — 合同链 + 创作指导 + 节奏目标 + 风格提示。
+
+    三层数据驱动写前准备:
+      1. 合同链: 运行时合同(生效设定+待兑现债务) — Part C→D 一致性保障
+      2. 创作指导: CreativeContext 节奏目标+技法卡片 — Part A→B→C 桥接
+      3. 风格提示: 作者风格画像(如有) — Part E→C 反馈注入
     """
-    print(f"\n  [prewrite] 写前准备 — 合同链 + 写作指令")
+    print(f"\n  [prewrite] 写前准备 — 合同链 + 创作指导 + 风格提示")
 
-    # ── 1. 合同链: 从 canon 生成运行时合同 ──
+    # ── 1. 合同链: 通过 SessionManager 获取运行时合同 ──
     try:
-        from xiaoshuo.pipeline.contract_chain import ContractSeed, run_contract_chain
-        canon_path = PROJECT_ROOT / "assets" / "canon"
-        seed = ContractSeed(
-            world_path=canon_path / "world.md",
-            character_path=canon_path / "characters.md",
-            timeline_path=canon_path / "timeline.md",
-            emotional_path=canon_path / "emotional_arcs.md",
-            subplot_path=canon_path / "subplot_board.md",
-        )
-        contracts = run_contract_chain(seed, chapter)
-        if contracts:
-            summary = contracts.get("pre_write_checklist", [])
-            if summary:
-                print(f"  [contract] {len(summary)} 条写前合同约束:")
-                for item in summary[:5]:
-                    print(f"    - {item}")
-                if len(summary) > 5:
-                    print(f"    ... 还有 {len(summary) - 5} 条")
+        contract = sm.check_contract_before_write(chapter)
+        if contract["active_seeds"] > 0:
+            print(f"  [contract] {contract['active_seeds']} 条生效设定")
+        if contract["pending_debts"]:
+            debts = contract["pending_debts"]
+            print(f"  [contract] {len(debts)} 条待兑现债务:")
+            for d in debts[:3]:
+                desc = d.get("desc", "")
+                if desc:
+                    print(f"    - {desc[:60]}")
+            if len(debts) > 3:
+                print(f"    ... 还有 {len(debts) - 3} 条")
+        for warning in contract.get("warnings", []):
+            print(f"  [contract] ⚠ {warning}")
     except Exception:
-        pass  # contract_chain 不可用则静默跳过
+        pass  # 合同链不可用则静默跳过
 
-    # ── 2. 写作指令: 从 rhythm 数据生成逐章指导 ──
+    # ── 2. 创作指导: CreativeContext 节奏目标 + 技法卡片 ──
     try:
-        from xiaoshuo.pipeline.writing_instructions import generate_instructions
-        cfg = yaml.safe_load(open(CONFIG_PATH, 'r', encoding='utf-8'))
-        project = cfg.get("writing_instructions", {}).get("project", "末日模拟器")
-        instructions = generate_instructions(project, chapter)
-        if instructions:
-            print(f"  [instructions] 第 {chapter} 章写作指令:")
-            for key, val in list(instructions.items())[:5]:
-                print(f"    {key}: {val}")
+        from xiaoshuo.agents.creative_context import CreativeContext
+        genre = sm.genre or "末世"
+        ctx = CreativeContext.load(genre)
+        if ctx.is_available:
+            targets = ctx.get_rhythm_targets()
+            if targets:
+                print(f"  [guidance] 节奏目标 (基于{targets.get('sample_count', 0)}本精品书):")
+                print(f"    钩子密度 ≥ {targets.get('hook_density_target', '?')}/千字")
+                print(f"    冲突密度 ≥ {targets.get('conflict_density_target', '?')}/千字")
+                print(f"    爽点强度 ≥ {targets.get('pleasure_intensity_target', '?')}/10")
+            cards = ctx.get_technique_cards(category="structure", top_k=2)
+            if cards:
+                print(f"  [guidance] 推荐技法:")
+                for card in cards:
+                    title = card.get("title", "")
+                    desc = card.get("description", "")[:80]
+                    print(f"    - {title}: {desc}")
     except Exception:
-        pass  # writing_instructions 不可用则静默跳过
+        pass  # 创作指导不可用则静默跳过
+
+    # ── 3. 风格提示: 作者风格画像 (Part E 反馈) ──
+    try:
+        from xiaoshuo.agents.style_evolution import get_style_hints
+        hints = get_style_hints()
+        if hints:
+            print(f"  [style] 作者风格提示 ({len(hints)} 条):")
+            for hint in hints[:3]:
+                print(f"    - {hint[:80]}")
+    except Exception:
+        pass  # 风格画像不可用则静默跳过
 
     print(f"  [prewrite] 写前准备完成\n")
 
@@ -1064,64 +1061,79 @@ def _session_write(sm, file_arg: str = "") -> None:
     # ── v7.5: 写前准备 — 合同链 + 写作指令整合 ──
     _run_prewrite_combined(sm, chapter)
 
-    # 如果提供了文件路径, 直接读取
+    # ── 提交章节文本 (文件或交互输入) ──
+    text = ""
     if file_arg:
         fpath = Path(file_arg)
         if not fpath.is_absolute():
             fpath = PROJECT_ROOT / fpath
         if fpath.exists():
             text = fpath.read_text(encoding="utf-8")
-            path = sm.submit_chapter(chapter, text)
-            wc = len(text.replace("\n", "").replace(" ", ""))
-            print(f"  [OK] Chapter {chapter} loaded from {fpath.name} ({wc} chars)")
-            print(f"  Saved to: {path}")
-            return
+            print(f"  [OK] Loaded from {fpath.name}")
         else:
             print(f"  [FAIL] File not found: {fpath}")
             return
+    else:
+        print(f"\n{'=' * 60}")
+        print(f"  Write Chapter {chapter}")
+        print(f"  Type your chapter text. End with a line containing only 'END'")
+        print(f"  Or type 'file path/to/file.md' to load from file")
+        print(f"{'=' * 60}")
 
-    # 否则交互式输入
-    print(f"\n{'=' * 60}")
-    print(f"  Write Chapter {chapter}")
-    print(f"  Type your chapter text. End with a line containing only 'END'")
-    print(f"  Or type 'file path/to/file.md' to load from file")
-    print(f"{'=' * 60}")
-
-    lines = []
-    while True:
-        try:
-            line = input()
-        except EOFError:
-            break
-        if line.strip() == "END":
-            break
-        if line.strip().startswith("file "):
-            fpath = Path(line.strip()[5:])
-            if not fpath.is_absolute():
-                fpath = PROJECT_ROOT / fpath
-            if fpath.exists():
-                text = fpath.read_text(encoding="utf-8")
-                lines.append(text)
-                print(f"  [OK] Loaded {len(text)} chars from {fpath}")
+        lines = []
+        while True:
+            try:
+                line = input()
+            except EOFError:
                 break
-            else:
-                print(f"  [FAIL] File not found: {fpath}")
-                continue
-        lines.append(line)
+            if line.strip() == "END":
+                break
+            if line.strip().startswith("file "):
+                fpath = Path(line.strip()[5:])
+                if not fpath.is_absolute():
+                    fpath = PROJECT_ROOT / fpath
+                if fpath.exists():
+                    text = fpath.read_text(encoding="utf-8")
+                    lines.append(text)
+                    print(f"  [OK] Loaded {len(text)} chars from {fpath}")
+                    break
+                else:
+                    print(f"  [FAIL] File not found: {fpath}")
+                    continue
+            lines.append(line)
+        text = "\n".join(lines)
 
-    text = "\n".join(lines)
     if not text.strip():
         print("  No text entered.")
         return
 
+    # ── 保存章节 ──
     path = sm.submit_chapter(chapter, text)
     wc = len(text.replace("\n", "").replace(" ", ""))
     print(f"\n  [OK] Chapter {chapter} saved ({wc} chars)")
     print(f"  Path: {path}")
 
+    # ── 写后: 合同链事实沉淀 + 债务注册 ──
+    contract_result = sm.commit_chapter_to_contract(chapter, text)
+    if contract_result["committed_facts"] > 0 or contract_result["new_debts"] > 0:
+        print(f"  [contract] 事实沉淀: {contract_result['committed_facts']} 条, "
+              f"新债务: {contract_result['new_debts']} 条")
+    if contract_result["audit_issues"]:
+        for issue in contract_result["audit_issues"][:3]:
+            print(f"  [contract] 审计: {issue}")
+
+    # ── 写后: S4 风格检测 ──
+    style_result = sm.detect_style(chapter)
+    if style_result["verdict"] not in ("SKIP", "ERROR"):
+        print(f"\n  [S4] 风格检测: {style_result['verdict']} ({style_result['flags']}/7 层异常)")
+        if style_result["verdict"] == "FATAL":
+            print(f"  [S4] 建议: 回到 S2d 重新精修")
+    elif style_result["verdict"] == "ERROR":
+        print(f"  [S4] 检测跳过: {style_result['summary']}")
+
 
 def _session_review(sm) -> None:
-    """在会话中调用 AI 评审。"""
+    """在会话中调用 AI 评审 (S3 逻辑警察)。"""
     from xiaoshuo.agents.skill_loader import SkillLoader
     from xiaoshuo.agents.model_orchestrator import get_orchestrator
 
@@ -1188,10 +1200,92 @@ def _session_review(sm) -> None:
         sm._save()
 
 
+def _session_compare(sm) -> None:
+    """在会话中执行 S2c 对比分析 (comparison_engine)。
+
+    对比作者手写版与 AI 参考版的节奏指标,
+    输出改进建议和签约概率评估。
+    """
+    chapter = sm.current_chapter
+    ctx = sm.chapter_context()
+    text = ctx.get("chapter_text", "")
+
+    if not text:
+        print(f"  [FAIL] No text for chapter {chapter}.")
+        print(f"  Use 'write' command first to submit chapter text.")
+        return
+
+    genre = ctx.get("genre", "末世")
+    wc = len(text.replace("\n", "").replace(" ", ""))
+
+    print(f"\n{'=' * 60}")
+    print(f"  S2c Comparison Analysis -- Chapter {chapter} ({wc} chars)")
+    print(f"{'=' * 60}")
+
+    try:
+        from xiaoshuo.pipeline.comparison_engine import (
+            evaluate_author_chapter, generate_evaluation_report
+        )
+        result = evaluate_author_chapter(text, genre=genre, chapter_num=chapter, with_llm=False)
+
+        eval_dir = PROJECT_ROOT / "data" / "reports" / genre / "evaluations"
+        eval_dir.mkdir(parents=True, exist_ok=True)
+        safe_name = f"ch{chapter:03d}_evaluation"
+        ev_path = eval_dir / safe_name
+        generate_evaluation_report(result, ev_path)
+
+        signing = result.get("signing_probability")
+        if signing:
+            print(f"\n  签约概率: {signing['probability']}% | {signing['label']}")
+            for a in signing.get("advice", []):
+                print(f"    [{a['priority']}] {a['dim']}: {a['suggestion']}")
+        print(f"\n  [OK] Report saved to {ev_path}.md")
+
+    except Exception as e:
+        print(f"  [FAIL] Comparison error: {e}")
+
+
 def _session_decisions(sm) -> None:
     """在会话中采集章节决策。"""
     from xiaoshuo.agents.chapter_decisions import collect_decisions
     collect_decisions(sm.current_chapter)
+
+
+def _session_style(sm) -> None:
+    """在会话中查看风格进化状态 (Part E)。"""
+    from xiaoshuo.agents.style_evolution import get_evolution_status, generate_style_profile, get_style_hints
+
+    status = get_evolution_status()
+    print(f"\n{'=' * 60}")
+    print(f"  Part E: Style Evolution Status")
+    print(f"{'=' * 60}")
+    print(f"  Status:     {status.get('status', 'unknown')}")
+    print(f"  Maturity:   {status.get('maturity', 'unknown')}")
+    print(f"  Chapters:   {status.get('chapter_count', 0)}")
+    print(f"  Hints:      {status.get('hint_count', 0)} 条")
+    print(f"  Drift:      {'detected' if status.get('drift') else 'none'}")
+
+    if status.get("status") == "not_started":
+        print(f"\n  风格画像尚未生成。使用 'decisions' 命令采集章节决策后,")
+        print(f"  系统将自动在发布后生成风格画像。")
+    else:
+        hints = get_style_hints()
+        if hints:
+            print(f"\n  当前风格提示:")
+            for hint in hints[:5]:
+                print(f"    - {hint[:80]}")
+
+
+def _auto_update_style_profile() -> None:
+    """v8.3: 在 PUBLISH → 下一章推进时自动更新风格画像。"""
+    try:
+        from xiaoshuo.agents.style_evolution import generate_style_profile
+        profile = generate_style_profile()
+        if profile.get("status") == "active":
+            print(f"  [style] 风格画像已更新: {profile.get('maturity', '?')} 阶段, "
+                  f"{len(profile.get('style_hints', []))} 条提示")
+    except Exception:
+        pass  # 静默失败, 不影响主流程
 
 
 # ============================================================================
@@ -1508,6 +1602,55 @@ def cmd_memory(args) -> None:
 
 
 # ============================================================================
+# 命令: style -- Part E 风格进化状态 (独立命令)
+# ============================================================================
+
+def cmd_style(args) -> None:
+    """
+    Part E: 作者风格进化状态与画像。
+    用法: python novel.py style [--regenerate]
+    """
+    from xiaoshuo.agents.style_evolution import (
+        get_evolution_status, generate_style_profile, get_style_hints,
+    )
+
+    if getattr(args, "regenerate", False):
+        print("[STYLE] 强制重新生成风格画像...")
+        profile = generate_style_profile()
+        print(f"  状态: {profile.get('status', 'unknown')}")
+        print(f"  成熟度: {profile.get('maturity', 'unknown')}")
+        print(f"  章节数: {profile.get('chapter_count', 0)}")
+        if profile.get("style_hints"):
+            print(f"\n  风格提示 ({len(profile['style_hints'])} 条):")
+            for hint in profile["style_hints"]:
+                print(f"    - {hint[:80]}")
+        return
+
+    status = get_evolution_status()
+    print("=" * 60)
+    print("  Part E: 作者风格进化状态")
+    print("=" * 60)
+    print(f"  状态:     {status.get('status', 'unknown')}")
+    print(f"  成熟度:   {status.get('maturity', 'unknown')}")
+    print(f"  章节数:   {status.get('chapter_count', 0)}")
+    print(f"  提示数:   {status.get('hint_count', 0)} 条")
+    print(f"  漂移:     {'检测到' if status.get('drift') else '无'}")
+
+    if status.get("status") == "not_started":
+        print("\n  风格画像尚未生成。")
+        print("  使用 'python novel.py decisions --chapter N' 采集章节决策后,")
+        print("  系统将自动在发布后生成风格画像。")
+        print("  或运行 'python novel.py style --regenerate' 手动生成。")
+    else:
+        hints = get_style_hints()
+        if hints:
+            print(f"\n  当前风格提示:")
+            for hint in hints[:10]:
+                print(f"    - {hint[:80]}")
+    print("=" * 60)
+
+
+# ============================================================================
 # CLI 入口 — argparse 路由
 # ============================================================================
 
@@ -1677,6 +1820,13 @@ def main() -> None:
     p_compare.add_argument("--genre", type=str, default="末世",
                            help="题材基准 (default: 末世)")
 
+    # style — 风格进化状态 (Part E)
+    p_style = sub.add_parser("style", help="Part E: 作者风格进化状态与画像",
+        epilog="Example: python novel.py style\n"
+               "         python novel.py style --regenerate")
+    p_style.add_argument("--regenerate", action="store_true",
+                         help="强制重新生成风格画像")
+
     # ── 解析 & 路由 ──
     args = parser.parse_args()
 
@@ -1704,6 +1854,7 @@ def main() -> None:
         "outline":    cmd_outline,
         "memory":     cmd_memory,
         "compare":    cmd_compare,
+        "style":      cmd_style,
     }
 
     # 执行目标命令

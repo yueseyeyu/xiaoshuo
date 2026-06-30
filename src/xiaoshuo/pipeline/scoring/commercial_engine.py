@@ -773,7 +773,7 @@ def _load_chapter_texts(book_stem, indices):
     if not book_stem or not indices:
         return {}
     try:
-        from analysis.rhythm_analyzer import extract_chapters
+        from xiaoshuo.pipeline.rhythm_analyzer import extract_chapters
         scoring_cfg = _load_scoring_config()
         novel_base = scoring_cfg.get("novel_source_dir", "data/raw/novels")
         novel_dir = PROJECT_ROOT / novel_base / "末世"

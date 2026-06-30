@@ -29,44 +29,23 @@ from pathlib import Path
 
 from xiaoshuo import PROJECT_ROOT
 from xiaoshuo.infra.logging_config import get_logger
+from xiaoshuo.infra.llm_client import llm_chat, get_llm_port
 logger = get_logger(__name__)
 # PROJECT_ROOT imported from src.xiaoshuo
 OUTPUT_DIR = PROJECT_ROOT / "data" / "processed"
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
 
-def _llm_port():
-    try:
-        from xiaoshuo.infra.config_manager import get_config
-        cfg = get_config()
-        return cfg.get("analysis", {}).get("llm_port", 8000)
-    except Exception:
-        return 8000
-
-
 def _llm_call(prompt, max_tokens=800, temperature=0.2, timeout=120):
-    """Single LLM call."""
-    data = json.dumps({
-        "messages": [
-            {"role": "system", "content": "你是网文品类研究专家。输出纯JSON，不要额外说明。"},
-            {"role": "user", "content": prompt},
-        ],
-        "max_tokens": max_tokens, "temperature": temperature,
-    }).encode("utf-8")
-    for attempt in range(3):
-        try:
-            req = urllib.request.Request(
-                f"http://127.0.0.1:{_llm_port()}/v1/chat/completions",
-                data, {"Content-Type": "application/json"}
-            )
-            resp = json.loads(urllib.request.urlopen(req, timeout=timeout).read())
-            return resp["choices"][0]["message"].get("content", "")
-        except Exception as e:
-            if attempt < 2:
-                time.sleep(3)
-            else:
-                print(f"  [WARN] LLM: {e}")
-                return None
+    """Single LLM call (v8.2: 使用统一 llm_client)。"""
+    result = llm_chat(
+        prompt,
+        system="你是网文品类研究专家。输出纯JSON，不要额外说明。",
+        max_tokens=max_tokens,
+        temperature=temperature,
+        timeout=timeout,
+    )
+    return result if result else None
 
 
 def _load_l3_summaries(genre):

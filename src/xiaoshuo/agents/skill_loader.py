@@ -39,7 +39,6 @@ import re
 # ============================================================
 # 常量
 # ============================================================
-PROJECT_ROOT = PROJECT_ROOT
 AI_PROTOCOL_PATH = PROJECT_ROOT / "AI_PROTOCOL.md"
 
 

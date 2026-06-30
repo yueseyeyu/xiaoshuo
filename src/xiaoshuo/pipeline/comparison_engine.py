@@ -30,15 +30,7 @@ OUTPUT_DIR = PROJECT_ROOT / "data" / "reports"
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
 
-def _get_llama_base():
-    try:
-        from xiaoshuo.infra.config_manager import get_config
-        cfg = get_config()
-        port = cfg.get("model_orchestration", {}).get("models", {}).get("main_model", {}).get("port", 8000)
-        return f"http://127.0.0.1:{port}"
-    except Exception:
-        return "http://127.0.0.1:8000"
-
+from xiaoshuo.infra.llm_client import get_main_model_base_url as _get_llama_base
 
 LLAMA_BASE = _get_llama_base()
 
@@ -425,26 +417,13 @@ def _rich_scan(text):
 
 
 def _call_llm(system_msg, user_msg):
-    """Call Qwen3.5-9B via OpenAI-compatible API."""
-    payload = json.dumps({
-        "messages": [
-            {"role": "system", "content": system_msg},
-            {"role": "user", "content": user_msg},
-        ],
-        "max_tokens": 3000,
-        "temperature": 0.7,
-    }).encode('utf-8')
-    try:
-        req = urllib.request.Request(
-            f"{LLAMA_BASE}/v1/chat/completions", data=payload,
-            headers={"Content-Type": "application/json"})
-        resp = json.loads(urllib.request.urlopen(req, timeout=300).read())
-        choices = resp.get("choices", [])
-        if choices:
-            return choices[0].get("message", {}).get("content", "").strip()
-    except Exception as e:
-        print(f"  [WARN] LLM fail: {e}")
-    return None
+    """Call Qwen3.5-9B via unified LLM client (v8.2)。"""
+    from xiaoshuo.infra.llm_client import llm_chat
+    result = llm_chat(
+        user_msg, system=system_msg,
+        max_tokens=3000, temperature=0.7, timeout=300,
+    )
+    return result if result else None
 
 
 def generate_llm_version(genre, ch_num, context=""):

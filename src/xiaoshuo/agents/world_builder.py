@@ -339,21 +339,34 @@ HOOK_CHECK_PROMPT = """
 # run_world_build — 5 阶段 Socratic 世界观构建入口
 # ============================================================
 
-def run_world_build(orch, session_manager=None) -> str:
+def run_world_build(orch, session_manager=None, genre: str = "末世") -> str:
     """Run the 5-stage Socratic world building process.
 
     Uses the existing STAGE_TEMPLATES, SOCRATIC_SYSTEM_PROMPT, WorldStage,
     and GENRE_PATCHES. Calls orch.chat_with_trace() for each stage's
     follow-up question generation.
 
+    v8.2: 集成 CreativeContext — 加载 Part A 分析数据驱动世界观构建。
+
     Args:
         orch: ModelOrchestrator instance (must have chat_with_trace method)
         session_manager: Optional SessionManager; if provided, the caller
             should handle stage advancement externally.
+        genre: 题材名称, 用于加载 CreativeContext
 
     Returns:
         str: The generated world.md content (markdown format).
     """
+    # v8.2: 加载 Part A 分析上下文
+    from xiaoshuo.agents.creative_context import CreativeContext
+    try:
+        ctx = CreativeContext.load(genre)
+        world_ctx = ctx.build_world_context()
+        if world_ctx:
+            _logger.info("CreativeContext loaded, injecting into world building")
+    except Exception as e:
+        _logger.warning("CreativeContext load failed (non-blocking): %s", e)
+        world_ctx = ""
     stages = [
         (WorldStage.TIME, "一: 时间背景"),
         (WorldStage.CONFLICT, "二: 核心矛盾"),
@@ -367,7 +380,19 @@ def run_world_build(orch, session_manager=None) -> str:
     print("  AI 提问, 你回答。每次只说关键设定, 不要求完整描述。")
     print("=" * 60)
 
+    # v8.2: 显示 Part A 分析洞察
+    if world_ctx:
+        print(f"\n  [Part A 洞察] 已加载 {genre} 题材分析数据:")
+        for line in world_ctx.split("\n")[:8]:
+            if line.strip():
+                print(f"  {line}")
+        print()
+
     all_answers = []
+
+    # v8.2: 将分析上下文加入首答
+    if world_ctx:
+        all_answers.append(f"<!-- Part A 分析上下文 -->\n{world_ctx}\n")
 
     for wstage, title in stages:
         tpl = STAGE_TEMPLATES[wstage]
@@ -387,8 +412,12 @@ def run_world_build(orch, session_manager=None) -> str:
 
         # Socratic 追问: 使用 SOCRATIC_SYSTEM_PROMPT + chase_chain
         print(f"\n  AI 追问中...")
+        # v8.2: 注入 Part A 分析上下文到系统提示
+        sys_prompt = SOCRATIC_SYSTEM_PROMPT
+        if world_ctx:
+            sys_prompt += f"\n\n## 题材分析数据 (供追问参考)\n{world_ctx}"
         msgs = [
-            {"role": "system", "content": SOCRATIC_SYSTEM_PROMPT},
+            {"role": "system", "content": sys_prompt},
             {"role": "user", "content": (
                 f"阶段: {title} ({tpl['goal']})\n"
                 f"核心问题: {core_q}\n"

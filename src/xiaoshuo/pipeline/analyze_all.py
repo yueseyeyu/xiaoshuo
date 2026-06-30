@@ -380,7 +380,7 @@ def _run_sequential(genre_arg, books_arg, skip_gate, skip_bridge, with_llm):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="一键全量分析管线 v7 — 并发阶段执行 + 管线计时"
+        description="一键全量分析管线 v8.2 — 并发阶段执行 + 管线计时"
     )
     parser.add_argument("--genre", type=str, default=None, help="题材过滤")
     parser.add_argument("--books", type=str, default=None,
@@ -392,19 +392,51 @@ def main():
                         help="并发执行 (默认)")
     parser.add_argument("--sequential", action="store_true",
                         help="强制顺序执行 (旧行为)")
+    parser.add_argument("--subprocess", action="store_true",
+                        help="使用旧版 subprocess 模式 (兼容)")
     args = parser.parse_args()
 
     use_parallel = args.parallel and not args.sequential
+    genre = args.genre or "末世"
 
+    logger.info("Pipeline starting: parallel=%s, with_llm=%s, genre=%s, books=%s",
+                use_parallel, args.with_llm, genre, args.books or "all")
+    PipelineTimer.reset()
+
+    # v8.2: 优先使用 PipelineRunner (进程内调用)
+    if not args.subprocess:
+        try:
+            from xiaoshuo.pipeline.pipeline_nodes import build_default_pipeline
+            runner = build_default_pipeline(
+                with_llm=args.with_llm,
+                skip_gate=args.skip_gate,
+                skip_bridge=args.skip_bridge,
+                books=args.books,
+            )
+            results = runner.run(genre=genre)
+
+            # 汇总结果
+            success_count = sum(1 for v in results.values() if v)
+            fail_count = len(results) - success_count
+            print(f"\n[DONE] Pipeline complete: {success_count} ok, {fail_count} failed")
+            print(f"  Reports:     data/reports/")
+            print(f"  Guidance:    data/reports/{genre}/creative_guidance/")
+            print(f"  Manifest:    data/processed/{genre}/quality/quality_manifest.json")
+            if not args.with_llm:
+                print(f"\n  Tip: --with-llm 启用 LLM 增强分析 (评分更精准,需约 10min)")
+
+            PipelineTimer.report()
+            logger.info("Pipeline complete (PipelineRunner mode).")
+            return
+        except Exception as e:
+            logger.warning("PipelineRunner failed, falling back to subprocess: %s", e)
+
+    # 旧版 subprocess 模式 (兼容)
     genre_arg = ["--genre", args.genre] if args.genre else []
     books_arg = ["--books", args.books] if args.books else []
     skip_gate = args.skip_gate
     skip_bridge = args.skip_bridge
     with_llm = args.with_llm
-
-    logger.info("Pipeline starting: parallel=%s, with_llm=%s, genre=%s, books=%s",
-                use_parallel, with_llm, args.genre or "all", args.books or "all")
-    PipelineTimer.reset()
 
     if use_parallel:
         _run_parallel(genre_arg, books_arg, skip_gate, skip_bridge, with_llm)
@@ -412,7 +444,7 @@ def main():
         _run_sequential(genre_arg, books_arg, skip_gate, skip_bridge, with_llm)
 
     PipelineTimer.report()
-    logger.info("Pipeline complete.")
+    logger.info("Pipeline complete (subprocess mode).")
 
 
 if __name__ == "__main__":

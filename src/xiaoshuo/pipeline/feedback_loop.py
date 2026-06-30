@@ -32,15 +32,7 @@ try:
     )
     _ce_available = True
 except ImportError:
-    try:
-        from analysis.comparison_engine import (
-            _rich_scan,
-            compute_benchmark_percentiles,
-            estimate_signing_probability,
-        )
-        _ce_available = True
-    except ImportError:
-        _ce_available = False
+    _ce_available = False
 
 def _feedback_path(genre="末世"):
     return PROJECT_ROOT / "data" / "processed" / genre / "quality" / "feedback.json"

@@ -4,7 +4,7 @@ Usage: python scripts/score_compare.py
 """
 import sys, json, io, datetime
 from pathlib import Path
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+from xiaoshuo import PROJECT_ROOT
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 DATA = PROJECT_ROOT / "data"

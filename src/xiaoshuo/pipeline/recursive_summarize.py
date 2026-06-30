@@ -37,28 +37,14 @@ from pathlib import Path
 
 from xiaoshuo import PROJECT_ROOT
 from xiaoshuo.infra.pipeline_state import mark_error, write_stage
-# PROJECT_ROOT imported from src.xiaoshuo
-# sys.path hack removed (v8.0)
+from xiaoshuo.infra.llm_client import llm_chat, get_llm_port, check_llm_health
 from xiaoshuo.pipeline.rhythm_analyzer import extract_chapters
-try:
-    from scripts.progress_server import ProgressHandler
-    _HAS_PROGRESS = True
-except ImportError:
-    _HAS_PROGRESS = False
+# Old scripts.progress_server import removed (v8.2: module no longer exists)
 OUTPUT_DIR = PROJECT_ROOT / "data" / "processed"
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
 
-# ── LLM helpers (matching rhythm_analyzer pattern) ──
-
-def _llm_port():
-    try:
-        from xiaoshuo.infra.config_manager import get_config
-        cfg = get_config()
-        return cfg.get("analysis", {}).get("llm_port", 8000)
-    except Exception:
-        return 8000
-
+# ── LLM helpers (v8.2: 使用统一 llm_client) ──
 
 def _llm_parallel():
     """Read LLM parallelism from config.yaml. Falls back to 2."""
@@ -73,29 +59,14 @@ def _llm_parallel():
 
 def _llm_call(prompt, max_tokens=600, temperature=0.0, timeout=90):
     """Single LLM call with retry. Returns text or None."""
-    data = json.dumps({
-        "messages": [
-            {"role": "system", "content": "你是专业网文分析助手。输出纯JSON，不要任何额外说明。"},
-            {"role": "user", "content": prompt},
-        ],
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-    }).encode("utf-8")
-
-    for attempt in range(3):
-        try:
-            req = urllib.request.Request(
-                f"http://127.0.0.1:{_llm_port()}/v1/chat/completions",
-                data, {"Content-Type": "application/json"}
-            )
-            resp = json.loads(urllib.request.urlopen(req, timeout=timeout).read())
-            return resp["choices"][0]["message"].get("content", "")
-        except Exception as e:
-            if attempt < 2:
-                time.sleep(2 * (attempt + 1))
-            else:
-                print(f"  [WARN] LLM call failed: {e}")
-                return None
+    result = llm_chat(
+        prompt,
+        system="你是专业网文分析助手。输出纯JSON，不要任何额外说明。",
+        max_tokens=max_tokens,
+        temperature=temperature,
+        timeout=timeout,
+    )
+    return result if result else None
 
 
 def _parse_json(text):
@@ -828,49 +799,17 @@ def _load_chapters_from_txt(txt_path):
 
 def _check_server():
     """Verify LLM server is reachable before starting long batch."""
-    try:
-        port = _llm_port()
-        req = urllib.request.Request(
-            f"http://127.0.0.1:{port}/health",
-            headers={"Content-Type": "application/json"}
-        )
-        urllib.request.urlopen(req, timeout=5)
+    if check_llm_health():
         return True
-    except Exception as e:
-        print(f"[FAIL] LLM server unreachable (port {_llm_port()}): {e}")
-        return False
+    print(f"[FAIL] LLM server unreachable (port {get_llm_port()}): connection failed")
+    return False
 
 
 def _start_progress_panel(port=8090):
-    """Start progress web panel in background thread (skip if port already in use)."""
-    if not _HAS_PROGRESS:
-        print("[WARN] progress_server.py not found, progress panel unavailable")
-        return None
-
-    # Probe: if something already serves :port (e.g. a standalone
-    # progress_server.py started earlier), reuse it instead of double-binding.
-    import socket
-    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    probe.settimeout(0.3)
-    try:
-        probe.connect(("127.0.0.1", port))
-        probe.close()
-        print(f"[Progress Panel] :{port} already running, reusing")
-        return None
-    except OSError:
-        pass  # port free → we start it
-
-    from http.server import HTTPServer
-
-    def serve():
-        server = HTTPServer(("127.0.0.1", port), ProgressHandler)
-        server.serve_forever()
-
-    t = threading.Thread(target=serve, daemon=True)
-    t.start()
-
-    print(f"[Progress Panel] http://localhost:{port}")
-    return t
+    """Start progress web panel in background thread (skip if port already in use).
+    v8.2: progress_server.py removed, panel handled by api/server.py"""
+    print(f"[INFO] Progress panel available via API server (default :8089)")
+    return None
 
 
 def main():

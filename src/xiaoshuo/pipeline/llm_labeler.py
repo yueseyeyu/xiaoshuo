@@ -36,13 +36,8 @@ CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
 
 def _get_llm_port():
-    try:
-        from xiaoshuo.infra.config_manager import get_config
-        cfg = get_config()
-        return cfg.get("analysis", {}).get("llm_port", 8000)
-    except Exception as e:
-        print(f"  [WARN] config.yaml读取失败: {e}, 使用默认端口8000")
-    return 8000
+    from xiaoshuo.infra.llm_client import get_llm_port
+    return get_llm_port()
 
 
 LLAMA_PORT = _get_llm_port()
@@ -107,32 +102,15 @@ def _find_novel_txt(name_hint):
 
 
 def _call_llm(system_msg, user_msg, max_retries=2):
-    """Call local llama-server via OpenAI-compatible /v1/chat/completions."""
-    payload = json.dumps({
-        "messages": [
-            {"role": "system", "content": system_msg},
-            {"role": "user", "content": user_msg},
-        ],
-        "max_tokens": 150,
-        "temperature": 0.1,
-        "stop": ["\n\n"],
-    }).encode('utf-8')
-    for attempt in range(max_retries):
-        try:
-            req = urllib.request.Request(
-                f"{LLAMA_BASE}/v1/chat/completions",
-                data=payload,
-                headers={"Content-Type": "application/json"},
-            )
-            resp = json.loads(urllib.request.urlopen(req, timeout=120).read())
-            choices = resp.get("choices", [])
-            if choices:
-                return choices[0].get("message", {}).get("content", "").strip()
-            return ""
-        except Exception as e:
-            if attempt == max_retries - 1:
-                return f"ERROR:{e}"
-            time.sleep(2)
+    """Call local llama-server via unified LLM client (v8.2)。"""
+    from xiaoshuo.infra.llm_client import llm_chat
+    result = llm_chat(
+        user_msg, system=system_msg,
+        max_tokens=150, temperature=0.1, timeout=120,
+        max_retries=max_retries, stop=["\n\n"],
+    )
+    if result:
+        return result.strip()
     return "ERROR:max_retries"
 
 
