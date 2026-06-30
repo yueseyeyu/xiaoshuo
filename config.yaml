@@ -672,16 +672,24 @@ prototype:
   data_dir: "data/reports"               # 报告数据根目录（相对项目根）
   auto_open_browser: false               # 启动时是否自动打开浏览器
   # v7.17: 主题品牌色预设（强调色循环）
-  # 保留 minimax 修改前默认天蓝 + 方案 C 番茄红
+  # 与前端 styles.css 中 [data-accent="*"] 一一对应
   theme_presets:
-    - id: sky
-      name: "天蓝"
+    - id: serene
+      name: "静谧蓝"
       accent: "#38BDF8"
       accent_rgb: "56,189,248"
-    - id: tomato
-      name: "番茄"
-      accent: "#D97706"
-      accent_rgb: "217,119,6"
+    - id: arctic
+      name: "极光青"
+      accent: "#22D3EE"
+      accent_rgb: "34,211,238"
+    - id: lavender
+      name: "薰衣紫"
+      accent: "#A78BFA"
+      accent_rgb: "167,139,250"
+    - id: aurora
+      name: "极光靛"
+      accent: "#818CF8"
+      accent_rgb: "129,140,248"
 
 # ============================================================================
 # v8.1: 平台合规预检 — AI 指纹词检测与 AI 率预估

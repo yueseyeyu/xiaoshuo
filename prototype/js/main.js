@@ -1,6 +1,16 @@
 "use strict";
 
 // ============================================================
+// 全局模型状态 — v8.3
+// 所有页面/模块统一从这里读取模型状态，保证显示一致
+// ============================================================
+window.modelStatusState = {
+  data: null,
+  lastUpdate: 0,
+  isLoading: false,
+};
+
+// ============================================================
 // 错误边界 — v8.1
 // ============================================================
 function safeRender(fn, name) {
@@ -106,39 +116,130 @@ function updateTopbarProjectName() {
   el.textContent = (currentProject && currentProject.title) ? currentProject.title : '';
 }
 
-async function checkModelStatus() {
+// v8.3: 从全局状态统一渲染模型状态到所有页面元素
+function renderModelStatusUI() {
+  const state = window.modelStatusState;
+  const data = state.data;
+  const mainModel = data && data.models && data.models.main_model;
+  const isRunning = !!(mainModel && (mainModel.running || mainModel.healthy));
+  const modelName = (mainModel && mainModel.name) || '模型';
+
+  // 1. 顶部状态 pill
   const pill = $('#model-status-pill');
-  const dot = $('#model-status-dot');
   const text = $('#model-status-text');
   const btn = $('#model-toggle-btn');
-  if (!pill || !text) return;
   const settingsBadge = $('#nav-badge-settings');
-  function setStatus(cls, label, running, badgeClass) {
+  if (pill && text) {
     pill.classList.remove('status-online', 'status-offline', 'status-error');
-    pill.classList.add(cls);
-    text.textContent = label;
-    if (settingsBadge) {
-      settingsBadge.className = 'nav-badge';
-      if (badgeClass) settingsBadge.classList.add(badgeClass);
-    }
-    if (btn) {
-      btn.classList.toggle('running', running);
-      btn.title = running ? '停止模型' : '启动模型';
+    if (isRunning) {
+      pill.classList.add('status-online');
+      text.textContent = modelName;
+    } else {
+      pill.classList.add('status-offline');
+      text.textContent = data ? '模型未运行' : '模型状态未知';
     }
   }
-  // v8.2: 使用新的 /api/model/status 端点
-  const { ok, data } = await apiGet('/api/model/status');
-  if (!ok || !data || data.error) {
-    setStatus('status-offline', '模型状态未知', false, 'warn');
-    return;
+  if (settingsBadge) {
+    settingsBadge.className = 'nav-badge';
+    if (!isRunning) settingsBadge.classList.add('warn');
   }
-  // 检查主模型是否在线
-  const mainModel = data.models && data.models.main_model;
-  if (mainModel && (mainModel.running || mainModel.healthy)) {
-    setStatus('status-online', mainModel.name || '模型运行中', true);
+  if (btn) {
+    btn.classList.toggle('running', isRunning);
+    btn.title = isRunning ? '停止模型' : '启动模型';
+  }
+
+  // 2. dashboard / 右侧系统健康
+  const dashName = $('#dash-model-name');
+  const dashStatus = $('#dash-model-status');
+  if (dashName) dashName.textContent = modelName;
+  if (dashStatus) {
+    dashStatus.textContent = isRunning ? '在线' : '离线';
+    const modelEl = dashStatus.parentElement;
+    if (modelEl) {
+      modelEl.classList.remove('warn', 'danger');
+      if (!isRunning) modelEl.classList.add('danger');
+    }
+  }
+
+  // 3. 硬件页面模型卡片
+  const hwModelName = $('#model-name');
+  const hwModelMeta = $('#model-meta');
+  const hwModelCard = $('#model-card-main');
+  if (hwModelName) hwModelName.textContent = modelName;
+  if (hwModelMeta && mainModel) {
+    hwModelMeta.textContent = 'port:' + (mainModel.port || 8000) + ' · enabled:' + (mainModel.enabled ? 'yes' : 'no');
+  }
+  if (hwModelCard) {
+    hwModelCard.classList.remove('active', 'standby');
+    hwModelCard.classList.add(isRunning ? 'active' : 'standby');
+    const dot = hwModelCard.querySelector('.model-dot');
+    if (dot) {
+      dot.classList.remove('active', 'standby');
+      dot.classList.add(isRunning ? 'active' : 'standby');
+    }
+    const statusBadge = hwModelCard.querySelector('.model-status-badge');
+    if (statusBadge) {
+      statusBadge.classList.remove('active', 'standby');
+      statusBadge.classList.add(isRunning ? 'active' : 'standby');
+      statusBadge.textContent = isRunning ? '运行中' : '未运行';
+    }
+  }
+
+  // 4. 交叉模型卡片
+  const crossModel = data && data.models && data.models.cross_model;
+  const crossCard = $('#model-card-cross');
+  if (crossCard && crossModel) {
+    const crossRunning = !!(crossModel.running || crossModel.healthy);
+    crossCard.classList.remove('active', 'standby');
+    crossCard.classList.add(crossRunning ? 'active' : 'standby');
+    const dot = crossCard.querySelector('.model-dot');
+    if (dot) {
+      dot.classList.remove('active', 'standby');
+      dot.classList.add(crossRunning ? 'active' : 'standby');
+    }
+    const statusBadge = crossCard.querySelector('.model-status-badge');
+    if (statusBadge) {
+      statusBadge.classList.remove('active', 'standby');
+      statusBadge.classList.add(crossRunning ? 'active' : 'standby');
+      statusBadge.textContent = crossRunning ? '运行中' : (crossModel.enabled ? '未运行' : '未启用');
+    }
+  }
+
+  // 5. 模型性能指标：未运行时不显示假数据
+  updateModelCardMetrics('main', isRunning);
+  updateModelCardMetrics('cross', !!(crossModel && (crossModel.running || crossModel.healthy)));
+}
+
+function updateModelCardMetrics(card, isRunning) {
+  const suffix = card === 'main' ? 'main' : 'cross';
+  const ttft = $('#model-ttft-' + suffix);
+  const speed = $('#model-speed-' + suffix);
+  const vram = $('#model-vram-' + suffix);
+  if (!ttft || !speed || !vram) return;
+  if (isRunning) {
+    // 运行中但无实时指标时，不显示 180ms/24 tok/s 等假数据
+    if (ttft.textContent === 'ms') ttft.textContent = '-';
+    if (speed.textContent === 'tokens/s') speed.textContent = '-';
+    if (vram.textContent === '0GB') vram.textContent = '-';
   } else {
-    setStatus('status-offline', '模型未运行', false, 'warn');
+    ttft.textContent = '-';
+    speed.textContent = '-';
+    vram.textContent = '-';
   }
+}
+
+async function checkModelStatus() {
+  window.modelStatusState.isLoading = true;
+  // v8.3: 统一从 /api/model/status 获取，存入全局状态后渲染所有 UI
+  const { ok, data } = await apiGet('/api/model/status');
+  window.modelStatusState.isLoading = false;
+  if (ok && data && !data.error) {
+    window.modelStatusState.data = data;
+    window.modelStatusState.lastUpdate = Date.now();
+  } else {
+    console.warn('[ModelStatus] 获取失败:', data && data.error);
+  }
+  renderModelStatusUI();
 }
 
 async function toggleModel() {
@@ -200,6 +301,8 @@ function navigate(page) {
   if (page === 'settings') { loadSettingsConfig(); }
   if (page === 'logs') { initLogsPage(); }
   if (page === 'design') { loadDesignData(); }
+  // v8.3: 切页时立即用全局状态刷新一次模型状态显示，保证各页面一致
+  renderModelStatusUI();
   updateDeaiHintVisibility();
   reportOperation('navigate', { page: page });
 }
@@ -272,20 +375,7 @@ async function loadAccentPresets() {
     }));
   }
   if (!accentPresets.length) accentPresets = ACCENT_PRESETS.slice();
-  // 同步 settings 页的按钮
-  const switcher = $('#preset-switcher');
-  if (switcher) {
-    switcher.innerHTML = '';
-    accentPresets.forEach((p) => {
-      const btn = document.createElement('button');
-      btn.className = 'preset-dot';
-      btn.dataset.preset = p.id;
-      btn.setAttribute('aria-label', p.name);
-      btn.style.background = p.accent;
-      btn.onclick = () => setAccentPreset(p.id);
-      switcher.appendChild(btn);
-    });
-  }
+  // 不再清空重建选择器（HTML 中已硬编码 4 个标准点），只高亮当前选中项
   // 恢复用户上次选择
   let saved = null;
   try { saved = localStorage.getItem('accent_id'); } catch (e) {}

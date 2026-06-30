@@ -214,17 +214,6 @@ function togglePipelineDetail() {
   try { localStorage.setItem('pipeline_detail_collapsed', collapsed ? '1' : '0'); } catch(e) {}
 }
 
-function setLibraryView(view) {
-  currentLibraryView = view;
-  const container = $('#library-view-toggle');
-  if (container) {
-    $$('.view-btn', container).forEach((btn) => btn.classList.toggle('active', btn.dataset.view === view));
-  }
-  renderLibrary();
-}
-
-
-
 function toggleSelectAllBooks() {
   const filtered = getFilteredBooks();
   const ids = filtered.map((b) => DATA.books.indexOf(b));

@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>番茄小说 AI 辅助创作系统</title>
-  <link rel="stylesheet" href="styles.css?v=822">
+  <link rel="stylesheet" href="styles.css?v=832">
 </head>
 <body data-theme="midnight">
 <div id="app-shell" class="app-shell no-detail">
@@ -340,14 +340,6 @@
     <div class="genre-tabs" id="genre-tabs"></div>
     <div class="library-toolbar-right">
       <input type="text" class="library-search" id="library-search" placeholder="搜索书名、作者、题材..." oninput="renderLibrary()">
-      <div class="library-view-toggle" id="library-view-toggle">
-        <button class="view-btn active" data-view="list" onclick="setLibraryView('list')" title="列表视图">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
-        </button>
-        <button class="view-btn" data-view="grid" onclick="setLibraryView('grid')" title="网格视图">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-        </button>
-      </div>
     </div>
   </div>
   <div class="kpi-row">
@@ -1045,32 +1037,32 @@
   <div class="hardware-layout">
     <div class="hardware-main">
       <div class="model-status-grid">
-        <div class="model-status-card active">
+        <div class="model-status-card active" id="model-card-main">
           <div class="model-status-header">
             <span class="model-dot active"></span>
             <h4>主模型</h4>
-            <span class="model-badge">运行中</span>
+            <span class="model-badge model-status-badge">运行中</span>
           </div>
           <div class="model-name" id="model-name">Qwen3.5-9B</div>
           <div class="model-meta" id="model-meta">ctx 8192 · localhost:8000</div>
-          <div class="model-metrics">
-            <div><b>TTFT</b><span>180ms</span></div>
-            <div><b>速度</b><span>24 tok/s</span></div>
-            <div><b>显存</b><span>4.2GB</span></div>
+          <div class="model-metrics" id="model-metrics-main">
+            <div><b>TTFT</b><span class="model-metric-value" id="model-ttft-main">-</span></div>
+            <div><b>速度</b><span class="model-metric-value" id="model-speed-main">-</span></div>
+            <div><b>显存</b><span class="model-metric-value" id="model-vram-main">-</span></div>
           </div>
         </div>
-        <div class="model-status-card standby">
+        <div class="model-status-card standby" id="model-card-cross">
           <div class="model-status-header">
             <span class="model-dot standby"></span>
             <h4>交叉模型</h4>
-            <span class="model-badge standby">待机</span>
+            <span class="model-badge standby model-status-badge">待机</span>
           </div>
           <div class="model-name">DeepSeek-R1-0528</div>
           <div class="model-meta">ctx 8192 · localhost:8002</div>
-          <div class="model-metrics">
-            <div><b>TTFT</b><span>ms</span></div>
-            <div><b>速度</b><span>tokens/s</span></div>
-            <div><b>显存</b><span>0GB</span></div>
+          <div class="model-metrics" id="model-metrics-cross">
+            <div><b>TTFT</b><span class="model-metric-value" id="model-ttft-cross">ms</span></div>
+            <div><b>速度</b><span class="model-metric-value" id="model-speed-cross">tokens/s</span></div>
+            <div><b>显存</b><span class="model-metric-value" id="model-vram-cross">0GB</span></div>
           </div>
         </div>
       </div>
@@ -1119,16 +1111,19 @@
       </div>
 
       <div class="vram-breakdown-card">
-        <h4>显存分配详情</h4>
-        <div class="vram-bar" id="vram-bar">
-          <div class="vram-segment model-main" id="vram-seg-used" style="width:52.5%"><span>模型占用 <b id="vram-used-gb">4.2GB</b></span></div>
-          <div class="vram-segment free" id="vram-seg-free" style="width:47.5%"><span>空闲 <b id="vram-free-gb">2.2GB</b></span></div>
+        <div class="vram-header">
+          <h4>显存分配详情</h4>
+          <span class="vram-subtitle">共 <b id="vram-stat-total">8.0GB</b></span>
         </div>
-        <div class="vram-legend">
-          <span><i style="background:#38BDF8"></i>模型占用</span>
-          <span><i style="background:var(--border)"></i>空闲</span>
+        <div class="vram-progress-wrapper">
+          <div class="vram-progress-track" id="vram-progress-track">
+            <div class="vram-progress-fill" id="vram-progress-fill" style="width:16.8%"></div>
+          </div>
+          <div class="vram-progress-labels">
+            <span id="vram-progress-used">已用 1.3GB</span>
+            <span id="vram-progress-free">空闲 6.6GB</span>
+          </div>
         </div>
-        <div class="vram-total">总计 <b id="vram-total-gb">8.0GB</b></div>
       </div>
 
     </div>
@@ -1368,23 +1363,23 @@
   <span class="fab-meta" id="fab-meta"></span>
 </button>
 
-<script src="js/state.js?v=822"></script>
-<script src="js/utils.js?v=822"></script>
-<script src="app.js?v=822"></script>
-  <script src="js/api.js?v=822"></script>
-  <script src="js/api/project.js?v=822"></script>
-  <script src="js/main.js?v=822"></script>
-  <script src="js/components/dashboard.js?v=822"></script>
-  <script src="js/components/style-calibrate.js?v=822"></script>
-  <script src="js/components/logs.js?v=822"></script>
-  <script src="js/components/disassembly.js?v=822"></script>
-  <script src="js/components/library.js?v=822"></script>
-  <script src="js/components/tasks.js?v=822"></script>
-  <script src="js/components/hardware.js?v=822"></script>
-  <script src="js/components/settings.js?v=822"></script>
-  <script src="js/components/writing.js?v=822"></script>
-  <script src="js/components/design.js?v=822"></script>
-  <script src="js/components/reports.js?v=822"></script>
+<script src="js/state.js?v=832"></script>
+<script src="js/utils.js?v=832"></script>
+<script src="app.js?v=832"></script>
+  <script src="js/api.js?v=832"></script>
+  <script src="js/api/project.js?v=832"></script>
+  <script src="js/main.js?v=832"></script>
+  <script src="js/components/dashboard.js?v=832"></script>
+  <script src="js/components/style-calibrate.js?v=832"></script>
+  <script src="js/components/logs.js?v=832"></script>
+  <script src="js/components/disassembly.js?v=832"></script>
+  <script src="js/components/library.js?v=832"></script>
+  <script src="js/components/tasks.js?v=832"></script>
+  <script src="js/components/hardware.js?v=832"></script>
+  <script src="js/components/settings.js?v=832"></script>
+  <script src="js/components/writing.js?v=832"></script>
+  <script src="js/components/design.js?v=832"></script>
+  <script src="js/components/reports.js?v=832"></script>
 <script>init();</script>
 <div class="loading-overlay" id="loading-overlay"><div class="loading-spinner"></div></div></body>
 </html>

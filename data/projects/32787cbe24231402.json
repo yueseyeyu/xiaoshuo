@@ -2,15 +2,15 @@
   "schema_version": "1.1.0",
   "is_demo": true,
   "meta": {
-    "title": "末日模拟器",
+    "title": "《末日模拟器》",
     "author": "作者",
     "genre": "末世",
     "volumes_count": 5,
     "total_chapters": 300,
     "written_chapters": 127,
     "summary": "主角在高考考场遭遇末日降临，觉醒模拟器能力，在72小时轮回中带领团队生存。",
-    "created_at": "2026-06-29 14:35:08",
-    "updated_at": "2026-06-29 14:35:08"
+    "created_at": "2026-06-29 17:10:31",
+    "updated_at": "2026-06-29 17:10:31"
   },
   "skeleton": {
     "volumes": [
@@ -170,5 +170,6 @@
       "status": "writing",
       "word_count": 1240
     }
-  ]
+  ],
+  "id": "32787cbe24231402"
 }

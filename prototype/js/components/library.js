@@ -192,11 +192,9 @@ function renderLibrary() {
   const tabCounts = [['全部', searched.length]].concat((DATA.genres || []).map((g) => [g, countsMap[g] || 0]));
   renderGenreTabs(tabCounts);
   renderGenreRank(countsMap, searched.length);
-  grid.className = 'library-content ' + currentLibraryView + '-view';
+  grid.className = 'library-content list-view';
   filtered = applyLibrarySort(filtered);
-  const contentHtml = currentLibraryView === 'list'
-    ? renderLibraryList(filtered)
-    : renderLibraryGrid(filtered);
+  const contentHtml = renderLibraryList(filtered);
   grid.innerHTML = contentHtml || '<div class="empty-state">' + (query ? '未找到含「' + escapeHtml(query) + '」的书籍' : '暂无该题材书籍') + '</div>';
   $$('#genre-tabs .genre-tab').forEach((t) => t.classList.toggle('active', t.dataset.genre === currentGenre));
 }
@@ -310,29 +308,6 @@ function renderBookDisassemblyTags(b) {
     tags.push('<span class="tag-pace">快节奏 ' + (fastCount / totalPace * 100).toFixed(0) + '%</span>');
   }
   return '<div class="book-disassembly-tags">' + tags.join('') + '</div>';
-}
-function renderLibraryGrid(books) {
-  return books.map((b) => {
-    const idx = DATA.books.indexOf(b);
-    const status = getBookStatus(b);
-    const score = getBookScore(b);
-    const cards = getBookCards(b);
-    const cover = coverText(b.title);
-    const singleClass = cover.length === 1 ? 'cover-single' : '';
-    const genreColor = coverStyle(b.title, b.genre);
-    const bgStyle = 'background:' + genreColor + '; opacity:0.18;';
-    const tags = (b.tags && b.tags.length) ? b.tags : ((DATA.tagPools && DATA.tagPools[b.title]) || [b.genre].filter(Boolean));
-    const tagHtml = tags.slice(0, 3).map((t) => '<span class="tag">' + escapeHtml(t) + '</span>').join('');
-    return '<article class="book-card grid-card" data-genre="' + escapeHtml(b.genre || '') + '" data-index="' + idx + '" onclick="selectBook(' + idx + ')" style="border-left:3px solid ' + genreColor + '">' +
-      '<div class="grid-cover-block" style="' + bgStyle + '"><span class="cover-abbr ' + singleClass + '">' + escapeHtml(cover) + '</span></div>' +
-      '<div class="book-meta">' +
-        '<h4 class="book-title">' + escapeHtml(b.title) + '</h4>' +
-        '<div class="book-author">' + escapeHtml(b.author || '') + '</div>' +
-        '<div class="book-stats"><span>' + fmtNumber(b.wordCount) + '字</span><span>' + cards + '张卡</span></div>' +
-        '<div class="book-tags">' + tagHtml + '<span class="book-list-score ' + (score >= 8 ? 'success' : (score >= 6 ? 'warning' : 'danger')) + '">' + score.toFixed(1) + '</span><span class="book-list-status ' + status.cls + ' small">' + status.icon + '</span></div>' +
-        renderBookDisassemblyTags(b) +
-      '</div></article>';
-  }).join('');
 }
 function selectBook(idx) {
   selectedBookIndex = idx;

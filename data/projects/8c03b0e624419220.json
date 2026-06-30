@@ -2,15 +2,15 @@
   "schema_version": "1.1.0",
   "is_demo": true,
   "meta": {
-    "title": "末日模拟器",
+    "title": "《末日模拟器》",
     "author": "作者",
     "genre": "末世",
     "volumes_count": 5,
     "total_chapters": 300,
     "written_chapters": 127,
     "summary": "主角在高考考场遭遇末日降临，觉醒模拟器能力，在72小时轮回中带领团队生存。",
-    "created_at": "2026-06-29 14:35:33",
-    "updated_at": "2026-06-29 14:35:33"
+    "created_at": "2026-06-29 17:13:39",
+    "updated_at": "2026-06-29 17:13:39"
   },
   "skeleton": {
     "volumes": [
@@ -168,7 +168,8 @@
       "num": 127,
       "title": "暴雨前的寂静",
       "status": "writing",
-      "word_count": 1500
+      "word_count": 1240
     }
-  ]
+  ],
+  "id": "8c03b0e624419220"
 }

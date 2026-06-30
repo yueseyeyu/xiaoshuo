@@ -394,6 +394,26 @@ button, input, select, textarea {
   font: inherit;
   color: inherit;
 }
+select {
+  color-scheme: dark;
+  background-color: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 5px 24px 5px 10px;
+  appearance: none;
+  background-repeat: no-repeat;
+  /* 使用 CSS 三角形作为下拉箭头，避免 data URI 兼容问题 */
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--text-secondary) 50%),
+    linear-gradient(-45deg, transparent 50%, var(--text-secondary) 50%);
+  background-position: calc(100% - 12px) 50%, calc(100% - 7px) 50%;
+  background-size: 5px 5px, 5px 5px;
+}
+select option, select optgroup {
+  background-color: var(--surface);
+  color: var(--text);
+}
 button { cursor: pointer; background: none; border: none; }
 a { color: var(--accent); text-decoration: none; }
 
@@ -722,8 +742,6 @@ a { color: var(--accent); text-decoration: none; }
 .library-main { flex: 1; min-width: 0; }
 .library-content { display: flex; flex-direction: column; gap: var(--space-3); }
 .library-content.list-view { display: flex; flex-direction: column; }
-.library-content.grid-view { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--space-4); }
-.library-content.grid-view .book-card { flex-direction: column; }
 
 /* Library / Disassembly filter tabs */
 .filter-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: var(--space-3); }
@@ -788,11 +806,8 @@ a { color: var(--accent); text-decoration: none; }
   display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 18px;
   box-shadow: inset 0 0 0 1px var(--surface-highlight-strong);
 }
-.grid-card { flex-direction: column; padding: 0; overflow: hidden; }
-.grid-cover-block { height: 110px; display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 32px; position: relative; }
 .cover-abbr { font-size: 28px; font-weight: 700; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.3); }
 .cover-single { font-size: 42px; }
-.grid-card .book-meta { padding: var(--space-3); }
 .tag-outline { background: transparent; color: var(--text-secondary); border-color: var(--border); }
 [data-genre="末世"] .cover-block { background: linear-gradient(135deg, hsl(0,70%,55%), hsl(0,70%,35%)); }
 [data-genre="无限流"] .cover-block { background: linear-gradient(135deg, hsl(270,70%,60%), hsl(270,70%,40%)); }
@@ -896,6 +911,7 @@ a { color: var(--accent); text-decoration: none; }
 .form-row input, .form-row select {
   padding: 8px 10px; border-radius: var(--radius-md); background: var(--surface); border: 1px solid var(--border); color: var(--text);
 }
+.form-row select { padding-right: 28px; }
 .form-row input:focus, .form-row select:focus { outline: none; border-color: var(--accent); }
 .form-row textarea { padding: 8px 10px; border-radius: var(--radius-md); background: var(--surface); border: 1px solid var(--border); color: var(--text); font-family: inherit; resize: vertical; }
 .form-row textarea:focus { outline: none; border-color: var(--accent); }
@@ -1229,12 +1245,13 @@ body.focus-mode .focus-ai-panel { display: flex; flex-direction: column; }
 .focus-ai-body { flex: 1; overflow: auto; }
 
 .deai-hint {
+  display: none;
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(120%);
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-pill);
   padding: 8px 16px; font-size: 13px; color: var(--text-secondary); z-index: var(--z-focus-panel);
   transition: transform .25s ease; box-shadow: 0 8px 24px rgba(0,0,0,.3);
 }
-.deai-hint.show { transform: translateX(-50%) translateY(0); }
+.deai-hint.show { display: block; transform: translateX(-50%) translateY(0); }
 
 .focus-hint {
   display: none;
@@ -1298,7 +1315,34 @@ body.focus-mode .focus-hint { display: block; }
 .vram-legend { display: flex; gap: 20px; flex-wrap: wrap; font-size: 13px; color: var(--text-secondary); }
 .vram-legend span { display: flex; align-items: center; gap: 6px; }
 .vram-legend i { width: 12px; height: 12px; border-radius: 3px; }
-.vram-total { font-size: 13px; color: var(--text-secondary); margin-top: 4px; text-align: center; }
+.vram-breakdown-card { padding: var(--space-4); }
+.vram-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-4); }
+.vram-header h4 { margin: 0; font-size: 1rem; }
+.vram-subtitle { font-size: 0.85rem; color: var(--muted); }
+.vram-subtitle b { color: var(--text); font-weight: 600; }
+
+.vram-progress-wrapper { margin-bottom: var(--space-4); }
+.vram-progress-track { width: 100%; height: 12px; background: var(--border); border-radius: 6px; overflow: hidden; }
+.vram-progress-fill { height: 100%; background: linear-gradient(90deg, #38BDF8, #0EA5E9); border-radius: 6px 0 0 6px; transition: width 0.3s ease; }
+.vram-progress-labels { display: flex; justify-content: space-between; margin-top: var(--space-2); font-size: 0.8rem; color: var(--muted); }
+
+.vram-stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); }
+.vram-stat { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3); background: var(--bg-elevated); border-radius: var(--radius); border: 1px solid var(--border); }
+.vram-stat-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.vram-stat.used .vram-stat-dot { background: #38BDF8; }
+.vram-stat.free .vram-stat-dot { background: var(--border); }
+.vram-stat.total .vram-stat-dot { background: var(--text-secondary); }
+.vram-stat-info { min-width: 0; }
+.vram-stat-label { font-size: 0.8rem; color: var(--muted); margin-bottom: 2px; }
+.vram-stat-value { font-size: 1.1rem; font-weight: 700; color: var(--text); }
+.vram-stat-pct { font-size: 0.75rem; color: var(--muted); }
+
+.vram-stats-grid.warn .vram-stat.used { border-color: #F59E0B; background: rgba(245, 158, 11, 0.08); }
+.vram-stats-grid.danger .vram-stat.used { border-color: #EF4444; background: rgba(239, 68, 68, 0.08); }
+
+@media (max-width: 640px) {
+  .vram-stats-grid { grid-template-columns: 1fr; }
+}
 
 @media (max-width: 1200px) {
   .hardware-metrics-row { grid-template-columns: repeat(3, 1fr); }
@@ -1652,6 +1696,7 @@ body.focus-mode .editor-textarea { font-size: 20px; line-height: 2.0; }
   font-family: inherit;
   transition: border-color 0.15s;
 }
+select.settings-input { padding-right: 28px; }
 .settings-input:focus { outline: none; border-color: var(--accent); }
 .settings-card .theme-switcher { display: flex; gap: var(--space-2); }
 .settings-card .theme-dot { width: 22px; height: 22px; }
@@ -2018,7 +2063,7 @@ body.focus-mode .writing-layout { height: calc(100vh - 32px); }
   display: flex; gap: var(--space-2); flex-wrap: wrap;
 }
 .logs-select {
-  padding: 5px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border);
+  padding: 5px 24px 5px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border);
   background: var(--surface); color: var(--text); font-size: 12px;
   cursor: pointer; outline: none;
 }

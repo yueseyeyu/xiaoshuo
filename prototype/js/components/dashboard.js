@@ -101,12 +101,34 @@ async function confirmCreateProject() {
 }
 
 async function loadDemoProject() {
-  const result = await ProjectAPI.createFromDemo();
-  if (result && result.project) {
-    saveProject(result.project);
-    showToast('已加载示例项目');
-  } else {
-    showToast('加载示例项目失败');
+  clearToasts();
+  showToast('正在加载示例项目，请稍候...', 0);
+  try {
+    // 优先复用已存在的示例项目，避免重复创建
+    const list = await ProjectAPI.list({ include_demo: true });
+    const demo = list && list.projects && list.projects.find(p => p.is_demo);
+    if (demo) {
+      const project = await ProjectAPI.get(demo.id);
+      clearToasts();
+      if (project && project.meta) {
+        saveProject(project);
+        showToast('已加载示例项目');
+        return;
+      }
+    }
+    // 没有示例项目时才创建
+    const result = await ProjectAPI.createFromDemo();
+    clearToasts();
+    if (result && result.project) {
+      saveProject(result.project);
+      showToast('已加载示例项目');
+    } else {
+      showToast('加载示例项目失败：接口未返回项目数据');
+    }
+  } catch (e) {
+    clearToasts();
+    console.error('loadDemoProject failed', e);
+    showToast('加载示例项目失败：' + (e.message || '网络超时'));
   }
 }
 

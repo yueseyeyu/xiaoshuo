@@ -15,7 +15,6 @@ let taskFilter = 'all';
 let selectedBookIndex = null;
 let deAiEnabled = false;
 let currentProject = null;
-let currentLibraryView = 'list';
 let librarySort = { key: 'score', dir: 'desc' };
 let selectedBookIds = new Set();
 let accentPresets = [];

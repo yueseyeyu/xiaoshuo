@@ -213,16 +213,19 @@ class ModelServer:
 
     # ── 健康检查 ──
 
-    def health_check(self) -> bool:
+    def health_check(self, timeout: int = 3) -> bool:
         """HTTP GET /health 检查 server 是否存活。
 
         llama.cpp server 在模型加载完成后才会开始监听 /health 端点。
+
+        Args:
+            timeout: 健康检查超时秒数，默认 3 秒
 
         返回: True=存活, False=未响应
         """
         try:
             url = f"{self.base_url}/health"
-            with urllib.request.urlopen(url, timeout=3) as resp:
+            with urllib.request.urlopen(url, timeout=timeout) as resp:
                 return resp.status == 200
         except (urllib.error.URLError, OSError, TimeoutError):
             return False
@@ -670,11 +673,14 @@ class ModelOrchestrator:
         """
         result = {"mode": self.mode, "models": {}}
         for key, server in self.servers.items():
+            running = server.is_running()
+            # 只有进程实际在跑时才做健康检查，避免未启动模型阻塞 3 秒
+            healthy = server.health_check(timeout=1) if running else False
             result["models"][key] = {
                 "name": server.name,
-                "running": server.is_running(),
+                "running": running,
                 "port": server.port,
-                "healthy": server.health_check(),
+                "healthy": healthy,
                 "enabled": server.enabled,
             }
         return result

@@ -11,9 +11,9 @@ const ProjectAPI = {
     return res.ok ? res.data : null;
   },
 
-  // 创建项目
+  // 创建项目（权重文件较大，超时放宽到 60 秒）
   async create(body = {}) {
-    const res = await apiPost('/api/projects', body);
+    const res = await apiPost('/api/projects', body, 60000);
     return res.ok ? res.data : null;
   },
 

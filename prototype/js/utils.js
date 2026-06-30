@@ -91,14 +91,21 @@ function greetingByHour() {
   return '晚上好';
 }
 
-function showToast(msg) {
+function showToast(msg, duration) {
   const container = $('#toast-container');
   if (!container) return;
   const t = document.createElement('div');
   t.className = 'toast';
   t.textContent = msg;
   container.appendChild(t);
-  setTimeout(() => { t.remove(); }, 2500);
+  if (duration !== 0) {
+    setTimeout(() => { t.remove(); }, duration || 2500);
+  }
+}
+
+function clearToasts() {
+  const container = $('#toast-container');
+  if (container) container.innerHTML = '';
 }
 
 function setText(id, text) {

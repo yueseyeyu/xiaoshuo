@@ -25,6 +25,32 @@
       "progress": 0,
       "created_at": "2026-06-29 11:08:29",
       "updated_at": "2026-06-29 11:08:29"
+    },
+    {
+      "id": "1782720965690",
+      "name": "未命名任务",
+      "type": "full_pipeline",
+      "genre": "末世",
+      "books": [
+        "末世精灵皇_and点"
+      ],
+      "status": "pending",
+      "progress": 0,
+      "created_at": "2026-06-29 16:16:05",
+      "updated_at": "2026-06-29 16:16:05"
+    },
+    {
+      "id": "1782720978002",
+      "name": "未命名任务",
+      "type": "full_pipeline",
+      "genre": "末世",
+      "books": [
+        "rhythm_《世界末日从考试不及格开始》作者：小猫要成仙.csv"
+      ],
+      "status": "pending",
+      "progress": 0,
+      "created_at": "2026-06-29 16:16:18",
+      "updated_at": "2026-06-29 16:16:18"
     }
   ]
 }

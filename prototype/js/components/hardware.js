@@ -85,17 +85,6 @@ function renderHardwareMonitor() {
     }
   }
 
-  const dashModel = $('#dash-model-status');
-  const dashModelName = $('#dash-model-name');
-  if (dashModel && dashModelName) {
-    const overallStatus = getOverallHwStatus();
-    const modelEl = dashModel.parentElement;
-    if (modelEl) {
-      modelEl.classList.remove('warn', 'danger');
-      if (overallStatus !== 'normal') modelEl.classList.add(overallStatus);
-    }
-    dashModel.textContent = overallStatus === 'normal' ? '在线' : (overallStatus === 'warn' ? '注意' : '告警');
-  }
 }
 function renderHardwarePageGauges() {
   const rootStyle = getComputedStyle(document.documentElement);
@@ -166,30 +155,10 @@ async function fetchHardwareMetrics() {
     console.warn('[HW] 硬件数据获取失败:', error);
   }
 }
-async function fetchModelInfo() {
-  const { ok, data, error } = await apiGet('/api/model/status');
-  if (!ok || !data || data.error) {
-    console.warn('[HW] 模型信息获取失败:', error);
-    return;
-  }
-  const mainModel = data.models && data.models.main_model;
-  const dashName = $('#dash-model-name');
-  const dashStatus = $('#dash-model-status');
-  const modelName = $('#model-name');
-  const modelMeta = $('#model-meta');
-  const isRunning = mainModel && (mainModel.running || mainModel.healthy);
-  if (dashName && mainModel) dashName.textContent = mainModel.name || '未知';
-  if (dashStatus) {
-    dashStatus.textContent = isRunning ? '在线' : '离线';
-    const modelEl = dashStatus.parentElement;
-    if (modelEl) {
-      modelEl.classList.remove('warn', 'danger');
-      if (!isRunning) modelEl.classList.add('danger');
-    }
-  }
-  if (modelName && mainModel) modelName.textContent = mainModel.name || '未知';
-  if (modelMeta && mainModel) {
-    modelMeta.textContent = 'port:' + (mainModel.port || 8000) + ' · enabled:' + (mainModel.enabled ? 'yes' : 'no');
+// v8.3: 模型状态由 main.js 全局状态统一管理，硬件页面仅触发一次渲染同步
+function syncModelStatusToHardware() {
+  if (typeof window.renderModelStatusUI === 'function') {
+    window.renderModelStatusUI();
   }
 }
 
@@ -200,26 +169,48 @@ function renderVramBreakdown(gpuData) {
   const freeMb = Math.max(0, totalMb - usedMb);
   const usedPct = (usedMb / totalMb * 100).toFixed(1);
   const freePct = (freeMb / totalMb * 100).toFixed(1);
+  const usedGb = (usedMb / 1024).toFixed(1);
+  const freeGb = (freeMb / 1024).toFixed(1);
+  const totalGb = (totalMb / 1024).toFixed(1);
 
-  const usedEl = $('#vram-seg-used');
-  const freeEl = $('#vram-seg-free');
-  const usedGbEl = $('#vram-used-gb');
-  const freeGbEl = $('#vram-free-gb');
-  const totalGbEl = $('#vram-total-gb');
+  const fillEl = $('#vram-progress-fill');
+  if (fillEl) fillEl.style.width = Math.max(usedPct, 2) + '%';
 
-  if (usedEl) usedEl.style.width = Math.max(usedPct, 4) + '%';
-  if (freeEl) freeEl.style.width = Math.max(freePct, 4) + '%';
-  if (usedGbEl) usedGbEl.textContent = (usedMb / 1024).toFixed(1) + 'GB';
-  if (freeGbEl) freeGbEl.textContent = (freeMb / 1024).toFixed(1) + 'GB';
-  if (totalGbEl) totalGbEl.textContent = (totalMb / 1024).toFixed(1) + 'GB';
+  const usedLabel = $('#vram-progress-used');
+  const freeLabel = $('#vram-progress-free');
+  if (usedLabel) usedLabel.textContent = `已用 ${usedGb}GB`;
+  if (freeLabel) freeLabel.textContent = `空闲 ${freeGb}GB`;
+
+  const totalTop = $('#vram-stat-total');
+  const totalCard = $('#vram-stat-total2');
+  if (totalTop) totalTop.textContent = `${totalGb}GB`;
+  if (totalCard) totalCard.textContent = `${totalGb}GB`;
+
+  const usedValue = $('#vram-stat-used');
+  const usedPctEl = $('#vram-stat-used-pct');
+  if (usedValue) usedValue.textContent = `${usedGb}GB`;
+  if (usedPctEl) usedPctEl.textContent = `${usedPct}%`;
+
+  const freeValue = $('#vram-stat-free');
+  const freePctEl = $('#vram-stat-free-pct');
+  if (freeValue) freeValue.textContent = `${freeGb}GB`;
+  if (freePctEl) freePctEl.textContent = `${freePct}%`;
+
+  // 根据占用率调整颜色：>=90% 危险，>=80% 警告
+  const grid = $('#vram-stats-grid');
+  if (grid) {
+    grid.classList.remove('danger', 'warn');
+    if (usedPct >= 90) grid.classList.add('danger');
+    else if (usedPct >= 80) grid.classList.add('warn');
+  }
 }
 
 function initHardwareMonitor() {
   renderHardwareMonitor();
   renderHardwarePageGauges();
+  syncModelStatusToHardware();             // v8.3: 从全局模型状态同步一次
   if (hwInterval) clearInterval(hwInterval);
   setTimeout(fetchHardwareMetrics, 300);  // 延迟避免初始化竞态
-  setTimeout(fetchModelInfo, 300);        // 延迟避免初始化竞态
   hwInterval = setInterval(fetchHardwareMetrics, HW_POLL_INTERVAL);
   // 页面不可见时暂停轮询，减少多标签页压力
   if (!document._hwVisibilityBound) {
