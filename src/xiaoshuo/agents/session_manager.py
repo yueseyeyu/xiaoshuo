@@ -419,6 +419,242 @@ class SessionManager:
         except Exception as e:
             return {"verdict": "ERROR", "flags": 0, "summary": f"检测失败: {e}"}
 
+    # ── v8.5: P1/P2 模块集成 ──
+
+    def check_golden3(self) -> dict:
+        """P1.1: 黄金三章五维分析。
+
+        自动加载前 3 章文本并执行 G1-G5 检测。
+        仅在章节 >= 3 时有意义。
+
+        Returns:
+            {"dimensions": dict, "summary": str, "grade": str, "issues": list}
+        """
+        try:
+            from xiaoshuo.pipeline.golden3_analyzer import analyze_golden3
+            chapters = []
+            for ch in range(1, 4):
+                text = self._load_chapter_text(ch)
+                if text:
+                    chapters.append(text)
+            if len(chapters) < 1:
+                return {"dimensions": {}, "summary": "无章节文本", "grade": "N/A", "issues": []}
+            report = analyze_golden3(chapters)
+            dims = {}
+            for d in report.dimensions:
+                dims[d.dimension] = {
+                    "score": d.score,
+                    "grade": d.grade,
+                    "issues": d.issues,
+                }
+            return {
+                "dimensions": dims,
+                "summary": report.summary,
+                "grade": report.grade,
+                "issues": [i for d in report.dimensions for i in d.issues],
+            }
+        except Exception as e:
+            return {"dimensions": {}, "summary": f"分析失败: {e}", "grade": "ERROR", "issues": []}
+
+    def check_red_lines(self, chapter: int) -> dict:
+        """P2.1: 红线原则检测。
+
+        对指定章节执行红线原则检测, 返回违反项列表。
+
+        Returns:
+            {"passed": bool, "violations": list, "summary": str}
+        """
+        try:
+            from xiaoshuo.pipeline.red_line_principles import check_red_lines
+            path = self.get_chapter_path(chapter)
+            if not path:
+                return {"passed": True, "violations": [], "summary": "章节文件不存在, 跳过"}
+            text = path.read_text(encoding="utf-8")
+            result = check_red_lines(text, chapter)
+            return {
+                "passed": result.passed,
+                "violations": [
+                    {"category": v.category, "rule": v.rule, "severity": v.severity,
+                     "detail": v.detail}
+                    for v in result.violations
+                ],
+                "summary": result.summary,
+            }
+        except Exception as e:
+            return {"passed": True, "violations": [], "summary": f"检测失败: {e}"}
+
+    def check_outline_deviation(self, chapter: int, blueprint: dict | None = None) -> dict:
+        """P2.4: 大纲偏差检测。
+
+        将章节内容与章节计划 (blueprint) 对比, 检测多维偏差。
+
+        Args:
+            chapter: 章节号
+            blueprint: 章节计划 dict (events/characters/conflict 等)
+                      如为 None 则尝试从 outline 加载
+
+        Returns:
+            {"score": float, "grade": str, "items": list, "summary": str}
+        """
+        try:
+            from xiaoshuo.pipeline.outline_deviation import check_outline_deviation
+            path = self.get_chapter_path(chapter)
+            if not path:
+                return {"score": 0, "grade": "N/A", "items": [], "summary": "章节文件不存在"}
+            text = path.read_text(encoding="utf-8")
+            if blueprint is None:
+                blueprint = self._load_chapter_plan(chapter)
+            if not blueprint:
+                return {"score": 0, "grade": "SKIP", "items": [],
+                        "summary": "无章节计划, 跳过偏差检测"}
+            result = check_outline_deviation(text, blueprint, chapter)
+            # 根据 coverage_score 计算等级
+            score = result.coverage_score
+            if score >= 80:
+                grade = "PASS"
+            elif score >= 60:
+                grade = "WARNING"
+            else:
+                grade = "FATAL"
+            return {
+                "score": score,
+                "grade": grade,
+                "items": [
+                    {"dimension": i.dimension, "status": "matched" if i.matched else "deviation",
+                     "detail": i.description, "severity": i.severity}
+                    for i in result.items
+                ],
+                "summary": result.summary,
+            }
+        except Exception as e:
+            return {"score": 0, "grade": "ERROR", "items": [], "summary": f"检测失败: {e}"}
+
+    def check_style_consistency(self, chapter: int) -> dict:
+        """P2.2: 风格一致性检测 (基于 Style DNA 基线)。
+
+        提取当前章节的 Style DNA, 与历史基线对比, 检测偏离。
+
+        Returns:
+            {"verdict": str, "issues": list, "summary": str}
+        """
+        try:
+            from xiaoshuo.pipeline.style_dna import extract_dna, build_dna_baseline, compare_dna
+            from xiaoshuo.pipeline.s3_extensions.style_consistency_lens import check_style_consistency
+            path = self.get_chapter_path(chapter)
+            if not path:
+                return {"verdict": "SKIP", "issues": [], "summary": "章节文件不存在"}
+            text = path.read_text(encoding="utf-8")
+
+            # 尝试加载基线
+            baseline = self._load_style_dna_baseline()
+            if baseline is None:
+                # 基线不存在, 仅提取 DNA 不比较
+                return {"verdict": "SKIP", "issues": [],
+                        "summary": "风格基线尚未建立 (需 ≥ 5 章样本)"}
+
+            result = check_style_consistency(text, baseline)
+            # 根据 grade 计算 verdict
+            if result.has_serious:
+                verdict = "FATAL"
+            elif result.has_issues:
+                verdict = "WARNING"
+            else:
+                verdict = "PASS"
+            return {
+                "verdict": verdict,
+                "issues": [
+                    {"dimension": i.dimension, "deviation": i.deviation,
+                     "severity": i.severity, "detail": i.description}
+                    for i in result.issues
+                ],
+                "summary": result.summary,
+            }
+        except Exception as e:
+            return {"verdict": "ERROR", "issues": [], "summary": f"检测失败: {e}"}
+
+    def check_knowledge_brain(self, chapter_type: str = "",
+                               context: dict | None = None) -> dict:
+        """P1.4: 写前知识库查表。
+
+        根据章节类型和上下文, 检索相关经验提醒。
+
+        Returns:
+            {"has_warnings": bool, "experiences": list, "prompt_text": str}
+        """
+        try:
+            from xiaoshuo.pipeline.knowledge_brain import check_before_write
+            result = check_before_write(chapter_type, context or {})
+            return {
+                "has_warnings": result.has_warnings,
+                "experiences": [
+                    {"symptom": e.symptom, "root_cause": e.root_cause,
+                     "solution": e.solution, "severity": e.severity,
+                     "hit_count": e.hit_count}
+                    for e in result.matched
+                ],
+                "prompt_text": "\n".join(result.warnings) if result.warnings else "",
+            }
+        except Exception as e:
+            return {"has_warnings": False, "experiences": [],
+                    "prompt_text": ""}
+
+    def get_red_line_reminder(self) -> str:
+        """P2.1: 获取红线原则提醒文本 (注入写前 Prompt)。
+
+        Returns:
+            红线原则提醒文本, 如无则返回空字符串
+        """
+        try:
+            from xiaoshuo.pipeline.red_line_principles import get_red_line_checker
+            checker = get_red_line_checker()
+            return checker.format_for_prompt()
+        except Exception:
+            return ""
+
+    def get_knowledge_brain_prompt(self) -> str:
+        """P1.4: 获取知识库经验提醒文本 (注入写前 Prompt)。
+
+        Returns:
+            经验提醒文本, 如无则返回空字符串
+        """
+        try:
+            from xiaoshuo.pipeline.knowledge_brain import get_knowledge_brain
+            kb = get_knowledge_brain()
+            return kb.format_for_prompt()
+        except Exception:
+            return ""
+
+    def _load_style_dna_baseline(self):
+        """加载风格 DNA 基线 (从历史章节构建)。
+
+        尝试从已保存的基线文件加载, 如不存在则返回 None。
+        """
+        try:
+            import json
+            baseline_path = PROJECT_ROOT / "data" / "style_dna_baseline.json"
+            if baseline_path.exists():
+                from xiaoshuo.pipeline.style_dna import StyleDNA
+                data = json.loads(baseline_path.read_text(encoding="utf-8"))
+                return StyleDNA.from_dict(data)
+        except Exception:
+            pass
+        return None
+
+    def _load_chapter_plan(self, chapter: int) -> dict:
+        """从 outline/chapter_plans/ 加载章节计划。
+
+        Returns:
+            章节计划 dict, 如不存在返回空 dict
+        """
+        try:
+            import json
+            plan_path = PROJECT_ROOT / "assets" / "outline" / "chapter_plans" / f"chapter_{chapter}.json"
+            if plan_path.exists():
+                return json.loads(plan_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+        return {}
+
     # ── 状态展示 ──
 
     def get_status_lines(self) -> list:

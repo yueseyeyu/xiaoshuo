@@ -830,6 +830,18 @@ def cmd_session(args) -> None:
         elif cmd == "style":
             _session_style(sm)
 
+        elif cmd == "golden3":
+            _session_golden3(sm)
+
+        elif cmd == "redline":
+            _session_redline(sm)
+
+        elif cmd == "deviation":
+            _session_deviation(sm)
+
+        elif cmd == "knowledge":
+            _session_knowledge(sm, arg)
+
         elif cmd == "next":
             sm.advance_stage("next")
             print(f"  [OK] Advanced to [{sm.current_stage}] {STAGE_LABELS.get(sm.current_stage, '')}")
@@ -887,6 +899,10 @@ def _print_session_help(sm) -> None:
     print("  compare    -- S2c: Comparison analysis (metrics + signing probability)")
     print("  decisions  -- Collect chapter decisions (style data)")
     print("  style      -- Show style evolution status (Part E)")
+    print("  golden3    -- P1.1: Golden3 analysis (first 3 chapters)")
+    print("  redline    -- P2.1: Red line principles check")
+    print("  deviation  -- P2.4: Outline deviation check")
+    print("  knowledge  -- P1.4: Knowledge-Brain (list/search/check)")
     print("  next       -- Advance to next stage")
     print("  rewrite    -- Go back to S2d (revision)")
     print("  goto STAGE -- Jump to specific stage")
@@ -997,7 +1013,7 @@ def _run_prewrite_combined(sm, chapter: int) -> None:
       2. 创作指导: CreativeContext 节奏目标+技法卡片 — Part A→B→C 桥接
       3. 风格提示: 作者风格画像(如有) — Part E→C 反馈注入
     """
-    print(f"\n  [prewrite] 写前准备 — 合同链 + 创作指导 + 风格提示")
+    print(f"\n  [prewrite] 写前准备 — 合同链 + 创作指导 + 风格提示 + 知识库 + 红线")
 
     # ── 1. 合同链: 通过 SessionManager 获取运行时合同 ──
     try:
@@ -1050,6 +1066,35 @@ def _run_prewrite_combined(sm, chapter: int) -> None:
                 print(f"    - {hint[:80]}")
     except Exception:
         pass  # 风格画像不可用则静默跳过
+
+    # ── 4. 知识库经验提醒 (P1.4 Knowledge-Brain) ──
+    try:
+        kb_result = sm.check_knowledge_brain(
+            chapter_type="",
+            context={"chapter": chapter, "genre": sm.genre},
+        )
+        if kb_result["has_warnings"]:
+            exps = kb_result["experiences"]
+            print(f"  [knowledge] 写前经验提醒 ({len(exps)} 条):")
+            for exp in exps[:3]:
+                symptom = exp.get("symptom", "")[:60]
+                solution = exp.get("solution", "")[:60]
+                print(f"    - 症状: {symptom}")
+                if solution:
+                    print(f"      对策: {solution}")
+    except Exception:
+        pass  # 知识库不可用则静默跳过
+
+    # ── 5. 红线原则提醒 (P2.1 Red Line Principles) ──
+    try:
+        red_line_text = sm.get_red_line_reminder()
+        if red_line_text:
+            print(f"  [redline] 红线原则提醒:")
+            for line in red_line_text.strip().split("\n")[:3]:
+                if line.strip():
+                    print(f"    {line.strip()[:80]}")
+    except Exception:
+        pass  # 红线原则不可用则静默跳过
 
     print(f"  [prewrite] 写前准备完成\n")
 
@@ -1121,6 +1166,30 @@ def _session_write(sm, file_arg: str = "") -> None:
     if contract_result["audit_issues"]:
         for issue in contract_result["audit_issues"][:3]:
             print(f"  [contract] 审计: {issue}")
+
+    # ── 写后: 红线检测 (P2.1) ──
+    try:
+        rl_result = sm.check_red_lines(chapter)
+        if not rl_result["passed"]:
+            print(f"\n  [redline] 红线检测: 发现 {len(rl_result['violations'])} 项违反")
+            for v in rl_result["violations"][:3]:
+                print(f"    [{v.get('severity', '?')}] {v.get('category', '')}: {v.get('rule', '')[:60]}")
+        else:
+            print(f"  [redline] 红线检测: PASS")
+    except Exception:
+        pass  # 红线检测不可用则静默跳过
+
+    # ── 写后: 大纲偏差检测 (P2.4) ──
+    try:
+        dev_result = sm.check_outline_deviation(chapter)
+        if dev_result["grade"] not in ("SKIP", "N/A", "ERROR"):
+            print(f"  [deviation] 大纲偏差: {dev_result['grade']} (score={dev_result['score']:.0f})")
+            if dev_result["grade"] in ("WARNING", "FATAL"):
+                for item in dev_result["items"][:3]:
+                    if item.get("severity") in ("warning", "fatal"):
+                        print(f"    [{item['severity']}] {item['dimension']}: {item.get('detail', '')[:60]}")
+    except Exception:
+        pass  # 偏差检测不可用则静默跳过
 
     # ── 写后: S4 风格检测 ──
     style_result = sm.detect_style(chapter)
@@ -1274,6 +1343,111 @@ def _session_style(sm) -> None:
             print(f"\n  当前风格提示:")
             for hint in hints[:5]:
                 print(f"    - {hint[:80]}")
+
+
+def _session_golden3(sm) -> None:
+    """在会话中运行黄金三章分析 (P1.1)。"""
+    print(f"\n{'=' * 60}")
+    print(f"  P1.1 Golden3 Analyzer")
+    print(f"{'=' * 60}")
+
+    result = sm.check_golden3()
+
+    print(f"\n  Grade: {result['grade']}")
+    print(f"  {result['summary']}")
+
+    if result["dimensions"]:
+        print(f"\n  Dimensions:")
+        for dim_name, dim_data in result["dimensions"].items():
+            print(f"    {dim_name}: {dim_data['score']:.1f}/10 ({dim_data['grade']})")
+            for issue in dim_data.get("issues", [])[:2]:
+                print(f"      - {issue[:70]}")
+    print(f"{'=' * 60}")
+
+
+def _session_redline(sm) -> None:
+    """在会话中运行红线原则检测 (P2.1)。"""
+    chapter = sm.current_chapter
+    print(f"\n{'=' * 60}")
+    print(f"  P2.1 Red Line Check -- Chapter {chapter}")
+    print(f"{'=' * 60}")
+
+    result = sm.check_red_lines(chapter)
+
+    if result["passed"]:
+        print(f"  [PASS] No red line violations")
+    else:
+        print(f"  [FAIL] {len(result['violations'])} violations:")
+        for v in result["violations"]:
+            print(f"    [{v.get('severity', '?')}] {v.get('category', '')}: {v.get('rule', '')[:60]}")
+    print(f"{'=' * 60}")
+
+
+def _session_deviation(sm) -> None:
+    """在会话中运行大纲偏差检测 (P2.4)。"""
+    chapter = sm.current_chapter
+    print(f"\n{'=' * 60}")
+    print(f"  P2.4 Outline Deviation -- Chapter {chapter}")
+    print(f"{'=' * 60}")
+
+    result = sm.check_outline_deviation(chapter)
+
+    if result["grade"] in ("SKIP", "N/A"):
+        print(f"  [SKIP] {result['summary']}")
+    else:
+        print(f"  Score: {result['score']:.1f}/100  Grade: {result['grade']}")
+        for item in result["items"]:
+            marker = "[!]" if item.get("severity") in ("warning", "fatal") else "[OK]"
+            print(f"  {marker} {item['dimension']}: {item.get('status', '')} ({item.get('severity', '')})")
+    print(f"{'=' * 60}")
+
+
+def _session_knowledge(sm, arg: str = "") -> None:
+    """在会话中运行知识库查询 (P1.4)。
+
+    用法:
+      knowledge              -- 写前查表 (默认)
+      knowledge list         -- 列出所有经验
+      knowledge search 关键词 -- 搜索经验
+    """
+    from xiaoshuo.pipeline.knowledge_brain import get_knowledge_brain
+
+    if not arg or arg == "check":
+        result = sm.check_knowledge_brain()
+        if result["has_warnings"]:
+            print(f"\n  [knowledge] {len(result['experiences'])} relevant warnings:")
+            for exp in result["experiences"]:
+                print(f"    [{exp['severity']}] {exp['symptom'][:60]}")
+                if exp["solution"]:
+                    print(f"      Solution: {exp['solution'][:60]}")
+        else:
+            print("\n  [knowledge] No relevant warnings")
+
+    elif arg == "list":
+        kb = get_knowledge_brain()
+        all_exp = kb.list_all()
+        if not all_exp:
+            print("\n  [knowledge] Knowledge-Brain is empty")
+            return
+        print(f"\n  [knowledge] {len(all_exp)} experiences:")
+        for exp in all_exp[:10]:
+            print(f"    [{exp.severity}] {exp.symptom[:50]}")
+
+    elif arg.startswith("search "):
+        keyword = arg[7:]
+        kb = get_knowledge_brain()
+        results = kb.search(keyword)
+        if not results:
+            print(f"\n  [knowledge] No results for '{keyword}'")
+            return
+        print(f"\n  [knowledge] Found {len(results)} matches:")
+        for exp in results[:5]:
+            print(f"    [{exp.severity}] {exp.symptom[:60]}")
+            if exp.solution:
+                print(f"      Solution: {exp.solution[:60]}")
+
+    else:
+        print("\n  Usage: knowledge [list|search <keyword>|check]")
 
 
 def _auto_update_style_profile() -> None:
@@ -1651,6 +1825,303 @@ def cmd_style(args) -> None:
 
 
 # ============================================================================
+# 命令: golden3 -- 黄金三章专项分析 (P1.1)
+# ============================================================================
+
+def cmd_golden3(args) -> None:
+    """
+    P1.1: 黄金三章五维分析器。
+
+    自动加载前 3 章文本, 执行 G1-G5 检测:
+      G1 高能钩子 / G2 人设清晰度 / G3 核心矛盾
+      G4 铺垫密度 / G5 情绪曲线
+
+    用法: python novel.py golden3
+          python novel.py golden3 --chapter 1 2 3
+    """
+    from xiaoshuo.agents.session_manager import SessionManager
+
+    sm = SessionManager()
+
+    # 加载章节文本
+    chapters = []
+    ch_nums = getattr(args, "chapters", None) or [1, 2, 3]
+    for ch in ch_nums:
+        text = sm._load_chapter_text(ch)
+        if text:
+            chapters.append(text)
+        else:
+            print(f"  [WARN] Chapter {ch}: no text found")
+
+    if not chapters:
+        print("[FAIL] No chapter text found. Use 'write' command first.")
+        return
+
+    print("=" * 60)
+    print(f"  P1.1 Golden3 Analyzer -- {len(chapters)} chapters")
+    print("=" * 60)
+
+    result = sm.check_golden3()
+
+    print(f"\n  Overall Grade: {result['grade']}")
+    print(f"  Summary: {result['summary']}")
+
+    if result["dimensions"]:
+        print(f"\n  Dimensions:")
+        for dim_name, dim_data in result["dimensions"].items():
+            print(f"    {dim_name}: score={dim_data['score']:.1f} grade={dim_data['grade']}")
+            for issue in dim_data.get("issues", [])[:2]:
+                print(f"      - {issue[:70]}")
+
+    if result["issues"]:
+        print(f"\n  Top Issues ({len(result['issues'])} total):")
+        for issue in result["issues"][:5]:
+            print(f"    - {issue[:70]}")
+
+    print("=" * 60)
+
+
+# ============================================================================
+# 命令: knowledge -- 知识库管理 (P1.4)
+# ============================================================================
+
+def cmd_knowledge(args) -> None:
+    """
+    P1.4: Knowledge-Brain 知识库管理。
+
+    子命令:
+      list     -- 列出所有经验
+      search   -- 全文搜索
+      stats    -- 统计信息
+      record   -- 手动记录经验
+      check    -- 写前查表
+
+    用法:
+      python novel.py knowledge list
+      python novel.py knowledge search --keyword "节奏拖沓"
+      python novel.py knowledge stats
+      python novel.py knowledge record --symptom "..." --cause "..." --solution "..."
+      python novel.py knowledge check --chapter-type "action"
+    """
+    from xiaoshuo.pipeline.knowledge_brain import (
+        get_knowledge_brain, record_experience,
+    )
+
+    kb_cmd = args.knowledge_cmd
+
+    if kb_cmd == "list":
+        kb = get_knowledge_brain()
+        all_exp = kb.list_all()
+        if not all_exp:
+            print("[INFO] Knowledge-Brain is empty")
+            return
+        print(f"[OK] {len(all_exp)} experiences:")
+        for exp in all_exp[:20]:
+            print(f"  [{exp.severity}] {exp.symptom[:50]}")
+            if exp.root_cause:
+                print(f"         Root: {exp.root_cause[:50]}")
+            print(f"         Hits: {exp.hit_count}, Tags: {exp.tags}")
+
+    elif kb_cmd == "search":
+        kb = get_knowledge_brain()
+        results = kb.search(args.keyword)
+        if not results:
+            print(f"[INFO] No results for '{args.keyword}'")
+            return
+        print(f"[OK] Found {len(results)} matches:")
+        for exp in results[:10]:
+            print(f"  [{exp.severity}] {exp.symptom[:60]}")
+            if exp.solution:
+                print(f"         Solution: {exp.solution[:60]}")
+
+    elif kb_cmd == "stats":
+        kb = get_knowledge_brain()
+        s = kb.stats()
+        print("=" * 50)
+        print("  Knowledge-Brain Statistics")
+        print("=" * 50)
+        print(f"  Total experiences: {s.get('total', 0)}")
+        print(f"  By severity: {s.get('by_severity', {})}")
+        print(f"  By source: {s.get('by_source', {})}")
+        print(f"  Global: {s.get('global_count', 0)}")
+        print(f"  Total hits: {s.get('total_hits', 0)}")
+
+    elif kb_cmd == "record":
+        eid = record_experience(
+            symptom=args.symptom,
+            root_cause=args.cause or "",
+            solution=args.solution or "",
+            severity=args.severity or "MED",
+            tags=[t.strip() for t in args.tags.split(",")] if args.tags else [],
+            source="manual",
+        )
+        print(f"[OK] Experience recorded: {eid}")
+        print(f"  Symptom: {args.symptom[:60]}")
+
+    elif kb_cmd == "check":
+        from xiaoshuo.agents.session_manager import SessionManager
+        sm = SessionManager()
+        result = sm.check_knowledge_brain(
+            chapter_type=args.chapter_type or "",
+        )
+        if result["has_warnings"]:
+            print(f"[WARN] {len(result['experiences'])} relevant experiences:")
+            for exp in result["experiences"]:
+                print(f"  [{exp['severity']}] {exp['symptom'][:60]}")
+                if exp["solution"]:
+                    print(f"    Solution: {exp['solution'][:60]}")
+        else:
+            print("[OK] No relevant warnings from Knowledge-Brain")
+
+    else:
+        print("[FAIL] Unknown subcommand. Available: list / search / stats / record / check")
+
+
+# ============================================================================
+# 命令: redline -- 红线原则检测 (P2.1)
+# ============================================================================
+
+def cmd_redline(args) -> None:
+    """
+    P2.1: 红线原则检测与管理。
+
+    用法:
+      python novel.py redline --chapter 5        # 检测第5章
+      python novel.py redline --file chapter.md   # 检测指定文件
+      python novel.py redline --list              # 列出所有红线原则
+    """
+    from xiaoshuo.agents.session_manager import SessionManager
+    from xiaoshuo.pipeline.red_line_principles import get_red_line_checker
+
+    if getattr(args, "list_principles", False):
+        checker = get_red_line_checker()
+        principles = checker.list_principles()
+        if not principles:
+            print("[INFO] No red line principles loaded")
+            return
+        print(f"[OK] {len(principles)} red line principles:")
+        for p in principles:
+            status = "ENABLED" if p.enabled else "DISABLED"
+            print(f"  [{p.category}] {p.rule[:60]} ({status})")
+        return
+
+    # 检测模式
+    sm = SessionManager()
+    chapter = getattr(args, "chapter", 0) or 0
+    file_path = getattr(args, "file", "") or ""
+
+    if file_path:
+        fpath = Path(file_path)
+        if not fpath.exists():
+            print(f"[FAIL] File not found: {fpath}")
+            return
+        text = fpath.read_text(encoding="utf-8")
+        # 临时保存以便使用 sm.check_red_lines
+        # 直接调用 pipeline 函数
+        from xiaoshuo.pipeline.red_line_principles import check_red_lines
+        result = check_red_lines(text, chapter)
+        print("=" * 60)
+        print(f"  P2.1 Red Line Check -- {fpath.name}")
+        print("=" * 60)
+        if result.passed:
+            print(f"  [PASS] No red line violations")
+        else:
+            print(f"  [FAIL] {len(result.violations)} violations found:")
+            for v in result.violations:
+                print(f"    [{v.severity}] {v.category}: {v.rule[:50]}")
+                if v.detail:
+                    print(f"      Detail: {v.detail[:60]}")
+        print("=" * 60)
+        return
+
+    if not chapter:
+        print("[FAIL] Need --chapter or --file. See: python novel.py redline --help")
+        return
+
+    result = sm.check_red_lines(chapter)
+
+    print("=" * 60)
+    print(f"  P2.1 Red Line Check -- Chapter {chapter}")
+    print("=" * 60)
+    if result["passed"]:
+        print(f"  [PASS] No red line violations")
+    else:
+        print(f"  [FAIL] {len(result['violations'])} violations found:")
+        for v in result["violations"]:
+            sev = v.get("severity", "?")
+            cat = v.get("category", "")
+            rule = v.get("rule", "")[:50]
+            print(f"    [{sev}] {cat}: {rule}")
+            detail = v.get("detail", "")
+            if detail:
+                print(f"      Detail: {detail[:60]}")
+    print(f"\n  Summary: {result['summary']}")
+    print("=" * 60)
+
+
+# ============================================================================
+# 命令: deviation -- 大纲偏差检测 (P2.4)
+# ============================================================================
+
+def cmd_deviation(args) -> None:
+    """
+    P2.4: 大纲偏差检测。
+
+    将章节内容与章节计划对比, 检测多维偏差:
+      events / characters / conflict / foreshadowing / cliffhanger / emotion
+
+    用法: python novel.py deviation --chapter 5
+          python novel.py deviation --chapter 5 --plan chapter_5.json
+    """
+    from xiaoshuo.agents.session_manager import SessionManager
+    import json as _json
+
+    sm = SessionManager()
+    chapter = args.chapter
+
+    # 加载章节计划
+    blueprint = None
+    plan_file = getattr(args, "plan", "") or ""
+    if plan_file:
+        ppath = Path(plan_file)
+        if not ppath.is_absolute():
+            ppath = PROJECT_ROOT / ppath
+        if ppath.exists():
+            blueprint = _json.loads(ppath.read_text(encoding="utf-8"))
+        else:
+            print(f"[FAIL] Plan file not found: {ppath}")
+            return
+
+    result = sm.check_outline_deviation(chapter, blueprint)
+
+    print("=" * 60)
+    print(f"  P2.4 Outline Deviation -- Chapter {chapter}")
+    print("=" * 60)
+
+    if result["grade"] in ("SKIP", "N/A"):
+        print(f"  [SKIP] {result['summary']}")
+        print("=" * 60)
+        return
+
+    print(f"  Score: {result['score']:.1f}/100  Grade: {result['grade']}")
+    print(f"  Summary: {result['summary']}")
+
+    if result["items"]:
+        print(f"\n  Dimension Results:")
+        for item in result["items"]:
+            dim = item.get("dimension", "")
+            status = item.get("status", "")
+            sev = item.get("severity", "")
+            detail = item.get("detail", "")[:60]
+            marker = "[!]" if sev in ("warning", "fatal") else "[OK]"
+            print(f"    {marker} {dim}: {status} ({sev})")
+            if detail:
+                print(f"        {detail}")
+
+    print("=" * 60)
+
+
+# ============================================================================
 # CLI 入口 — argparse 路由
 # ============================================================================
 
@@ -1827,6 +2298,46 @@ def main() -> None:
     p_style.add_argument("--regenerate", action="store_true",
                          help="强制重新生成风格画像")
 
+    # golden3 -- 黄金三章分析 (P1.1)
+    p_golden3 = sub.add_parser("golden3", help="P1.1: 黄金三章五维分析器",
+        epilog="Example: python novel.py golden3")
+    p_golden3.add_argument("--chapters", type=int, nargs="*", default=None,
+                           help="章节号列表 (默认 1 2 3)")
+
+    # knowledge -- 知识库管理 (P1.4)
+    p_knowledge = sub.add_parser("knowledge", help="P1.4: Knowledge-Brain 知识库管理",
+        epilog="Example: python novel.py knowledge list\n"
+               "         python novel.py knowledge search --keyword 节奏\n"
+               "         python novel.py knowledge stats")
+    p_kb_sub = p_knowledge.add_subparsers(dest="knowledge_cmd", help="知识库子命令")
+    p_kb_sub.add_parser("list", help="列出所有经验")
+    p_kb_search = p_kb_sub.add_parser("search", help="全文搜索")
+    p_kb_search.add_argument("--keyword", type=str, required=True, help="搜索关键词")
+    p_kb_sub.add_parser("stats", help="统计信息")
+    p_kb_record = p_kb_sub.add_parser("record", help="手动记录经验")
+    p_kb_record.add_argument("--symptom", type=str, required=True, help="症状描述")
+    p_kb_record.add_argument("--cause", type=str, default="", help="根因")
+    p_kb_record.add_argument("--solution", type=str, default="", help="解决方案")
+    p_kb_record.add_argument("--severity", type=str, default="MED", help="严重度 (HIGH/MED/LOW)")
+    p_kb_record.add_argument("--tags", type=str, default="", help="逗号分隔标签")
+    p_kb_check = p_kb_sub.add_parser("check", help="写前查表")
+    p_kb_check.add_argument("--chapter-type", type=str, default="", help="章节类型")
+
+    # redline -- 红线检测 (P2.1)
+    p_redline = sub.add_parser("redline", help="P2.1: 红线原则检测",
+        epilog="Example: python novel.py redline --chapter 5\n"
+               "         python novel.py redline --list")
+    p_redline.add_argument("--chapter", type=int, default=0, help="章节号")
+    p_redline.add_argument("--file", type=str, default="", help="文件路径")
+    p_redline.add_argument("--list", action="store_true", dest="list_principles",
+                           help="列出所有红线原则")
+
+    # deviation -- 大纲偏差检测 (P2.4)
+    p_deviation = sub.add_parser("deviation", help="P2.4: 大纲偏差检测",
+        epilog="Example: python novel.py deviation --chapter 5")
+    p_deviation.add_argument("--chapter", type=int, required=True, help="章节号")
+    p_deviation.add_argument("--plan", type=str, default="", help="章节计划 JSON 文件路径")
+
     # ── 解析 & 路由 ──
     args = parser.parse_args()
 
@@ -1855,6 +2366,10 @@ def main() -> None:
         "memory":     cmd_memory,
         "compare":    cmd_compare,
         "style":      cmd_style,
+        "golden3":    cmd_golden3,
+        "knowledge":  cmd_knowledge,
+        "redline":    cmd_redline,
+        "deviation":  cmd_deviation,
     }
 
     # 执行目标命令

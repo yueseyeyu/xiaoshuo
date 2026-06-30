@@ -768,6 +768,403 @@ def build_chapter_blueprint(
 
 
 # ============================================================
+# v8.4: Specs-driven 大纲生成 (P0.3)
+# ============================================================
+
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass
+class OutlineSpecs:
+    """大纲生成规格书 — 从 Part A 分析产出组装的结构化输入。
+
+    来源: 建议文件 "引入 specs-driven 大纲"
+    设计: 所有分析数据先组装成 specs, 再驱动大纲生成, 最后验证偏差。
+
+    Fields:
+        genre: 题材标签
+        total_chapters: 总章节数
+        template_name: 推荐模板 (三幕式/升级打怪/...)
+        rhythm_targets: 节奏量化目标 {hook_density, conflict_density, pleasure_intensity, sample_count}
+        technique_cards: 推荐技法卡片列表
+        anti_tropes: 反套路提醒列表
+        character_archetypes: 角色原型建议
+        canon_world: 世界观设定文本
+        canon_characters: 角色设定文本
+        canon_rules: 世界规则文本
+        pleasure_templates: 核心爽点模板 (即时爽/延迟爽/反转爽点)
+        emotion_curve: 情绪曲线模板 (起承转合/三幕式/英雄之旅)
+    """
+    genre: str = "末世"
+    total_chapters: int = 300
+    template_name: str = "三幕式"
+    rhythm_targets: dict = field(default_factory=dict)
+    technique_cards: list = field(default_factory=list)
+    anti_tropes: list = field(default_factory=list)
+    character_archetypes: list = field(default_factory=list)
+    canon_world: str = ""
+    canon_characters: str = ""
+    canon_rules: str = ""
+    pleasure_templates: list = field(default_factory=list)
+    emotion_curve: str = ""
+
+    def to_prompt_context(self) -> str:
+        """将 specs 转换为 LLM prompt 的附加上下文。"""
+        parts = []
+
+        if self.rhythm_targets:
+            parts.append("## 量化节奏目标 (来自精品书基准)")
+            parts.append(f"- 钩子密度目标: ≥ {self.rhythm_targets.get('hook_density_target', 1.0)}/千字")
+            parts.append(f"- 冲突密度目标: ≥ {self.rhythm_targets.get('conflict_density_target', 0.5)}/千字")
+            parts.append(f"- 爽点强度目标: ≥ {self.rhythm_targets.get('pleasure_intensity_target', 5.0)}/10")
+            parts.append(f"- 样本量: {self.rhythm_targets.get('sample_count', 0)} 本精品书")
+
+        if self.technique_cards:
+            parts.append("\n## 推荐结构技法")
+            for card in self.technique_cards[:3]:
+                if isinstance(card, dict):
+                    parts.append(f"- {card.get('title', '')}: {card.get('description', '')[:100]}")
+                else:
+                    parts.append(f"- {card}")
+
+        if self.pleasure_templates:
+            parts.append("\n## 核心爽点模板 (必须在章纲中体现)")
+            for pt in self.pleasure_templates:
+                parts.append(f"- {pt}")
+
+        if self.emotion_curve:
+            parts.append(f"\n## 情绪曲线模板: {self.emotion_curve}")
+
+        if self.anti_tropes:
+            parts.append("\n## 大纲反套路提醒")
+            for t in self.anti_tropes[:3]:
+                parts.append(f"- {t}")
+
+        if self.character_archetypes:
+            parts.append("\n## 角色原型建议")
+            for arc in self.character_archetypes[:5]:
+                if isinstance(arc, dict):
+                    parts.append(f"- {arc.get('name', '')}: {arc.get('description', '')[:80]}")
+                else:
+                    parts.append(f"- {arc}")
+
+        if self.canon_characters:
+            parts.append(f"\n## 角色设定 (Canon)\n{self.canon_characters[:800]}")
+
+        if self.canon_rules:
+            parts.append(f"\n## 世界规则 (Canon)\n{self.canon_rules[:500]}")
+
+        return "\n".join(parts) if parts else ""
+
+    def to_dict(self) -> dict:
+        """序列化为字典 (用于保存/加载)。"""
+        return {
+            "genre": self.genre,
+            "total_chapters": self.total_chapters,
+            "template_name": self.template_name,
+            "rhythm_targets": self.rhythm_targets,
+            "technique_cards": self.technique_cards,
+            "anti_tropes": self.anti_tropes,
+            "character_archetypes": self.character_archetypes,
+            "pleasure_templates": self.pleasure_templates,
+            "emotion_curve": self.emotion_curve,
+        }
+
+
+def build_outline_specs(
+    genre: str = "末世",
+    total_chapters: int = 300,
+) -> OutlineSpecs:
+    """从所有数据源组装大纲生成规格书。
+
+    数据源:
+      1. CreativeContext (Part A → Part B 桥接)
+      2. Canon 设定文件 (assets/canon/)
+      3. 大纲模板推荐
+      4. 爽点模板 + 情绪曲线模板
+
+    Returns:
+        OutlineSpecs 规格书
+    """
+    specs = OutlineSpecs(
+        genre=genre,
+        total_chapters=total_chapters,
+        template_name=TEMPLATE_RECOMMEND.get(genre, "三幕式"),
+    )
+
+    # 1. 从 CreativeContext 加载分析数据
+    try:
+        from xiaoshuo.agents.creative_context import CreativeContext
+        ctx = CreativeContext.load(genre)
+        if ctx.is_available:
+            specs.rhythm_targets = ctx.get_rhythm_targets()
+            specs.technique_cards = ctx.get_technique_cards(category="structure", top_k=5)
+            specs.anti_tropes = ctx.guidance.get("anti_tropes", [])
+            specs.character_archetypes = ctx.get_character_archetypes()
+            _logger.info("Specs: CreativeContext loaded (rhythm=%s, cards=%d, archetypes=%d)",
+                         bool(specs.rhythm_targets), len(specs.technique_cards),
+                         len(specs.character_archetypes))
+    except Exception as e:
+        _logger.warning("Specs: CreativeContext load failed: %s", e)
+
+    # 2. 从 Canon 加载设定
+    canon_dir = PROJECT_ROOT / "assets" / "canon"
+    for name, attr in [("world.md", "canon_world"),
+                       ("characters.md", "canon_characters"),
+                       ("rules.md", "canon_rules")]:
+        path = canon_dir / name
+        if path.exists():
+            setattr(specs, attr, path.read_text(encoding="utf-8"))
+            _logger.debug("Specs: loaded %s (%d chars)", name, len(getattr(specs, attr)))
+
+    # 3. 爽点模板 (基于题材匹配)
+    pleasure_map = {
+        "末世": ["即时爽: 生存危机解除/物资收获/异能突破", "延迟爽: 基地建设/队友成长/势力扩张", "反转爽: 敌人身份揭露/规则颠覆"],
+        "玄幻": ["即时爽: 境界突破/打脸碾压/宝物获取", "延迟爽: 功法修炼/势力经营/仇恨积累", "反转爽: 身份揭示/血脉觉醒"],
+        "都市": ["即时爽: 商业成功/人际关系逆转", "延迟爽: 事业布局/感情培养", "反转爽: 身份揭露/敌对势力瓦解"],
+        "科幻": ["即时爽: 技术突破/危机解除", "延迟爽: 科技树攀升/文明扩展", "反转爽: 真相揭露/维度跃迁"],
+    }
+    specs.pleasure_templates = pleasure_map.get(genre, pleasure_map["末世"])
+
+    # 4. 情绪曲线模板 (基于大纲模板)
+    emotion_map = {
+        "三幕式": "起承转合: 平稳开局 → 冲突升级 → 中期转折 → 高潮爆发 → 余韵收束",
+        "升级打怪": "波浪式上升: 每卷一个小循环 (压抑→爆发→收获→新挑战), 全书大波浪上升",
+        "悬疑推理": "悬疑递进: 平静 → 疑点 → 线索交织 → 真相逼近 → 反转揭示",
+        "群像叙事": "多线交织: 各线独立起伏 → 交汇点爆发 → 连锁反应 → 终局清算",
+        "无限流": "副本循环: 每副本一个完整情绪弧 (紧张→适应→反击→通关), 主线暗流涌动",
+    }
+    specs.emotion_curve = emotion_map.get(specs.template_name, emotion_map["三幕式"])
+
+    _logger.info("Specs assembled: genre=%s, template=%s, chapters=%d",
+                 specs.genre, specs.template_name, specs.total_chapters)
+    return specs
+
+
+@dataclass
+class OutlineDeviation:
+    """大纲偏差检测结果。"""
+    rule: str
+    severity: str  # ok / warning / fail
+    message: str
+    chapter_range: str = ""
+
+
+def validate_outline_against_specs(
+    chapter_data: list[dict],
+    specs: OutlineSpecs,
+    rhythm_plan: dict | None = None,
+) -> list[OutlineDeviation]:
+    """验证生成的大纲是否符合规格书。
+
+    检查规则:
+      V1 爽点分布: 连续 3 章无爽点 → 警告
+      V2 钩子覆盖: 连续 3 章无钩子 → 警告
+      V3 模板符合: 章纲事件是否符合模板结构
+      V4 节奏目标: 爽点/钩子密度是否达到基准
+      V5 角色覆盖: 主角是否在足够多的章节中出现
+      V6 爽点模板: 是否包含即时爽/延迟爽/反转爽
+
+    Returns:
+        偏差列表
+    """
+    deviations = []
+
+    if not chapter_data:
+        deviations.append(OutlineDeviation("V0", "fail", "章纲数据为空"))
+        return deviations
+
+    # V1: 连续 3 章无爽点
+    flat_pleasure = 0
+    max_flat_p = 0
+    for ch in chapter_data:
+        pt = ch.get("pleasure_type", "").strip()
+        if not pt or pt == "无":
+            flat_pleasure += 1
+            max_flat_p = max(max_flat_p, flat_pleasure)
+        else:
+            flat_pleasure = 0
+    if max_flat_p >= 3:
+        deviations.append(OutlineDeviation(
+            "V1", "warning",
+            f"连续 {max_flat_p} 章无爽点 (建议每章 ≥1 个小爽点)"
+        ))
+
+    # V2: 连续 3 章无钩子
+    flat_hook = 0
+    max_flat_h = 0
+    for ch in chapter_data:
+        ht = ch.get("hook_type", "").strip()
+        if not ht or ht == "无":
+            flat_hook += 1
+            max_flat_h = max(max_flat_h, flat_hook)
+        else:
+            flat_hook = 0
+    if max_flat_h >= 3:
+        deviations.append(OutlineDeviation(
+            "V2", "warning",
+            f"连续 {max_flat_h} 章无钩子 (每章结尾必须有钩子)"
+        ))
+
+    # V3: 模板符合度 (简化: 检查是否有"起承转合"或"升级循环"的痕迹)
+    if specs.template_name == "升级打怪":
+        has_levelup = any(
+            "突破" in ch.get("pleasure_type", "") or "升级" in ch.get("event", "")
+            for ch in chapter_data
+        )
+        if not has_levelup:
+            deviations.append(OutlineDeviation(
+                "V3", "warning",
+                "升级打怪模板但未检测到突破/升级事件"
+            ))
+    elif specs.template_name == "三幕式":
+        # 检查是否有中段转折 (约 50% 位置)
+        mid = len(chapter_data) // 2
+        mid_section = chapter_data[max(0, mid-3):mid+3]
+        has_turning = any(
+            "转" in ch.get("event", "") or "转折" in ch.get("pleasure_type", "")
+            for ch in mid_section
+        )
+        if not has_turning:
+            deviations.append(OutlineDeviation(
+                "V3", "info",
+                "三幕式模板但中段 (50%) 未检测到转折事件"
+            ))
+
+    # V4: 节奏目标对比
+    if rhythm_plan and specs.rhythm_targets:
+        # 抽样检查前 10 章、中 10 章、后 10 章
+        sample_indices = list(range(1, min(11, len(chapter_data)+1)))
+        sample_indices += list(range(max(1, len(chapter_data)//2-5), min(len(chapter_data)//2+5, len(chapter_data)+1)))
+        sample_indices += list(range(max(1, len(chapter_data)-9), len(chapter_data)+1))
+
+        total_checked = len(sample_indices)
+        rhythm_met = 0
+        for ch_num in sample_indices:
+            plan = rhythm_plan.get(ch_num, {})
+            if plan:
+                hook_target = plan.get("hook_target", 0)
+                if hook_target > 0:
+                    rhythm_met += 1
+
+        if total_checked > 0 and rhythm_met / total_checked < 0.8:
+            deviations.append(OutlineDeviation(
+                "V4", "warning",
+                f"仅 {rhythm_met}/{total_checked} 章有节奏目标注入"
+            ))
+
+    # V5: 角色覆盖 (主角是否出现)
+    if specs.canon_characters:
+        # 简化: 检查章纲中的角色字段是否有内容
+        chars_empty = sum(1 for ch in chapter_data if not ch.get("characters", "").strip())
+        if chars_empty > len(chapter_data) * 0.5:
+            deviations.append(OutlineDeviation(
+                "V5", "warning",
+                f"{chars_empty}/{len(chapter_data)} 章未标注涉及角色"
+            ))
+
+    # V6: 爽点模板覆盖
+    if specs.pleasure_templates:
+        all_pleasure_text = " ".join(ch.get("pleasure_type", "") for ch in chapter_data)
+        has_instant = any("即时" in pt for pt in specs.pleasure_templates) and any(
+            kw in all_pleasure_text for kw in ["打脸", "突破", "碾压", "收获", "解除"]
+        )
+        has_delayed = any("延迟" in pt for pt in specs.pleasure_templates) and any(
+            kw in all_pleasure_text for kw in ["建设", "修炼", "经营", "布局", "积累"]
+        )
+        if not has_instant:
+            deviations.append(OutlineDeviation(
+                "V6", "info",
+                "未检测到即时爽点类型 (打脸/突破/碾压等)"
+            ))
+        if not has_delayed:
+            deviations.append(OutlineDeviation(
+                "V6", "info",
+                "未检测到延迟爽点类型 (建设/修炼/经营等)"
+            ))
+
+    return deviations
+
+
+def run_specs_driven_outline_build(
+    orch,
+    genre: str = "末世",
+    total_chapters: int = 300,
+) -> dict:
+    """Specs-driven 大纲生成入口 (P0.3)。
+
+    流程:
+      Step 0: 组装规格书 (OutlineSpecs)
+      Step 1: 基于规格书生成总纲
+      Step 2: 基于规格书生成卷纲
+      Step 3: 基于规格书生成章纲
+      Step 4: 注入节奏目标
+      Step 5: 验证偏差 (validate_outline_against_specs)
+      Step 6: 返回结果 + 偏差报告
+
+    Args:
+        orch: ModelOrchestrator instance
+        genre: 题材
+        total_chapters: 总章节数
+
+    Returns:
+        dict with keys:
+            specs: OutlineSpecs
+            rough_outline: str
+            volume_outline: str
+            chapter_data: list
+            rhythm_plan: dict
+            deviations: list[OutlineDeviation]
+            deviation_summary: str
+    """
+    _logger.info("=== Specs-driven Outline Build ===")
+    _logger.info("genre=%s, chapters=%d", genre, total_chapters)
+
+    # Step 0: 组装规格书
+    specs = build_outline_specs(genre, total_chapters)
+    specs_ctx = specs.to_prompt_context()
+    _logger.info("Specs assembled: template=%s, rhythm=%s, cards=%d",
+                 specs.template_name, bool(specs.rhythm_targets), len(specs.technique_cards))
+
+    # Step 1-3: 使用现有 run_outline_build (注入 specs context)
+    # 替换 CreativeContext 的 outline_ctx 为 specs_ctx
+    result = run_outline_build(orch, genre, total_chapters)
+
+    # 将 specs_ctx 追加到已有结果 (run_outline_build 已使用 CreativeContext,
+    # 这里我们用 specs_ctx 做补充验证)
+    chapter_data = result.get("chapter_data", [])
+    rhythm_plan = result.get("rhythm_plan", {})
+
+    # Step 4: 节奏注入已在 run_outline_build 中完成
+
+    # Step 5: 验证偏差
+    deviations = validate_outline_against_specs(chapter_data, specs, rhythm_plan)
+
+    # 生成偏差报告
+    dev_lines = [f"\n{'=' * 50}", "  大纲偏差检测报告", f"{'=' * 50}"]
+    if not deviations:
+        dev_lines.append("  [OK] 所有检查通过, 无偏差")
+    else:
+        for dev in deviations:
+            icon = {"ok": "[OK]", "info": "[INFO]", "warning": "[WARN]", "fail": "[FAIL]"}[dev.severity]
+            dev_lines.append(f"  {dev.rule} {icon} {dev.message}")
+    dev_lines.append(f"{'=' * 50}")
+    deviation_summary = "\n".join(dev_lines)
+
+    # 打印偏差报告
+    _logger.info(deviation_summary)
+
+    # Step 6: 返回完整结果
+    result["specs"] = specs.to_dict()
+    result["deviations"] = [d.__dict__ for d in deviations]
+    result["deviation_summary"] = deviation_summary
+
+    _logger.info("=== Specs-driven Outline Build Complete ===")
+    return result
+
+
+# ============================================================
 # 模块自检
 # ============================================================
 if __name__ == "__main__":

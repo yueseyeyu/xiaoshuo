@@ -1,13 +1,15 @@
 # 番茄小说 AI 辅助创作系统 -- 系统架构设计文档
 
-> **文档版本**: v8.3
-> **实际代码**: pipeline/ 7步管线 + agents/ 15模块 + novel.py 18命令
+> **文档版本**: v8.5
+> **实际代码**: pipeline/ 7步管线 + agents/ 15模块 + novel.py 22命令 + s3_extensions/ 5模块
 > **关联文档**: [AI_PROTOCOL.md](AI_PROTOCOL.md) | [config.yaml](config.yaml)
 > **v7.5 审视修复**: 2026-06-19 — 13项架构优化落地（P0安全/P1并行+拆分+重构/P2基础设施）
 > **v7.5 交叉审查升级**: 2026-06-21 — 双模型顺序切换（swap_to）+ 交叉模型升级至 DeepSeek-R1-0528-Qwen3-8B + S3 评审角色深层 TASK_TEMPLATES + AI 指纹词密度/风格漂移 detection 配置
 > **v7.5 Agent 记忆系统**: 2026-06-21 — 结构化行为回溯备忘录 (SQLite + 精准Tag) + CLI 命令 + pipeline 集成钩子 (add_from_pipeline)
 > **v8.2 管线重构**: 2026-06-28 — 进程内调用替代 subprocess + S4+++ 七层检测 + 平台合规检测 + AI味检测 + 创作指导10维
 > **v8.3 B→C→D→E 闭环**: 2026-07-01 — 合同链写前/写后集成 + CreativeContext 节奏目标/技法卡片注入 + Part E 风格进化引擎 + S2c 对比分析 + 风格提示反馈
+> **v8.4 伏笔追踪+叙事调度**: 2026-07-01 — ForeshadowingTracker 跨章伏笔追踪+衰减检测+自动休眠 + 角色叙事调度字段 (narrative_weight/lifecycle_status/appearance_cooldown) + NS1-NS7 叙事调度检查
+> **v8.5 P1/P2 模块+集成**: 2026-07-05 — P1.1 Golden3 Analyzer + P1.2 CharacterArcTracker + P1.3 Style DNA + P1.4 Knowledge-Brain + P2.1 红线原则库 + P2.2 S3 风格一致性 Lens + P2.3 Context Budget 分层 + P2.4 大纲偏差检测 + session_manager/novel.py/config.yaml 全面集成
 
 ---
 
@@ -131,12 +133,65 @@ Part E (风格进化)
   ↓ get_style_hints() → 注入下一章写前准备 (闭环)
 ```
 
-### 待融入建议 (来自 Kimi 审查)
+### v8.5 P1/P2 模块新增
+
+| 模块 | 路径 | 用途 |
+|------|------|------|
+| Golden3 Analyzer (P1.1) | `src/xiaoshuo/pipeline/golden3_analyzer.py` | 黄金三章五维检测 (G1高能钩子/G2人设清晰度/G3核心矛盾/G4铺垫密度/G5情绪曲线) |
+| Character Arc Tracker (P1.2) | `src/xiaoshuo/pipeline/novel_index.py` (CharacterArcTracker) | 动态人物弧光追踪 (情绪单调/成长停滞/动机-行为矛盾) |
+| Style DNA (P1.3) | `src/xiaoshuo/pipeline/style_dna.py` | 风格基因五维量化 (D1句法/D2词汇/D3节奏/D4幽默/D5视角) + Part E 集成 |
+| Knowledge-Brain (P1.4) | `src/xiaoshuo/pipeline/knowledge_brain.py` | 评审经验库 (根因哈希去重/写前查表/经验闭环) |
+| Red Line Principles (P2.1) | `src/xiaoshuo/pipeline/red_line_principles.py` | 不可违反创作红线 (写前提醒+写后检测) |
+| S3 Style Consistency (P2.2) | `src/xiaoshuo/pipeline/s3_extensions/style_consistency_lens.py` | 基于 Style DNA 基线的章节风格偏离检测 |
+| Context Budget (P2.3) | `src/xiaoshuo/pipeline/context_budget.py` | 四层优先级上下文裁剪 (Tier1必载/Tier2高优/Tier3中优/Tier4低优) |
+| Outline Deviation (P2.4) | `src/xiaoshuo/pipeline/outline_deviation.py` | 章节内容 vs 章节计划多维偏差检测 (事件/角色/冲突/伏笔/悬念/情绪) |
+
+### v8.5 集成变更
+
+| 集成点 | 变更 |
+|--------|------|
+| `session_manager.py` | 新增 8 个方法: check_golden3 / check_red_lines / check_outline_deviation / check_style_consistency / check_knowledge_brain / get_red_line_reminder / get_knowledge_brain_prompt / _load_style_dna_baseline / _load_chapter_plan |
+| `novel.py` 写前流程 | _run_prewrite_combined 新增: 知识库经验提醒 (P1.4) + 红线原则提醒 (P2.1) |
+| `novel.py` 写后流程 | _session_write 新增: 红线检测 (P2.1) + 大纲偏差检测 (P2.4) |
+| `novel.py` CLI 命令 | 新增 4 个命令: golden3 / knowledge / redline / deviation |
+| `novel.py` 会话 REPL | 新增 4 个 session 命令: golden3 / redline / deviation / knowledge |
+| `config.yaml` | 新增 8 个配置节: golden3_analyzer / character_arc / style_dna / knowledge_brain / red_line_principles / style_consistency_lens / context_budget / outline_deviation |
+
+### v8.5 完整闭环架构 (更新)
+
+```
+Part A (拆书分析)
+  ↓ CreativeContext.load() → 节奏目标 + 技法卡片
+Part B (骨架生成)
+  ↓ world_builder / outline_builder
+Part C (写作交互)
+  ↓ _run_prewrite_combined():
+  │   1. 合同链: check_contract_before_write() → 生效设定 + 待兑现债务
+  │   2. 创作指导: CreativeContext → 节奏目标 + 技法卡片
+  │   3. 风格提示: style_evolution.get_style_hints() → 作者风格画像
+  │   4. 知识库: check_knowledge_brain() → 经验提醒 (P1.4)
+  │   5. 红线: get_red_line_reminder() → 不可违反原则提醒 (P2.1)
+  ↓ 作者写作 (S2a write)
+  ↓ commit_chapter_to_contract(): 事实沉淀 + 新债务注册
+  ↓ 写后自动检测:
+  │   1. 红线检测: check_red_lines() (P2.1)
+  │   2. 大纲偏差: check_outline_deviation() (P2.4)
+  │   3. S4 风格检测: detect_style() → 七层 AI 检测
+Part D (对比保障)
+  ↓ S2c compare: comparison_engine._rich_scan → 指标对比 + 签约概率
+  ↓ S3 review: AI 评审面板
+  ↓ golden3: 黄金三章五维分析 (P1.1, 前3章专项)
+  ↓ style_consistency: Style DNA 风格偏离检测 (P2.2)
+Part E (风格进化)
+  ↓ PUBLISH 后: _auto_update_style_profile() → 风格画像更新
+  ↓ Knowledge-Brain: 评审经验自动记录 → 下次写前查表 (闭环)
+  ↓ get_style_hints() → 注入下一章写前准备 (闭环)
+```
 
 | 优先级 | 建议 | 当前状态 |
 |--------|------|----------|
-| P0 | 五维审查 (D1-D5) 加入 S3 评审 | ❌ 待实现 |
-| P0 | 伏笔追踪 + 自动休眠 (novel_index) | ⚠️ 有 DebtBoard 但不完整 |
+| P0 | 五维审查 (D1-D5) 加入 S3 评审 | ✅ 已实现 (five_dimension_check.py) |
+| P0 | 伏笔追踪 + 自动休眠 (novel_index) | ✅ 已实现 (ForeshadowingTracker + 角色叙事调度) |
 | P0 | Specs-driven 大纲生成 | ⚠️ CreativeContext 数据已有 |
 | P1 | 动态人物弧光追踪 | ❌ 待实现 |
 | P1 | 风格 DNA 提取 (Part E 增强) | ⚠️ style_evolution 基础版已有 |

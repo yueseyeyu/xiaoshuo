@@ -758,6 +758,119 @@ compliance:
   # 每 100 字 1 个指纹词 ≈ 10% AI 率 (经验估算)
   fingerprint_density_coeff: 0.01
 
+# ============================================================
+# P1.1: Golden3 Analyzer — 黄金三章专项分析器
+# 模块: pipeline/golden3_analyzer.py
+# 来源: 建议文件 "黄金三章 → 新增专项检测模块"
+# 五维检测: G1高能钩子 / G2人设清晰度 / G3核心矛盾 / G4铺垫密度 / G5情绪曲线
+# 触发时机: 作者完成前3章草稿后自动运行, 或作为 S3 评审前置检查
+# ============================================================
+golden3_analyzer:
+  enabled: true                      # 零 LLM 依赖, 默认启用
+  min_chapter_chars: 500             # 每章最小字符数 (低于则降级检测)
+  hook_threshold: 2                  # G1: 前500字冲突/悬念/反常信号 ≥ 2 个
+  character_mentions: 3              # G2: 主角名字前3章出现 ≥ 3 次
+  foreshadowing_threshold: 1.0       # G4: 伏笔密度 (个/章) ≥ 1.0
+  emotion_variance_min: 2            # G5: 前3章情绪种类 ≥ 2
+  benchmark_compare: false           # 与同类爆款前3章对比 (需 benchmark 数据)
+
+# ============================================================
+# P1.2: Character Arc Tracker — 动态人物弧光追踪
+# 模块: pipeline/novel_index.py (CharacterArcTracker)
+# 来源: 建议文件 "深化角色与情感 -> 人物弧光追踪系统"
+# 跨章检测: 情绪单调 / 成长停滞 / 动机-行为矛盾
+# ============================================================
+character_arc:
+  enabled: true                      # 零 LLM 依赖, 默认启用
+  emotion_monotony_threshold: 3      # 连续 N 章同一情绪 → 警告
+  growth_stagnation_threshold: 10    # N 章无 growth_marker → 警告
+  auto_check_every_n_chapters: 5     # 每 N 章自动检查弧光健康度
+
+# ============================================================
+# P1.3: Style DNA — 风格基因提取 + Part E 增强
+# 模块: pipeline/style_dna.py
+# 五维量化: D1句法 / D2词汇 / D3节奏 / D4幽默 / D5视角
+# 用途: 风格基线建立 + 偏离检测 + S3 评审集成
+# ============================================================
+style_dna:
+  enabled: true                      # 零 LLM 依赖, 默认启用
+  min_chapters_for_baseline: 5       # 建立基线最少章节数
+  deviation_warn_threshold: 0.30     # 偏离 > 30% → WARNING
+  deviation_fatal_threshold: 0.50    # 偏离 > 50% → FATAL
+  integrate_style_evolution: true    # 与 Part E 风格进化引擎集成
+  s3_precheck: true                  # 作为 S3 评审前置检查
+
+# ============================================================
+# P1.4: Knowledge-Brain — 知识库 (经验闭环)
+# 模块: pipeline/knowledge_brain.py
+# 功能: 评审经验记录 → 根因哈希去重 → 写前查表提醒
+# ============================================================
+knowledge_brain:
+  enabled: true                      # 默认启用
+  storage_path: "data/knowledge_brain.json"  # 经验库持久化路径
+  max_experiences: 500               # 经验条数上限 (超出自动清理 LOW)
+  auto_promote_threshold: 3          # 命中次数 ≥ N → 自动提升为 GLOBAL
+  stale_cleanup_days: 30             # N 天未命中 → 标记 STALE
+  check_before_write: true           # 写前自动查表注入提醒
+  max_prompt_entries: 3              # Prompt 中最多注入 N 条经验
+
+# ============================================================
+# P2.1: Red Line Principles — 红线原则库
+# 模块: pipeline/red_line_principles.py
+# 功能: 不可违反的创作红线 → 写前提醒 + 写后检测
+# ============================================================
+red_line_principles:
+  enabled: true                      # 默认启用
+  check_after_write: true            # 写后自动检测红线违反
+  inject_before_write: true          # 写前注入红线提醒到 Prompt
+  max_prompt_entries: 5              # Prompt 中最多注入 N 条红线
+  default_principles: true           # 加载默认红线原则集
+
+# ============================================================
+# P2.2: S3 Style Consistency Lens — 风格一致性扩展
+# 模块: pipeline/s3_extensions/style_consistency_lens.py
+# 功能: 基于 Style DNA 基线检测章节风格偏离
+# ============================================================
+style_consistency_lens:
+  enabled: true                      # 默认启用
+  s3_integration: true               # 作为 S3 评审扩展 Lens
+  deviation_warn: 0.30               # 单维度偏离 > 30% → WARNING
+  deviation_fatal: 0.50              # 单维度偏离 > 50% → FATAL
+  min_baseline_chapters: 5           # 基线建立最少章节数
+
+# ============================================================
+# P2.3: Context Budget — 上下文预算分层
+# 模块: pipeline/context_budget.py
+# 功能: 四层优先级裁剪 → 控制 Prompt 长度 → 防止上下文溢出
+# ============================================================
+context_budget:
+  enabled: true                      # 默认启用
+  total_tokens: 8000                 # 总上下文预算 (tokens)
+  tier_ratios:                       # 四层占比 (可动态调整)
+    tier1: 0.20                      # 必载: 本章 specs / Canon / 红线
+    tier2: 0.30                      # 高优: 前3章摘要 / 人物 / 弧光
+    tier3: 0.30                      # 中优: 全书梗概 / 世界观 / 伏笔
+    tier4: 0.20                      # 低优: 历史摘要 / 非相关设定 / 经验
+  truncate_marker: " [...] "         # 裁剪标记
+
+# ============================================================
+# P2.4: Outline Deviation Detection — 大纲偏差检测
+# 模块: pipeline/outline_deviation.py
+# 功能: 章节内容 vs 章节计划的多维偏差检测
+# ============================================================
+outline_deviation:
+  enabled: true                      # 默认启用
+  s3_integration: true               # 作为 S3 评审扩展检查
+  deviation_warn_score: 60           # 偏差评分 < 60 → WARNING
+  deviation_fatal_score: 40          # 偏差评分 < 40 → FATAL
+  dimensions:                        # 检测维度开关
+    events: true                     # 事件覆盖
+    characters: true                 # 角色出场
+    conflict: true                   # 冲突强度
+    foreshadowing: true              # 伏笔推进
+    cliffhanger: true                # 章末悬念
+    emotion: true                    # 情绪目标
+
 # ============================================================================
 # v7.7: NSFW 角色扮演 — 海外成人向角色扮演/微世界配置
 # 模块: pipeline/canon/rp_simulator.py (LayeredMemory + RPSimulator)

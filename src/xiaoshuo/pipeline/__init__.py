@@ -20,6 +20,8 @@
   contract_chain.py       — 合同链校验
   feedback_loop.py        — 反馈闭环
   llm_labeler.py          — LLM标注工具
+  golden3_analyzer.py     — 黄金三章专项分析 (G1-G5五维检测, P1.1)
+  style_dna.py            — 叙事风格DNA五维提取+偏离检测 (D1-D5, P1.3)
 
 评分子模块 (scoring/):
   commercial_engine.py    — 商业评分引擎
