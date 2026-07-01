@@ -9,21 +9,23 @@ PlotPilot 接入后可作为备选生成器。
 
 用法: python analysis/ai_reference.py --chapter 5 --genre 末世
 """
-import json
 import sys
-import time
 from pathlib import Path
 from xiaoshuo import PROJECT_ROOT
-from xiaoshuo.infra.config_manager import get_config
-from xiaoshuo.infra.llm_client import get_main_model_base_url
-
-CONFIG_PATH = PROJECT_ROOT / "config.yaml"
+from xiaoshuo.infra.llm_client import (
+    get_main_model_base_url,
+    check_llm_health,
+    llm_chat,
+)
 
 LLAMA_BASE = get_main_model_base_url()
 
 
 def generate_ai_version(genre, ch_num, context_text="", story_bible=""):
-    """Call LLM to generate an AI version of a chapter for comparison."""
+    """Call LLM to generate an AI version of a chapter for comparison.
+
+    Uses unified llm_chat() from llm_client (SSOT).
+    """
     system_msg = (
         f"你是{genre}类网文AI写作助手。任务：基于给定的前文和设定，生成第{ch_num}章的AI版本。"
         "风格要求：有悬念、有爽点、有冲突。注重节奏感和钩子。"
@@ -33,28 +35,15 @@ def generate_ai_version(genre, ch_num, context_text="", story_bible=""):
         f"故事设定:\n{story_bible[:1000]}\n\n" if story_bible else ""
         f"请生成第{ch_num}章的内容(约2000-3000字)。只输出正文，不要章节标题和注释。"
     )
-    payload = json.dumps({
-        "messages": [
-            {"role": "system", "content": system_msg},
-            {"role": "user", "content": user_msg},
-        ],
-        "max_tokens": 3000,
-        "temperature": 0.7,
-    }).encode('utf-8')
-
-    try:
-        req = urllib.request.Request(
-            f"{LLAMA_BASE}/v1/chat/completions",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-        )
-        resp = json.loads(urllib.request.urlopen(req, timeout=300).read())
-        choices = resp.get("choices", [])
-        if choices:
-            return choices[0].get("message", {}).get("content", "").strip()
-    except Exception as e:
-        print(f"[FAIL] LLM生成失败: {e}")
-    return None
+    result = llm_chat(
+        user_msg,
+        system=system_msg,
+        max_tokens=3000,
+        temperature=0.7,
+        timeout=300,
+        base_url=LLAMA_BASE,
+    )
+    return result.strip() if result else None
 
 
 def main():
@@ -66,10 +55,8 @@ def main():
         elif arg == "--genre" and i < len(sys.argv) - 1:
             genre = sys.argv[i + 1]
 
-    # Check server
-    try:
-        urllib.request.urlopen(f"{LLAMA_BASE}/health", timeout=3)
-    except Exception:
+    # Check server via unified client
+    if not check_llm_health(LLAMA_BASE):
         print("[FAIL] LLM server not running. Start with: scripts\\start_model.bat")
         return
 

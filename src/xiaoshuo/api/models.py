@@ -89,3 +89,30 @@ class ComplianceScanResponse(BaseModel):
     ai_rate_level: str = ""
     ai_rate_passed: bool = True
     ai_rate_recommendation: str = ""
+
+
+# ── 任务管理 (v8.4) ──
+
+class TaskCreateRequest(BaseModel):
+    name: str = "未命名任务"
+    type: str = "disassembly"
+    genre: str = "末世"
+    books: list[str] = []
+
+
+class TaskItem(BaseModel):
+    id: str
+    name: str
+    type: str
+    genre: str
+    books: list[str]
+    status: str
+    progress: int
+    created_at: str
+    updated_at: str
+
+
+class TasksResponse(BaseModel):
+    tasks: list[TaskItem]
+    genre: str
+    count: int

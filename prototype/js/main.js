@@ -296,9 +296,9 @@ function navigate(page) {
     }
   } catch (e) {}
   if (page === 'dashboard') { updateActivityTimes(); }
-  if (page === 'writing') { loadWritingProjectData(); loadWritingChapter(WRITING_CURRENT_CHAPTER); renderImportedReport(); initInstructionsPanel(); }
-  if (page === 'disassembly') { loadDisassemblyData(); }
-  if (page === 'settings') { loadSettingsConfig(); }
+  if (page === 'writing') { loadWritingProjectData(); loadWritingChapter(WRITING_CURRENT_CHAPTER); renderImportedReport(); initInstructionsPanel(); renderAuthorMindPanel(); var gg=$('#goal-gate-container'); if(gg) gg.style.display=''; }
+  if (page === 'disassembly') { loadDisassemblyData(); initDeconstructionTab(); }
+  if (page === 'settings') { loadSettingsConfig(); renderPromptManagerPanel(); }
   if (page === 'logs') { initLogsPage(); }
   if (page === 'design') { loadDesignData(); }
   // v8.3: 切页时立即用全局状态刷新一次模型状态显示，保证各页面一致

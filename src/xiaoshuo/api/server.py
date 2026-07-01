@@ -50,10 +50,11 @@ from xiaoshuo.api.models import (
     SceneResult, SearchResponse, IndexStats,
     StyleRuleItem, StyleCalibrateRequest, StyleCalibrateResponse,
     StyleRulesResponse, FingerprintHit, ComplianceScanResponse,
+    TaskCreateRequest, TaskItem, TasksResponse,
 )
 from xiaoshuo.api.utils import (
     get_available_books, get_genre_counts, get_chapter_instructions,
-    safe_read_json,
+    safe_read_json, safe_write_json,
 )
 from xiaoshuo.api.services.hardware import (
     hardware_state, hardware_lock,
@@ -108,17 +109,10 @@ def _llm_server_healthy() -> bool:
     now = time.time()
     if now - _llm_health_cache["at"] < _LLM_HEALTH_TTL:
         return bool(_llm_health_cache["value"])
-    port = _get_llm_port()
-    healthy = False
-    try:
-        urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=1)
-        healthy = True
-    except Exception:
-        try:
-            urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/models", timeout=1)
-            healthy = True
-        except Exception:
-            healthy = False
+    # v8.4: 使用统一 llm_client，支持 thinking-tag 清理、重试、统一超时
+    from xiaoshuo.infra.llm_client import get_main_model_base_url, check_llm_health
+    url = get_main_model_base_url()
+    healthy = check_llm_health(base_url=url, timeout=1)
     _llm_health_cache["value"] = healthy
     _llm_health_cache["at"] = now
     return healthy
@@ -461,21 +455,21 @@ async def get_tasks():
 
 
 @app.post("/api/tasks")
-async def create_task(body: dict):
+async def create_task(req: TaskCreateRequest):
     """创建新的拆书分析任务"""
     tasks_path = PROJECT_ROOT / "data" / "tasks.json"
     tasks = safe_read_json(tasks_path, {"tasks": []})
-    new_task = {
-        "id": str(int(time.time() * 1000)),
-        "name": body.get("name", "未命名任务"),
-        "type": body.get("type", "disassembly"),
-        "genre": body.get("genre", "末世"),
-        "books": body.get("books", []),
-        "status": "pending",
-        "progress": 0,
-        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-    }
+    new_task = TaskItem(
+        id=str(int(time.time() * 1000)),
+        name=req.name,
+        type=req.type,
+        genre=req.genre,
+        books=req.books,
+        status="pending",
+        progress=0,
+        created_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+        updated_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+    ).dict()
     tasks.setdefault("tasks", []).append(new_task)
     safe_write_json(tasks_path, tasks)
     return {"ok": True, "task": new_task}
@@ -862,6 +856,12 @@ async def api_update_chapter(project_id: str, chapter_num: int, body: dict):
     if chapter is None:
         raise HTTPException(404, f"Project not found: {project_id}")
     return {"ok": True, "chapter": chapter}
+
+
+# ====================== 创作辅助 API (v8.4) ======================
+# 挂载解构/心智模型/目标门控/提示词模板路由
+from xiaoshuo.api.routes_creative import router as creative_router
+app.include_router(creative_router)
 
 
 # ====================== 静态文件服务 ======================

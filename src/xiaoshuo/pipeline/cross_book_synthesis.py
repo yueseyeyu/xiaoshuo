@@ -20,8 +20,6 @@ cross_book_synthesis.py — 跨书关联发现: 30本 → 模式白皮书
 import json
 import sys
 import time
-import urllib.error
-import urllib.request
 import yaml
 from collections import defaultdict
 from datetime import datetime

@@ -26,18 +26,17 @@ import json
 import shutil
 import statistics
 import sys
-import yaml
 from pathlib import Path
 from xiaoshuo import PROJECT_ROOT
 from xiaoshuo.infra.logging_config import get_logger
 from xiaoshuo.pipeline.paths import rhythm_dir as _rhythm_dir
+from xiaoshuo.pipeline.metrics_schema import ChapterMetrics
 logger = get_logger(__name__)
 from datetime import datetime
 
 # PROJECT_ROOT imported from src.xiaoshuo
 NOVELS_DIR = PROJECT_ROOT / "data" / "raw" / "novels"
 BOOKS_REVIEW = PROJECT_ROOT / "books" / "review"
-CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 INDEX_PATH = PROJECT_ROOT / "data" / "raw" / "novel_index.json"
 
 
@@ -132,14 +131,15 @@ def _read_rhythm_stats(book_stem):
     try:
         with open(csv_path, 'r', encoding='utf-8-sig') as f:
             for r in csv.DictReader(f):
+                metrics = ChapterMetrics.from_csv_row(r)
                 rows.append({
-                    "hook_density": float(r.get("hook_density", 0)),
-                    "conflict_density": float(r.get("conflict_density", 0)),
-                    "pleasure_intensity": float(r.get("pleasure_intensity", 0)),
-                    "ch_variability": float(r.get("ch_variability", 0)),
+                    "hook_density": metrics.hook_density,
+                    "conflict_density": metrics.conflict_density,
+                    "pleasure_intensity": metrics.pleasure_intensity,
+                    "ch_variability": metrics.ch_variability,
                 })
     except Exception as e:
-        print(f"  [WARN] 无法读取节奏数据 {csv_path.name}: {e}")
+        logger.warning("无法读取节奏数据 %s: %s", csv_path.name, e)
         return None
     if not rows:
         return None

@@ -21,12 +21,13 @@ import sys
 from pathlib import Path
 from xiaoshuo import PROJECT_ROOT
 from datetime import datetime
+from xiaoshuo.pipeline.paths import feedback_path, quality_manifest_path
 
 # PROJECT_ROOT imported from src.xiaoshuo
 # v2: Import comparison_engine for full metrics + benchmark
 try:
     from xiaoshuo.pipeline.comparison_engine import (
-        _rich_scan,
+        rich_scan,
         compute_benchmark_percentiles,
         estimate_signing_probability,
     )
@@ -34,13 +35,9 @@ try:
 except ImportError:
     _ce_available = False
 
-def _feedback_path(genre="末世"):
-    return PROJECT_ROOT / "data" / "processed" / genre / "quality" / "feedback.json"
-
-
 def _load_benchmark_legacy(genre="末世"):
     """Legacy benchmark from quality_manifest (hook+pleasure only)."""
-    manifest_path = PROJECT_ROOT / "data" / "processed" / genre / "quality" / "quality_manifest.json"
+    manifest_path = quality_manifest_path(genre)
     if not manifest_path.exists():
         return {"avg_hook": 0, "avg_pleasure": 0, "sample_n": 0}
     with open(manifest_path, 'r', encoding='utf-8') as f:
@@ -53,7 +50,7 @@ def _load_benchmark_legacy(genre="末世"):
 
 
 def _load_feedback(genre="末世"):
-    fb_path = _feedback_path(genre)
+    fb_path = feedback_path(genre)
     if not fb_path.exists():
         return {"entries": [], "adoption_rate": 0, "avg_improvement": 0}
     with open(fb_path, 'r', encoding='utf-8') as f:
@@ -61,7 +58,7 @@ def _load_feedback(genre="末世"):
 
 
 def _save_feedback(data, genre="末世"):
-    fb_path = _feedback_path(genre)
+    fb_path = feedback_path(genre)
     fb_path.parent.mkdir(parents=True, exist_ok=True)
     with open(fb_path, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -111,7 +108,7 @@ def submit_work(chapter_file, hook_density=0, pleasure_score=0, notes="", genre=
 def submit_work_auto(chapter_file, genre="末世", notes=""):
     """Auto-scan chapter + benchmark comparison + signing probability.
 
-    v2: Uses comparison_engine._rich_scan for full 30+ metrics,
+    v2: Uses comparison_engine.rich_scan for full 30+ metrics,
     compute_benchmark_percentiles for percentile-based comparison,
     and estimate_signing_probability for signing assessment.
     """
@@ -128,7 +125,7 @@ def submit_work_auto(chapter_file, genre="末世", notes=""):
 
     # Step 1: Scan
     print(f"[AUTO] 扫描 {path.name}...")
-    metrics = _rich_scan(text)
+    metrics = rich_scan(text)
 
     # Step 2: Benchmark
     percentiles = compute_benchmark_percentiles(genre)
@@ -196,7 +193,7 @@ def adopt_suggestion(entry_index, genre="末世", post_hook=0, post_pleasure=0):
         for loc in [Path(chapter_file), PROJECT_ROOT / "my_work" / chapter_file]:
             if loc.exists():
                 post_text = loc.read_text(encoding='utf-8', errors='replace')
-                post_metrics = _rich_scan(post_text)
+                post_metrics = rich_scan(post_text)
                 entry["post_metrics"] = {
                     "hook_density": post_metrics["hook_density"],
                     "conflict_density": post_metrics["conflict_density"],

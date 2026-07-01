@@ -157,10 +157,7 @@ function renderDistributionBars(title, dist) {
     }).join('') + '</div></div>';
 }
 
-function setText(id, text) {
-  const el = document.getElementById(id);
-  if (el) el.textContent = text;
-}
+// setText 已在 utils.js 中定义，此处不再重复
 
 // ============================================================
 // 拆书三步法 (v8.2)

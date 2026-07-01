@@ -23,11 +23,11 @@ import math
 import re
 import statistics
 import sys
-import yaml
 from pathlib import Path
 from xiaoshuo import PROJECT_ROOT
 from xiaoshuo.infra.logging_config import get_logger
 from xiaoshuo.pipeline.paths import rhythm_dir as _rhythm_dir
+from xiaoshuo.pipeline.metrics_schema import ChapterMetrics
 logger = get_logger(__name__)
 from collections import Counter
 from datetime import datetime
@@ -92,6 +92,11 @@ def _load_manifest(genre="末世"):
 
 
 def _load_rhythm_data(csv_name, genre="末世"):
+    """Load rhythm CSV rows as list[dict] using ChapterMetrics for type safety.
+
+    Uses ChapterMetrics.from_csv_row() for safe type conversion,
+    then returns plain dicts for downstream compatibility.
+    """
     csv_path = _rhythm_dir(genre) / csv_name
     if not csv_path.exists():
         return None
@@ -99,32 +104,8 @@ def _load_rhythm_data(csv_name, genre="末世"):
     try:
         with open(csv_path, 'r', encoding='utf-8-sig') as f:
             for r in csv.DictReader(f):
-                rows.append({
-                    "ch_num": int(r.get("ch_num", 0)),
-                    "wc": int(r.get("wc", 0)),
-                    "hook_density": float(r.get("hook_density", 0)),
-                    "conflict_density": float(r.get("conflict_density", 0)),
-                    "dialogue_ratio": float(r.get("dialogue_ratio", 0)),
-                    "pos_density": float(r.get("pos_density", 0)),
-                    "neg_density": float(r.get("neg_density", 0)),
-                    "pleasure_intensity": float(r.get("pleasure_intensity", 0)),
-                    "pleasure_level": r.get("pleasure_level", "none"),
-                    "pleasure_type": r.get("pleasure_type", "none"),
-                    "hook_type": r.get("hook_type", "none"),
-                    "dominant_sub": r.get("dominant_sub", "none"),
-                    "pace": r.get("pace", "medium"),
-                    "readability": float(r.get("readability", 0)),
-                    "slap_count": int(r.get("slap_count", 0)),
-                    "ch_variability": float(r.get("ch_variability", 0)),
-                    "level_count": int(r.get("level_count", 0)),
-                    "crush_count": int(r.get("crush_count", 0)),
-                    "comeback_count": int(r.get("comeback_count", 0)),
-                    "hidden_count": int(r.get("hidden_count", 0)),
-                    "bond_count": int(r.get("bond_count", 0)),
-                    "cognitive_count": int(r.get("cognitive_count", 0)),
-                    "sacrifice_count": int(r.get("sacrifice_count", 0)),
-                    "physio_count": int(r.get("physio_count", 0)),
-                })
+                metrics = ChapterMetrics.from_csv_row(r)
+                rows.append(metrics.to_csv_row())
     except (csv.Error, UnicodeDecodeError, ValueError) as e:
         print(f"  [WARN] CSV读取失败 {csv_name}: {e}")
         return None

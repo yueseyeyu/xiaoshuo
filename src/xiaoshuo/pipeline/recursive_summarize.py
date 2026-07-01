@@ -27,8 +27,6 @@ import re
 import sys
 import threading
 import time
-import urllib.error
-import urllib.request
 import yaml
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor

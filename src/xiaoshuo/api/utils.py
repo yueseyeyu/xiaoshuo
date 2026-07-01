@@ -15,6 +15,15 @@ def safe_read_json(path: Path, default=None) -> dict:
         return default if default is not None else {}
 
 
+def safe_write_json(path: Path, data: dict) -> None:
+    """安全写入 JSON 文件（原子性写入）"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    tmp.replace(path)
+
+
 def parse_title_author(name: str, meta: dict | None = None) -> tuple[str, str]:
     """从文件名或元数据解析书名和作者"""
     author = ""

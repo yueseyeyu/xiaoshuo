@@ -6,44 +6,36 @@ Run after: scripts\\start_model.bat
 Usage: python scripts\\calibrate_v2.py
 Output: data/calibration/feature_importance.csv + calibration_curve.json
 """
-import csv, json, re, sys, statistics, urllib.request, time, yaml
+import csv, json, re, sys, statistics, time
 from pathlib import Path
 from collections import Counter
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-# RHYTHM_DIR deprecated: actual rhythm CSVs at data/processed/rhythm/
+from xiaoshuo import PROJECT_ROOT
+from xiaoshuo.infra.llm_client import (
+    get_main_model_base_url,
+    check_llm_health,
+    llm_chat,
+    llm_chat_json,
+)
+from xiaoshuo.pipeline.rhythm_analyzer import extract_chapters, rule_analyze
+
 NOVELS_DIR = PROJECT_ROOT / "data" / "raw" / "novels"
 INDEX_PATH = PROJECT_ROOT / "data" / "raw" / "novel_index.json"
-CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
-
-def _load_llama_base():
-    """Read LLM server base URL from config.yaml, fallback to default."""
-    try:
-        import yaml
-        with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-            cfg = yaml.safe_load(f)
-        port = cfg.get("model_orchestration", {}).get("models", {}).get("main_model", {}).get("port", 8000)
-        return f"http://127.0.0.1:{port}"
-    except Exception:
-        return "http://127.0.0.1:8000"
-
-
-LLAMA_BASE = _load_llama_base()
-
-from xiaoshuo.pipeline.rhythm_analyzer import extract_chapters, rule_analyze
+# SSOT: LLM base URL from llm_client (config-driven)
+LLAMA_BASE = get_main_model_base_url()
 
 
 def check_server():
-    try:
-        urllib.request.urlopen(f"{LLAMA_BASE}/health", timeout=3)
-        return True
-    except (urllib.error.URLError, TimeoutError, ConnectionError):
-        return False
+    """Check LLM server health via unified client."""
+    return check_llm_health(LLAMA_BASE)
 
 
 def llm_score_independent(chapter_text, ch_num):
-    """Improved prompt: rubric-based scoring with explicit anchors."""
+    """Improved prompt: rubric-based scoring with explicit anchors.
+
+    Uses unified llm_chat_json() for robust JSON extraction.
+    """
     prompt = (
         "你是专业网文编辑。对以下章节的阅读体验独立评分（不受任何系统影响）。\n\n"
         f"第{ch_num}章:\n{chapter_text[:1500]}\n\n"
@@ -57,50 +49,59 @@ def llm_score_independent(chapter_text, ch_num):
         "输出纯JSON(只输出JSON):\n"
         '{"pleasure_intensity":0,"conflict_level":"none","emotion":"日常","pace":"medium","hook_quality":"none","bond_depth":0}'
     )
-    data = json.dumps({
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 200, "temperature": 0.1,
-    }).encode("utf-8")
-    try:
-        req = urllib.request.Request(
-            f"{LLAMA_BASE}/v1/chat/completions",
-            data, {"Content-Type": "application/json"}
-        )
-        resp = json.loads(urllib.request.urlopen(req, timeout=120).read())
-        raw = resp["choices"][0]["message"].get("content", "")
-        for pat in [
-            r'\{[^{}]*?"pleasure_intensity"[^{}]*?\}',
-            r'\{[^{]*"pleasure_intensity"[^}]*\}',
-        ]:
-            m = re.search(pat, raw)
-            if m:
-                try:
-                    res = json.loads(m.group())
-                    if "pleasure_intensity" in res:
-                        return res
-                except (json.JSONDecodeError, KeyError, ValueError):
-                    continue
-        # Fallback: extract fields individually
-        pi = re.search(r'"pleasure_intensity"\s*:\s*(\d+(?:\.\d+)?)', raw)
-        cl = re.search(r'"conflict_level"\s*:\s*"([^"]+)"', raw)
-        em = re.search(r'"emotion"\s*:\s*"([^"]+)"', raw)
-        pa = re.search(r'"pace"\s*:\s*"([^"]+)"', raw)
-        hq = re.search(r'"hook_quality"\s*:\s*"([^"]+)"', raw)
-        bd = re.search(r'"bond_depth"\s*:\s*(\d+(?:\.\d+)?)', raw)
-        if pi:
-            return {
-                "pleasure_intensity": float(pi.group(1)),
-                "conflict_level": cl.group(1) if cl else "none",
-                "emotion": em.group(1) if em else "日常",
-                "pace": pa.group(1) if pa else "medium",
-                "hook_quality": hq.group(1) if hq else "none",
-                "bond_depth": float(bd.group(1)) if bd else 0,
-            }
+    result = llm_chat_json(
+        prompt,
+        system="输出纯JSON，不要额外说明。",
+        max_tokens=200,
+        temperature=0.1,
+        timeout=120,
+        base_url=LLAMA_BASE,
+    )
+    if result and "pleasure_intensity" in result:
+        return result
+
+    # Fallback: try raw llm_chat + regex extraction
+    raw = llm_chat(
+        prompt,
+        system="输出纯JSON，不要额外说明。",
+        max_tokens=200,
+        temperature=0.1,
+        timeout=120,
+        base_url=LLAMA_BASE,
+    )
+    if not raw:
         return None
-    except (json.JSONDecodeError, KeyError, ValueError, urllib.error.URLError, TimeoutError,
-            ConnectionError) as e:
-        print(f"  [WARN] LLM评分解析失败: {e}")
-        return None
+
+    for pat in [
+        r'\{[^{}]*?"pleasure_intensity"[^{}]*?\}',
+        r'\{[^{]*"pleasure_intensity"[^}]*\}',
+    ]:
+        m = re.search(pat, raw)
+        if m:
+            try:
+                res = json.loads(m.group())
+                if "pleasure_intensity" in res:
+                    return res
+            except (json.JSONDecodeError, KeyError, ValueError):
+                continue
+
+    # Fallback: extract fields individually
+    pi = re.search(r'"pleasure_intensity"\s*:\s*(\d+(?:\.\d+)?)', raw)
+    cl = re.search(r'"conflict_level"\s*:\s*"([^"]+)"', raw)
+    em = re.search(r'"emotion"\s*:\s*"([^"]+)"', raw)
+    pa = re.search(r'"pace"\s*:\s*"([^"]+)"', raw)
+    hq = re.search(r'"hook_quality"\s*:\s*"([^"]+)"', raw)
+    bd = re.search(r'"bond_depth"\s*:\s*(\d+(?:\.\d+)?)', raw)
+    if pi:
+        return {
+            "pleasure_intensity": float(pi.group(1)),
+            "conflict_level": cl.group(1) if cl else "none",
+            "emotion": em.group(1) if em else "日常",
+            "pace": pa.group(1) if pa else "medium",
+            "hook_quality": hq.group(1) if hq else "none",
+            "bond_depth": float(bd.group(1)) if bd else 0,
+        }
+    return None
 
 
 def load_novels(genre="末世"):

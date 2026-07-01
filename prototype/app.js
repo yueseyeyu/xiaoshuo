@@ -417,10 +417,7 @@ let designEditIndex = null;
 
 
 
-function fmtSize(n) {
-  if (n >= 1024) return (n / 1024).toFixed(1) + ' MB';
-  return n + ' KB';
-}
+// fmtSize 已在 utils.js 中定义，此处不再重复
 
 function filterTasks(filter) {
   taskFilter = filter;

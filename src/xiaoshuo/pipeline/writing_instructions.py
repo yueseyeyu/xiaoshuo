@@ -27,6 +27,11 @@ from pathlib import Path
 from xiaoshuo import PROJECT_ROOT
 from datetime import datetime
 from xiaoshuo.pipeline.paths import rhythm_dir as _rhythm_dir
+from xiaoshuo.infra.logging_config import get_logger
+logger = get_logger(__name__)
+
+# P2-4: Template config path (SSOT in assets/prompts/)
+_TEMPLATE_CONFIG = PROJECT_ROOT / "assets" / "prompts" / "instruction_templates.yaml"
 
 # PROJECT_ROOT imported from src.xiaoshuo
 # sys.path hack removed (v8.0)
@@ -49,39 +54,91 @@ def _manual_dir(genre):
 
 # ── ① 每章写作指令: 模板NLG + 阈值触发 ──
 
-INSTRUCTION_TEMPLATES = [
-    # (condition_fn, severity, location_hint, action_template)
-    # Hook deficit
+# Built-in default templates (fallback when YAML config is missing)
+_DEFAULT_TEMPLATES = [
     (lambda r: r["hook_density"] < 0.5 and r["wc"] > 500,
      "HIGH", "章末500字",
      "钩子密度 {hook_density:.1f}/千字(偏低)。在章末追加一个悬念或反转——例如用'{hook_keyword}'类钩子。"),
-    # Conflict deficit
     (lambda r: r["conflict_density"] < 0.3 and r["wc"] > 500,
      "HIGH", "全章",
      "冲突密度 {conflict_density:.1f}(偏低)。插入一段内心冲突或外部对抗——例如角色对某件事产生怀疑、或与配角发生分歧。"),
-    # Pleasure deficit
     (lambda r: r["pleasure_intensity"] <= 1.0 and r["wc"] > 300,
      "MED", "全章",
      "爽点强度 {pleasure_intensity}(偏低)。加入一个'{pleasure_type}'类爽点——例如让角色展示隐藏能力、或被他人认可。"),
-    # Zero hook streak (章末检测)
     (lambda r: r["hook_type"] == "none" and r["wc"] > 300,
      "CRITICAL", "章末",
      "本章零钩子！章末必须加钩子——推荐'信息投放'类：揭示一个读者不知道的事实，或暗示即将到来的危险。"),
-    # Dialogue too low
     (lambda r: r["dialogue_ratio"] < 0.15 and r["wc"] > 300,
      "LOW", "全章",
      "对话占比 {dialogue_ratio:.0%}(偏低)。将1-2段纯叙述改写为角色对话——对话能同时推进情节和塑造人物。"),
-    # Dialogue too high
     (lambda r: r["dialogue_ratio"] > 0.55 and r["wc"] > 300,
      "LOW", "全章",
      "对话占比 {dialogue_ratio:.0%}(偏高)。插入一段内心独白或环境描写——给读者喘息空间，避免对话疲劳。"),
-    # Readability too low
     (lambda r: r["readability"] < 0.4 and r["wc"] > 200,
      "LOW", "全章",
      "可读性 {readability:.2f}(偏低)。检查是否有过长句子(>50字)或连续排比——适当拆分或增加句长变化。"),
 ]
 
-HOOK_KEYWORDS = ["悬念", "反转", "情绪炸弹", "信息投放", "暗示"]
+_DEFAULT_HOOK_KEYWORDS = ["悬念", "反转", "情绪炸弹", "信息投放", "暗示"]
+
+
+def _load_templates_from_yaml():
+    """Load instruction templates from YAML config.
+
+    Returns (templates_list, hook_keywords) or (None, None) if config missing/invalid.
+    Templates are compiled into (check_fn, severity, location, template) tuples.
+    """
+    if not _TEMPLATE_CONFIG.exists():
+        return None, None
+    try:
+        import yaml
+        with open(_TEMPLATE_CONFIG, 'r', encoding='utf-8') as f:
+            cfg = yaml.safe_load(f)
+        raw_templates = cfg.get("templates", [])
+        hook_keywords = cfg.get("hook_keywords", _DEFAULT_HOOK_KEYWORDS)
+
+        # Compile condition strings into lambda functions
+        compiled = []
+        for entry in raw_templates:
+            cond_str = entry.get("condition", "False")
+            severity = entry.get("severity", "LOW")
+            location = entry.get("location", "")
+            template = entry.get("template", "")
+            # Safely compile condition string
+            check_fn = _compile_condition(cond_str)
+            compiled.append((check_fn, severity, location, template))
+
+        logger.info("Loaded %d templates from %s", len(compiled), _TEMPLATE_CONFIG)
+        return compiled, hook_keywords
+    except Exception as e:
+        logger.warning("Failed to load template config %s: %s, using defaults", _TEMPLATE_CONFIG, e)
+        return None, None
+
+
+def _compile_condition(cond_str: str):
+    """Compile a condition string into a check function.
+
+    Supports simple field comparisons like 'hook_density < 0.5 and wc > 500'.
+    Uses restricted eval with only the row dict's fields as namespace.
+    """
+    code = compile(cond_str, "<template_condition>", "eval")
+
+    def check_fn(row: dict) -> bool:
+        # Build safe namespace from row fields
+        namespace = {k: v for k, v in row.items() if isinstance(v, (int, float, str, bool))}
+        namespace["__builtins__"] = {}
+        try:
+            return bool(eval(code, namespace))
+        except Exception:
+            return False
+
+    return check_fn
+
+
+# Load templates at module import time (with fallback to defaults)
+_yaml_templates, _yaml_keywords = _load_templates_from_yaml()
+INSTRUCTION_TEMPLATES = _yaml_templates if _yaml_templates is not None else _DEFAULT_TEMPLATES
+HOOK_KEYWORDS = _yaml_keywords if _yaml_keywords is not None else _DEFAULT_HOOK_KEYWORDS
 
 
 def _get_instruction_templates():

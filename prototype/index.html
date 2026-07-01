@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>番茄小说 AI 辅助创作系统</title>
-  <link rel="stylesheet" href="styles.css?v=832">
+  <link rel="stylesheet" href="styles.css?v=840">
 </head>
 <body data-theme="midnight">
 <div id="app-shell" class="app-shell no-detail">
@@ -151,17 +151,49 @@
           <div class="hero-stat kpi-amber"><span class="hero-stat-value" id="hero-stat-cards">156</span><span class="hero-stat-label">技法卡</span></div>
         </div>
       </div>
-      <div id="hero-empty-state" class="empty-state" style="display:none;">
-        <div class="empty-state-icon">
-          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-        </div>
-        <h1 class="empty-state-title">开始你的第一部作品</h1>
-        <p class="empty-state-desc">拆书、节奏分析、技法提取与写作辅助，全部围绕你的创作流程设计</p>
-        <div class="empty-state-actions">
-          <button class="btn btn-primary" onclick="createProject()">创建新作品</button>
-          <button class="btn btn-secondary" onclick="navigate('library')">导入参考书籍</button>
-        </div>
-        <button class="btn btn-ghost btn-sm" onclick="loadDemoProject()">查看示例项目</button>
+<div id="hero-empty-state" class="empty-state" style="display:none;">
+<div class="empty-state-icon">
+<svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+</div>
+<h1 class="empty-state-title">开始你的第一部作品</h1>
+<p class="empty-state-desc">拆书、节奏分析、技法提取与写作辅助，全部围绕你的创作流程设计</p>
+
+<div class="workflow-guide" id="workflow-guide">
+  <div class="workflow-guide-title">创作工作流（MVP 路径）</div>
+  <div class="workflow-guide-subtitle">从零到上线，30 天让第一本书在番茄小说发布</div>
+  <div class="workflow-steps">
+    <div class="workflow-step-card" onclick="createProject()">
+      <div class="workflow-step-num">1</div>
+      <div class="workflow-step-text"><b>创建作品</b><span>设定题材、卷数、总章数</span></div>
+    </div>
+    <span class="workflow-step-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></span>
+    <div class="workflow-step-card" onclick="navigate('library')">
+      <div class="workflow-step-num">2</div>
+      <div class="workflow-step-text"><b>导入参考书</b><span>从书库挑选 3-5 本代表作</span></div>
+    </div>
+    <span class="workflow-step-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></span>
+    <div class="workflow-step-card" onclick="navigate('disassembly')">
+      <div class="workflow-step-num">3</div>
+      <div class="workflow-step-text"><b>拆书+解构</b><span>提取节奏、技法、可借鉴元素</span></div>
+    </div>
+    <span class="workflow-step-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></span>
+    <div class="workflow-step-card" onclick="navigate('design')">
+      <div class="workflow-step-num">4</div>
+      <div class="workflow-step-text"><b>设计大纲</b><span>粗纲、细纲、角色、世界观</span></div>
+    </div>
+    <span class="workflow-step-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></span>
+    <div class="workflow-step-card" onclick="navigate('writing')">
+      <div class="workflow-step-num">5</div>
+      <div class="workflow-step-text"><b>开始写作</b><span>目标门控+心智模型辅助</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="empty-state-actions">
+<button class="btn btn-primary" onclick="createProject()">创建新作品</button>
+<button class="btn btn-secondary" onclick="navigate('library')">导入参考书籍</button>
+</div>
+<button class="btn btn-ghost btn-sm" onclick="loadDemoProject()">查看示例项目</button>
         <div class="empty-state-features">
           <button class="empty-state-feature" onclick="navigate('disassembly')">
             <div class="feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h7v2H4zm0 5h7v2H4zm0 5h7v2H4zm9-10h7v2h-7zm0 5h7v2h-7zm0 5h7v2h-7z"/></svg></div>
@@ -403,6 +435,14 @@
         </div>
       </div>
     </aside>
+    <div class="dis-deconstruct-section">
+      <div class="side-card">
+        <div class="side-card-title">小说解构（五段式分析）</div>
+        <div class="side-card-body">
+          <div id="deconstruct-tab-content" class="deconstruct-tab-content"><div class="text-muted" style="font-size:13px;padding:8px 0;">切换到拆书页时自动加载</div></div>
+        </div>
+      </div>
+    </div>
   </div>
 </section>
 <section id="page-reports" class="page">
@@ -1006,6 +1046,27 @@
             </div>
           </div>
         </div>
+        <div class="panel panel-accent" id="goal-gate-container" style="display:none">
+          <div class="panel-header" onclick="toggleGoalGatePanel()">
+            章节目标门控 <span style="font-size:11px;color:var(--text-secondary);margin-left:8px;">5项硬性标准</span>
+          </div>
+          <div class="panel-body">
+            <div id="goal-gate-panel">
+              <div class="gg-empty">
+                <div class="gg-empty-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>
+                <p style="font-size:12px;color:var(--text-secondary);">点击标题展开验证面板</p>
+              </div>
+            </div>
+            <div class="gg-actions" style="margin-top:8px;">
+              <button class="btn btn-primary btn-sm" onclick="verifyChapterGoal($('#editor-textarea').value)">验证完成标准</button>
+            </div>
+          </div>
+        </div>
+        <div class="panel panel-accent" id="author-mind-panel">
+          <div class="panel-header" onclick="togglePanel('author-mind')">作者心智模型</div>
+          <div class="panel-body" id="author-mind-content" style="padding:0;">
+          </div>
+        </div>
         <div class="panel panel-accent" id="scene-search-panel">
           <div class="panel-header" onclick="togglePanel('scene-search')">场景参考</div>
           <div class="panel-body">
@@ -1207,6 +1268,12 @@
     </div>
 
     <div class="settings-card">
+      <div class="settings-title"><span class="settings-dot" style="background:var(--amber)"></span>提示词模板管理</div>
+      <div class="settings-subtitle">缓存命中率优化（DeepSeek 成本控制）</div>
+      <div id="prompt-manager-panel" style="margin-top:8px;"><div class="text-muted" style="font-size:13px;padding:8px 0;">加载中...</div></div>
+    </div>
+
+    <div class="settings-card">
       <div class="settings-title">存储</div>
       <label class="settings-row settings-row-stack"><span>数据目录</span><input type="text" id="settings-data-dir" class="settings-input" value="data/processed" onchange="saveSetting('dataDir', this.value)"></label>
       <div class="settings-row"><span>日志导出</span><button class="btn btn-secondary btn-sm" onclick="showToast('日志导出开发中')">导出日志</button></div>
@@ -1363,23 +1430,49 @@
   <span class="fab-meta" id="fab-meta"></span>
 </button>
 
-<script src="js/state.js?v=832"></script>
-<script src="js/utils.js?v=832"></script>
-<script src="app.js?v=832"></script>
-  <script src="js/api.js?v=832"></script>
-  <script src="js/api/project.js?v=832"></script>
-  <script src="js/main.js?v=832"></script>
-  <script src="js/components/dashboard.js?v=832"></script>
-  <script src="js/components/style-calibrate.js?v=832"></script>
-  <script src="js/components/logs.js?v=832"></script>
-  <script src="js/components/disassembly.js?v=832"></script>
-  <script src="js/components/library.js?v=832"></script>
-  <script src="js/components/tasks.js?v=832"></script>
-  <script src="js/components/hardware.js?v=832"></script>
-  <script src="js/components/settings.js?v=832"></script>
-  <script src="js/components/writing.js?v=832"></script>
-  <script src="js/components/design.js?v=832"></script>
-  <script src="js/components/reports.js?v=832"></script>
+<script src="js/state.js?v=840"></script>
+<script src="js/utils.js?v=840"></script>
+<script src="app.js?v=840"></script>
+  <script src="js/api.js?v=840"></script>
+  <script src="js/api/project.js?v=840"></script>
+  <script src="js/main.js?v=840"></script>
+  <script src="js/components/dashboard.js?v=840"></script>
+  <script src="js/components/style-calibrate.js?v=840"></script>
+  <script src="js/components/logs.js?v=840"></script>
+  <script src="js/components/disassembly.js?v=840"></script>
+  <script src="js/components/library.js?v=840"></script>
+  <script src="js/components/tasks.js?v=840"></script>
+  <script src="js/components/hardware.js?v=840"></script>
+  <script src="js/components/settings.js?v=840"></script>
+  <script src="js/components/writing.js?v=840"></script>
+  <script src="js/components/design.js?v=840"></script>
+  <script src="js/components/reports.js?v=840"></script>
+<script src="js/components/deconstruction-viewer.js?v=840"></script>
+<script src="js/components/author-mind.js?v=840"></script>
+<script src="js/components/goal-gate.js?v=840"></script>
+<script src="js/components/prompt-manager.js?v=840"></script>
 <script>init();</script>
+<!-- 小说解构弹窗 -->
+<div class="modal-overlay" id="deconstruct-modal" onclick="if(event.target===this)closeDeconstructModal()">
+  <div class="modal-box modal-box-lg">
+    <div class="modal-header">
+      <h3 id="deconstruct-modal-title">小说解构</h3>
+      <button class="icon-btn" onclick="closeDeconstructModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="deconstruct-modal-body"></div>
+  </div>
+</div>
+
+<!-- 提示词模板详情弹窗 -->
+<div class="modal-overlay" id="prompt-detail-modal" onclick="if(event.target===this)closePromptDetailModal()">
+  <div class="modal-box modal-box-lg">
+    <div class="modal-header">
+      <h3 id="prompt-detail-modal-title">提示词模板</h3>
+      <button class="icon-btn" onclick="closePromptDetailModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="prompt-detail-modal-body"></div>
+  </div>
+</div>
+
 <div class="loading-overlay" id="loading-overlay"><div class="loading-spinner"></div></div></body>
 </html>

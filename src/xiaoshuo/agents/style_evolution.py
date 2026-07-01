@@ -240,7 +240,7 @@ def _extract_rhythm_stats(decisions: list) -> dict:
     """从已写章节中提取节奏指标统计。
 
     扫描 assets/chapters/ 中对应章节的文本,
-    使用 comparison_engine._rich_scan 获取节奏指标。
+    使用 comparison_engine.rich_scan 获取节奏指标。
     """
     stats = {
         "chapters_scanned": 0,
@@ -251,7 +251,7 @@ def _extract_rhythm_stats(decisions: list) -> dict:
     }
 
     try:
-        from xiaoshuo.pipeline.comparison_engine import _rich_scan
+        from xiaoshuo.pipeline.comparison_engine import rich_scan
     except ImportError:
         logger.debug("comparison_engine not available, skipping rhythm stats")
         return stats
@@ -266,7 +266,7 @@ def _extract_rhythm_stats(decisions: list) -> dict:
             continue
         try:
             text = ch_path.read_text(encoding="utf-8")
-            metrics = _rich_scan(text)
+            metrics = rich_scan(text)
             chapters_scanned.append({
                 "chapter": ch,
                 "hook_density": metrics.get("hook_density", 0),
@@ -447,7 +447,7 @@ def _generate_hints(profile: dict) -> list[str]:
 def _detect_style_drift(decisions: list, rhythm_stats: dict) -> dict:
     """检测风格漂移 (最近5章 vs 之前均值)。"""
     try:
-        from xiaoshuo.pipeline.comparison_engine import _rich_scan
+        from xiaoshuo.pipeline.comparison_engine import rich_scan
     except ImportError:
         return {"detected": False, "reason": "comparison_engine 不可用"}
 
@@ -464,7 +464,7 @@ def _detect_style_drift(decisions: list, rhythm_stats: dict) -> dict:
             continue
         try:
             text = ch_path.read_text(encoding="utf-8")
-            metrics = _rich_scan(text)
+            metrics = rich_scan(text)
             recent_metrics.append(metrics)
         except Exception:
             continue

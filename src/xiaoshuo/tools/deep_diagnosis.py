@@ -15,31 +15,22 @@ import csv
 import json
 import statistics
 import time
-import urllib.request
-import urllib.parse
 import re
 from pathlib import Path
 from collections import Counter
-from xiaoshuo.infra.config_manager import get_config
+from xiaoshuo import PROJECT_ROOT
+from xiaoshuo.infra.llm_client import (
+    get_main_model_base_url,
+    check_llm_health,
+    llm_chat,
+    llm_chat_json,
+)
 from xiaoshuo.pipeline.paths import rhythm_dir as _rhythm_dir
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
 NOVELS_DIR = PROJECT_ROOT / "data" / "raw" / "novels"
-CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
-
-
-# LLM server config
-def _load_llama_base():
-    try:
-        cfg = get_config()
-        port = cfg.get("model_orchestration", {}).get("models", {}).get("main_model", {}).get("port", 8000)
-        return f"http://127.0.0.1:{port}"
-    except Exception:
-        return "http://127.0.0.1:8000"
-
-LLAMA_BASE = _load_llama_base()
-LLAMA_HOST = urllib.parse.urlparse(LLAMA_BASE).netloc
+# SSOT: LLM base URL from llm_client (config-driven)
+LLAMA_BASE = get_main_model_base_url()
 
 
 # ---- Chapter Extraction (lean, local to avoid circular imports) ----
@@ -187,34 +178,34 @@ def _build_rubric_prompt(chapter_text, ch_num):
 
 
 def _llm_score(chapter_text, ch_num):
-    """Single-chapter LLM rubric score with retry."""
-    prompt = _build_rubric_prompt(chapter_text, ch_num)
-    data = json.dumps({
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 180, "temperature": 0.1,
-    }).encode("utf-8")
+    """Single-chapter LLM rubric score.
 
-    retry_delays = [2, 5, 10, 20]  # increased: 5 total attempts with backoff
-    for attempt, delay in enumerate([0] + retry_delays):
-        if attempt > 0:
-            time.sleep(delay)
-        try:
-            req = urllib.request.Request(
-                f"{LLAMA_BASE}/v1/chat/completions",
-                data, {"Content-Type": "application/json"}
-            )
-            resp = json.loads(urllib.request.urlopen(req, timeout=90).read())
-            raw = resp.get("choices", [{}])[0].get("message", {}).get("content", "")
-            if raw:
-                break
-        except (urllib.error.URLError, TimeoutError, ConnectionError,
-                json.JSONDecodeError, KeyError):
-            if attempt >= len(retry_delays):
-                return None
-    else:
+    Uses unified llm_chat_json() from llm_client (SSOT) with built-in retry.
+    """
+    prompt = _build_rubric_prompt(chapter_text, ch_num)
+    result = llm_chat_json(
+        prompt,
+        system="输出纯JSON，不要额外说明。",
+        max_tokens=180,
+        temperature=0.1,
+        timeout=90,
+        base_url=LLAMA_BASE,
+    )
+    if result and "intensity" in result:
+        return result
+
+    # Fallback: try raw llm_chat + regex extraction
+    raw = llm_chat(
+        prompt,
+        system="输出纯JSON，不要额外说明。",
+        max_tokens=180,
+        temperature=0.1,
+        timeout=90,
+        base_url=LLAMA_BASE,
+    )
+    if not raw:
         return None
 
-    # Parse JSON
     for pat in [r'\{[^{}]*?"intensity"[^{}]*?\}', r'\{[^{]*"intensity"[^}]*\}']:
         m = re.search(pat, raw)
         if m:
@@ -552,13 +543,8 @@ def run_deep(genre="末世", top_n=3, bottom_n=3, n_key=30):
 
         return None, None
 
-    # Check LLM server
-    server_ok = False
-    try:
-        urllib.request.urlopen(f"{LLAMA_BASE}/health", timeout=3)
-        server_ok = True
-    except Exception:
-        pass
+    # Check LLM server via unified client
+    server_ok = check_llm_health(LLAMA_BASE)
 
     out_dir = PROJECT_ROOT / "data" / "reports" / genre / "deep_diagnosis"
     out_dir.mkdir(parents=True, exist_ok=True)

@@ -357,8 +357,8 @@ class SessionManager:
             # v8.3: 从章节文本生成 rhythm_row (钩子/冲突/爽点指标)
             rhythm_row = {}
             try:
-                from xiaoshuo.pipeline.comparison_engine import _rich_scan
-                metrics = _rich_scan(text)
+                from xiaoshuo.pipeline.comparison_engine import rich_scan
+                metrics = rich_scan(text)
                 rhythm_row = {
                     "wc": metrics.get("chars", 0),
                     "hook_density": metrics.get("hook_density", 0),

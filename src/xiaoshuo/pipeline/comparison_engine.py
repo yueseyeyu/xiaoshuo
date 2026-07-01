@@ -291,8 +291,10 @@ def estimate_signing_probability(author_metrics, percentiles):
 
 # ── Rich rhythm scan (30+ metrics, same patterns as rhythm_analyzer) ──
 
-def _rich_scan(text):
+def rich_scan(text):
     """Full rhythm scan matching rhythm_analyzer's metrics.
+
+    Public API: returns 30+ rhythm metrics for a given text.
 
     v3: Aligned normalization with rhythm_analyzer:
       - hook_density: per 1000 chars (matches CSV column)
@@ -409,6 +411,10 @@ def _rich_scan(text):
     }
 
 
+# Backward-compatible alias (deprecated: use rich_scan)
+_rich_scan = rich_scan
+
+
 def _call_llm(system_msg, user_msg):
     """Call Qwen3.5-9B via unified LLM client (v8.2)。"""
     from xiaoshuo.infra.llm_client import llm_chat
@@ -432,7 +438,7 @@ def compare_versions(versions, chapter_num):
     """Compare N versions of the same chapter. versions = {label: text}."""
     metrics = {}
     for label, text in versions.items():
-        metrics[label] = _rich_scan(text)
+        metrics[label] = rich_scan(text)
 
     labels = list(versions.keys())
     base = labels[0]  # Usually the author version
@@ -688,7 +694,7 @@ def evaluate_author_chapter(text, genre="末世", chapter_num=1, with_llm=True):
 
     # Step 1: Scan author's chapter
     logger.info("  [Step 1] 节奏扫描...")
-    author_metrics = _rich_scan(text)
+    author_metrics = rich_scan(text)
     ch = count_chinese(text)
     logger.info("  [OK] %d字 | hook=%.3f conflict=%.3f pleasure=%.3f",
                 ch, author_metrics['hook_density'],
@@ -717,7 +723,7 @@ def evaluate_author_chapter(text, genre="末世", chapter_num=1, with_llm=True):
         logger.info("  [Step 4] 生成AI对照版...")
         llm_text = generate_llm_version(genre, chapter_num, text[:2000])
         if llm_text:
-            llm_metrics = _rich_scan(llm_text)
+            llm_metrics = rich_scan(llm_text)
             logger.info("  [OK] LLM版%d字 | hook=%.3f", len(llm_text), llm_metrics['hook_density'])
             # Compare
             versions = {"author": text, "ai_contrast": llm_text}

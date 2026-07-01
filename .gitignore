@@ -24,6 +24,20 @@ analysis/outputs/
 outputs/
 logs/
 
+# 📊 运行时数据文件（可重新生成，不需要版本控制）
+data/deepseek_cache.json
+data/deepseek_records.jsonl
+data/qwen_scores.jsonl
+data/score_comparison.json
+data/tasks.json
+data/pipeline_fresh_*.log
+data/checkpoints/
+data/contracts/
+data/projects/
+data/scores/
+data/processed/decision_log.json
+data/processed/prompt_templates.json
+
 # 💾 模型缓存
 memory/
 
@@ -58,3 +72,7 @@ prompts/
 
 # 🐛 运行时调试日志
 debug.log
+
+# 🖼️ 临时预览/截图
+theme-color-preview.html
+prototype/screenshots/review_tmp/

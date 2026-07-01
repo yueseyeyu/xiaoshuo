@@ -12,7 +12,6 @@ import json
 import re
 import sys
 import statistics
-import urllib.request
 import urllib.parse
 import http.client
 import time
@@ -23,7 +22,8 @@ from pathlib import Path
 
 from xiaoshuo import PROJECT_ROOT
 from xiaoshuo.infra.logging_config import get_logger
-from xiaoshuo.pipeline.paths import rhythm_dir as _rhythm_dir
+from xiaoshuo.pipeline.paths import rhythm_dir as _rhythm_dir, llm_score_dir
+from xiaoshuo.infra.llm_client import check_llm_health, get_main_model_base_url
 logger = get_logger(__name__)
 # L1-1: LLMLingua-2 lazy init (thread-safe, ~10-15% prompt processing speedup)
 _lingua_lock = threading.Lock()
@@ -58,24 +58,13 @@ INDEX_PATH = PROJECT_ROOT / "data" / "raw" / "novel_index.json"
 
 
 def _llm_dir(genre):
-    return PROJECT_ROOT / "data" / "processed" / genre / "scores"
+    return llm_score_dir(genre)
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
 
-def _load_llama_base():
-    """Read LLM server base URL from config.yaml, fallback to default."""
-    try:
-        from xiaoshuo.infra.config_manager import get_config
-        cfg = get_config()
-        port = cfg.get("model_orchestration", {}).get("models", {}).get("main_model", {}).get("port", 8000)
-        return f"http://127.0.0.1:{port}"
-    except Exception:
-        return "http://127.0.0.1:8000"
-
-
-LLAMA_BASE = _load_llama_base()
-LLAMA_HOST = urllib.parse.urlparse(LLAMA_BASE).netloc  # e.g. "127.0.0.1:8000"
-
+# v8.4: 保留 http.client 连接池以提升批量评分性能，URL 从 llm_client 获取
+_LLAMA_BASE = get_main_model_base_url()
+_LLAMA_HOST = urllib.parse.urlparse(_LLAMA_BASE).netloc
 
 def _get_server_parallel():
     """Read LLM server parallel setting from config.yaml for optimal worker count."""
@@ -94,7 +83,6 @@ from xiaoshuo.pipeline.rhythm_analyzer import extract_chapters
 
 def check_server():
     """Check LLM server health via unified llm_client."""
-    from xiaoshuo.infra.llm_client import check_llm_health
     return check_llm_health(timeout=3)
 
 
@@ -399,7 +387,7 @@ def batch_book(txt_path, csv_path, max_chapters=None, sc_samples=1):
             chunk_results = [_score_chunk(chunk, ch_num, f"part{ci+1}/{len(chunks)}") for ci, chunk in enumerate(chunks[:3])]
             llm = _merge_chunk_scores(chunk_results)
         else:
-            t_conn = http.client.HTTPConnection(LLAMA_HOST, timeout=45)
+            t_conn = http.client.HTTPConnection(_LLAMA_HOST, timeout=45)
             try:
                 if sc_samples > 1:
                     llm = llm_score_self_consistency(full_body, ch_num, sc_samples, t_conn)
@@ -455,7 +443,7 @@ def batch_book(txt_path, csv_path, max_chapters=None, sc_samples=1):
                 chunk_results = [_score_chunk(chunk, ch_num_actual, f"retry-p{ci+1}") for ci, chunk in enumerate(chunks[:3])]
                 llm = _merge_chunk_scores(chunk_results)
             else:
-                conn = http.client.HTTPConnection(LLAMA_HOST, timeout=60)
+                conn = http.client.HTTPConnection(_LLAMA_HOST, timeout=60)
                 try:
                     if sc_samples > 1:
                         llm = llm_score_self_consistency(full_body, ch_num_actual, sc_samples, conn)

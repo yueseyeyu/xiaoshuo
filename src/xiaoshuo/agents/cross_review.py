@@ -55,6 +55,202 @@ HIGH_RISK_FINGERPRINTS = [
     "极其", "无比", "瞬间", "猛然", "一丝", "一抹", "仿佛", "骤然",
 ]
 
+# ── 冲突检测关键词分类 (用于 merge_reports) ──
+_ISSUE_KEYWORDS = {
+    "爽点": ["爽点", "爽感", "不够爽", "爽点弱", "爽点强", "爽点密度"],
+    "节奏": ["节奏", "太快", "太慢", "拖沓", "水字数", "信息密度"],
+    "人设": ["人设", "OOC", "角色行为", "动机", "性格", "崩人设"],
+    "逻辑": ["逻辑", "因果", "矛盾", "时间线", "设定冲突", "不合理"],
+    "台词": ["台词", "对话", "说教", "传声筒", "潜台词"],
+    "钩子": ["钩子", "悬念", "期待感", "章末", "开头"],
+    "伏笔": ["伏笔", "铺垫", "回收", "未回收"],
+    "情绪": ["情绪", "情感", "压抑", "爆发", "情绪曲线"],
+    "细节": ["细节", "外貌", "数量", "名字", "前后不一致"],
+}
+
+
+def _extract_findings(report_text: str) -> list[dict]:
+    """从评审报告中提取发现条目 (简化版: 按行扫描 + 关键词分类)。
+
+    Returns:
+        [{"category": "爽点", "text": "爽点密度不足", "severity": "warning"}]
+    """
+    if not report_text or "[无遗漏]" in report_text:
+        return []
+
+    findings: list[dict] = []
+    # 按行扫描, 提取包含问题关键词的行
+    for line in report_text.split("\n"):
+        line = line.strip()
+        if not line or len(line) < 5:
+            continue
+        # 跳过标题/分隔线
+        if line.startswith("#") or line.startswith("---"):
+            continue
+
+        matched_cats = []
+        for cat, keywords in _ISSUE_KEYWORDS.items():
+            if any(kw in line for kw in keywords):
+                matched_cats.append(cat)
+
+        if matched_cats:
+            # 推断严重度
+            severity = "info"
+            if any(w in line for w in ("严重", "必须", "critical", "严重问题")):
+                severity = "critical"
+            elif any(w in line for w in ("警告", "问题", "建议修改", "需要")):
+                severity = "warning"
+            elif any(w in line for w in ("轻微", "小", "可选")):
+                severity = "info"
+
+            findings.append({
+                "categories": matched_cats,
+                "text": line[:200],
+                "severity": severity,
+            })
+
+    return findings
+
+
+def merge_reports(
+    primary_report: str,
+    secondary_report: str,
+    primary_label: str = "Qwen3.5-9B",
+    secondary_label: str = "DeepSeek-R1",
+) -> dict:
+    """MoA 聚合层: 冲突检测 + 优先级裁决。
+
+    来源: 建议文件 "MoA 聚合层 — 冲突检测 + 优先级裁决"
+
+    聚合规则:
+      - A 和 B 都指出同一问题 → 高置信度, 必须修
+      - A 说 OK, B 说有问题 (或反之) → 冲突, 标记"需人工复核"
+      - 只有 A 发现 → 采纳, 置信度标为中
+      - 只有 B 发现 → 采纳, 置信度标为中 (B 逻辑专精)
+
+    Args:
+        primary_report: 主模型报告文本
+        secondary_report: 辅助模型报告文本
+        primary_label: 主模型标签
+        secondary_label: 辅助模型标签
+
+    Returns:
+        {
+            "merged": str,             # 合并后的结构化报告
+            "high_confidence": list,   # 双模型共识 (高置信度)
+            "conflicts": list,         # 冲突项 (需人工复核)
+            "primary_only": list,      # 仅主模型发现
+            "secondary_only": list,    # 仅辅助模型发现
+            "findings_summary": str,   # 摘要 (可传下一次迭代)
+        }
+    """
+    primary_findings = _extract_findings(primary_report)
+    secondary_findings = _extract_findings(secondary_report)
+
+    # ── 分类: 共识 / 冲突 / 独有 ──
+    high_confidence: list[dict] = []
+    conflicts: list[dict] = []
+    primary_only: list[dict] = []
+    secondary_only: list[dict] = []
+
+    # 匹配: 同一 category 下两方都有发现 → 可能共识或冲突
+    primary_cats = {f["categories"][0]: f for f in primary_findings}
+    secondary_cats = {f["categories"][0]: f for f in secondary_findings}
+
+    all_cats = set(primary_cats.keys()) | set(secondary_cats.keys())
+
+    for cat in all_cats:
+        p = primary_cats.get(cat)
+        s = secondary_cats.get(cat)
+
+        if p and s:
+            # 双方都提到了这个类别
+            # 检查是否方向一致 (都发现问题) 或冲突 (一个说没问题一个说有问题)
+            p_negative = p["severity"] in ("warning", "critical")
+            s_negative = s["severity"] in ("warning", "critical")
+
+            if p_negative and s_negative:
+                # 共识: 都发现了问题
+                high_confidence.append({
+                    "category": cat,
+                    "primary_finding": p["text"],
+                    "secondary_finding": s["text"],
+                    "confidence": "high",
+                    "action": "必须修复",
+                })
+            elif p_negative != s_negative:
+                # 冲突: 一个说有问题, 一个说没问题
+                conflicts.append({
+                    "category": cat,
+                    "primary_finding": p["text"],
+                    "secondary_finding": s["text"],
+                    "confidence": "conflict",
+                    "action": "需人工复核",
+                })
+            # else: 双方都说没问题 → 不记录
+
+        elif p and not s:
+            primary_only.append({"category": cat, "finding": p["text"], "confidence": "medium"})
+        elif s and not p:
+            secondary_only.append({"category": cat, "finding": s["text"], "confidence": "medium"})
+
+    # ── 生成合并报告 ──
+    lines = [f"## MoA 聚合报告 ({primary_label} + {secondary_label})\n"]
+
+    if high_confidence:
+        lines.append("### [高置信度] 双模型共识 (必须修复):")
+        for item in high_confidence:
+            lines.append(f"- **[{item['category']}]** {item['primary_finding']}")
+            if item["secondary_finding"] != item["primary_finding"]:
+                lines.append(f"  - 辅助确认: {item['secondary_finding']}")
+        lines.append("")
+
+    if conflicts:
+        lines.append("### [需人工复核] 模型冲突:")
+        for item in conflicts:
+            lines.append(f"- **[{item['category']}]**")
+            lines.append(f"  - {primary_label}: {item['primary_finding']}")
+            lines.append(f"  - {secondary_label}: {item['secondary_finding']}")
+        lines.append("")
+
+    if primary_only:
+        lines.append(f"### [中置信度] 仅 {primary_label} 发现:")
+        for item in primary_only:
+            lines.append(f"- **[{item['category']}]** {item['finding']}")
+        lines.append("")
+
+    if secondary_only:
+        lines.append(f"### [中置信度] 仅 {secondary_label} 发现:")
+        for item in secondary_only:
+            lines.append(f"- **[{item['category']}]** {item['finding']}")
+        lines.append("")
+
+    if not high_confidence and not conflicts and not primary_only and not secondary_only:
+        lines.append("[双模型审查未发现显著问题]")
+
+    merged = "\n".join(lines)
+
+    # ── 生成摘要 (可传下一次迭代) ──
+    summary_parts = []
+    if high_confidence:
+        summary_parts.append(f"共识{len(high_confidence)}项")
+    if conflicts:
+        summary_parts.append(f"冲突{len(conflicts)}项")
+    if primary_only:
+        summary_parts.append(f"主审独有{len(primary_only)}项")
+    if secondary_only:
+        summary_parts.append(f"辅助独有{len(secondary_only)}项")
+    findings_summary = "、".join(summary_parts) if summary_parts else "无显著发现"
+
+    return {
+        "merged": merged,
+        "high_confidence": high_confidence,
+        "conflicts": conflicts,
+        "primary_only": primary_only,
+        "secondary_only": secondary_only,
+        "findings_summary": findings_summary,
+    }
+
 
 def cross_review(
     chapter_text: str,
@@ -179,25 +375,30 @@ def cross_review(
     logger.info(f"  [SWAP] 切回主模型 (Qwen3.5-9B)...")
     orch.swap_to("main_model", timeout=120)
 
-    # ── Phase 3: 合并 ──
+    # ── Phase 3: MoA 聚合 (冲突检测 + 优先级裁决) ──
     secondary_patch = ""
     if "error" not in secondary_result:
         secondary_patch = secondary_result["content"]
 
     has_additions = secondary_patch.strip() and "[无遗漏]" not in secondary_patch
 
-    merged = (
-        f"## 主审查 (Qwen3.5-9B)\n\n{primary_result['content']}\n\n"
-        f"---\n"
-        f"## 交叉标注 (DeepSeek-R1-7B)"
+    # v8.6: 使用 merge_reports 替代简单拼接
+    # 来源: 建议文件 "MoA 聚合层 — 冲突检测 + 优先级裁决"
+    moa_result = merge_reports(
+        primary_report=primary_result["content"],
+        secondary_report=secondary_patch,
+        primary_label="Qwen3.5-9B",
+        secondary_label="DeepSeek-R1",
     )
-    if has_additions:
-        merged += f"\n\n{secondary_patch}"
-    else:
-        merged += "\n\n[交叉审查确认无遗漏问题]"
 
-    # v7.5: findings summary for next iteration
-    findings_summary = _extract_findings_summary(primary_result["content"], secondary_patch)
+    # 合并报告: MoA 聚合结果在前, 原始报告在后 (供详细参考)
+    merged = moa_result["merged"]
+    merged += f"\n\n---\n## 原始主审查报告 (Qwen3.5-9B)\n\n{primary_result['content'][:3000]}"
+    if has_additions:
+        merged += f"\n\n## 交叉标注 (DeepSeek-R1)\n\n{secondary_patch[:2000]}"
+
+    # v7.5: findings summary for next iteration (v8.6: 优先使用 MoA 摘要)
+    findings_summary = moa_result["findings_summary"]
 
     return {
         "primary": primary_result["content"],
@@ -205,6 +406,10 @@ def cross_review(
         "has_additions": has_additions,
         "merged": merged,
         "findings_summary": findings_summary,
+        "moa_high_confidence": moa_result["high_confidence"],
+        "moa_conflicts": moa_result["conflicts"],
+        "moa_primary_only": moa_result["primary_only"],
+        "moa_secondary_only": moa_result["secondary_only"],
         "primary_usage": primary_result.get("usage", {}),
         "secondary_usage": secondary_result.get("usage", {}) if "error" not in secondary_result else None,
     }
