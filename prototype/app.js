@@ -24,12 +24,13 @@ async function loadApiData() {
   appState.apiData.ready = successCount > 0;
   renderLibrary();
   renderDashboardProject();
-  renderReports();
   if (successCount > 0) {
     console.log('[API] Loaded ' + successCount + '/' + endpoints.length + ' endpoints');
   } else {
     console.log('[API] Not available, using embedded data');
   }
+  // 报告页独立加载 (v8.4: 使用 /api/reports/overview 聚合端点)
+  if (typeof loadReportOverview === 'function') loadReportOverview();
 }
 
 
@@ -275,51 +276,7 @@ function getWizardStepStates() {
 
 
 
-const REPORT_DATA = [
-  {
-    title: '创作指导摘要',
-    category: '写作指导',
-    meta: '写作指导',
-    insight: '当前卷需要强化主角动机转折，建议在第三章加入外部压力事件，以提升节奏张力。',
-    detail: '通过对已写 127 章的节奏曲线分析，发现第 3 章、第 11 章和第 22 章的爽点密度偏低。\n\n建议：\n1. 在第 3 章末尾加入“黑塔提前降临”的伏笔；\n2. 让主角在资源分配上与队友产生冲突；\n3. 每章结尾保留一个未解答的悬念。'
-  },
-  {
-    title: '跨书合成发现',
-    category: '跨书对比',
-    meta: '跨书对比',
-    insight: '末世题材中“团体生存”与“种田”组合出现频率最高，可作为下一卷世界观锚点。',
-    detail: '对 33 本末世/无限流头部作品进行标签共现分析后发现：\n\n- 高商业分作品中，76% 包含“团体生存”标签；\n- 其中又有 58% 同时包含“种田/囤货”标签；\n- 该组合在 30-60 万字区间表现最佳。\n\n结论：第二卷可围绕“据点建设 + 资源管理”展开。'
-  },
-  {
-    title: '技法卡片库',
-    category: '技法提炼',
-    meta: '技法提炼',
-    insight: '已提炼 156 张技法卡片，其中“悬念铺设”类占比 23%，可直接插入写作指导。',
-    detail: '技法卡片分类统计：\n\n- 悬念铺设：36 张\n- 情绪渲染：28 张\n- 节奏控制：24 张\n- 人物塑造：31 张\n- 世界观揭示：22 张\n- 对话技巧：15 张\n\n推荐在下一卷优先使用“悬念铺设”类卡片。'
-  },
-  {
-    title: '第127章节奏分析',
-    category: '节奏拆解',
-    meta: '节奏拆解',
-    insight: '本章爽点密度偏低，结尾悬念不足。建议增加一个突发事件或情绪反转。',
-    detail: '节奏曲线显示本章前 70% 推进平缓，高潮出现在 85% 位置但收尾过快。\n\n建议：\n1. 在 60% 处加入一次小型冲突；\n2. 结尾保留一个未解悬念；\n3. 减少环境描写，增加动作与对话。'
-  },
-  {
-    title: '主角成长弧线',
-    category: '人物分析',
-    meta: '人物分析',
-    insight: '主角从被动求生到主动领导过渡自然，但中期缺乏一次重大失败来加深人物厚度。',
-    detail: '主角动机转变分析：\n\n- 第一阶段（1-60章）：被动求生，以自保为主；\n- 第二阶段（61-120章）：开始承担责任，但决策仍偏保守；\n- 第三阶段（121-180章）：需要一次信任崩塌来推动成熟。\n\n建议在第 140 章左右设计一次“误判导致队友牺牲”的情节。'
-  },
-  {
-    title: '末世题材热度趋势',
-    category: '市场分析',
-    meta: '市场分析',
-    insight: '“丧尸+种田”“异能+团队”两类开篇完读率最高，可作为新书开篇参考。',
-    detail: '基于 28 本末世题材头部作品的开篇分析：\n\n- 丧尸+种田：完读率均值 18.3%；\n- 异能+团队：完读率均值 16.7%；\n- 重生囤货：完读率均值 14.2%；\n- 独行求生：完读率均值 11.5%。\n\n结论：新书开篇优先考虑“危机+团队建设”双线并进。'
-  }
-];
-let currentReportIndex = null;
+// v8.4: 报告页已改为动态加载 /api/reports/overview，不再使用静态假数据
 
 
 

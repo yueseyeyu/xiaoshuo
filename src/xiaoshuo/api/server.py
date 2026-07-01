@@ -1,17 +1,18 @@
-"""番茄小说 AI 创作辅助系统 — 统一 API 服务 v8.0
+"""番茄小说 AI 创作辅助系统 — 统一 API 服务 v8.4
 
-合并了原 progress_server.py 的进度监控 + 场景搜索 + 风格校准 + 补齐 14 个 API 端点。
+唯一启动方式 (推荐):
+    python -m xiaoshuo.api.server
 
-启动方式:
-    python -m xiaoshuo.api.server --port 8089
-    # 端口/CORS 默认值来自 config.yaml::api_server；CLI 参数可覆盖 host/port
-    # v8.x 整合：原型静态文件由本服务统一挂载 (config.yaml::api_server.static_dir)
-    # 旧 prototype/server.py (端口 8088) 已废弃删除
+端口/CORS 默认值来自 config.yaml::api_server；CLI 参数可覆盖 host/port:
+    python -m xiaoshuo.api.server --port 8089 --host 0.0.0.0
+
+静态文件由本服务统一挂载 (config.yaml::api_server.static_dir)。
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import logging
 import os
@@ -382,6 +383,109 @@ async def instructions(book: str = Query(""), ch: int = Query(1), genre: str = Q
         books = get_available_books(PROJECT_ROOT, genre)
         return {"books": [b.get("title", "") for b in books], "genre": genre}
     return get_chapter_instructions(PROJECT_ROOT, book, ch, genre)
+
+
+@app.get("/api/reports/overview")
+async def reports_overview(genre: str = Query("末世")):
+    """聚合报告页所需的全量数据 — 从已有数据文件直接读取，不依赖管线生成。
+
+    返回:
+      - stats: 拆书总量统计 (books/chapters/words)
+      - rhythm_audit: 节奏审计摘要
+      - score_audit: 评分审计摘要
+      - quality_manifest: 质量门控摘要
+      - technique_cards: 技法卡片列表
+      - distributions: 节奏/爽点/情绪分布 (从 rhythm CSV 聚合)
+    """
+    import csv as csv_mod  # kept for clarity; csv also available at module level
+    base = PROJECT_ROOT / "data" / "processed" / genre
+    result = {"genre": genre}
+
+    # 1. technique_cards
+    tc_path = base / "quality" / "technique_cards.json"
+    if tc_path.exists():
+        tc = safe_read_json(tc_path, {})
+        result["technique_cards"] = tc.get("cards", [])
+    else:
+        result["technique_cards"] = []
+
+    # 2. rhythm_audit
+    ra_path = base / "quality" / "rhythm_audit.json"
+    if ra_path.exists():
+        ra = safe_read_json(ra_path, {})
+        result["rhythm_audit"] = {
+            "total_books": ra.get("total_books", 0),
+            "passed": ra.get("passed", 0),
+            "warnings": ra.get("warnings", 0),
+            "failed": ra.get("failed", 0),
+        }
+    else:
+        result["rhythm_audit"] = {"total_books": 0, "passed": 0, "warnings": 0, "failed": 0}
+
+    # 3. score_audit
+    sa_path = base / "quality" / "score_audit.json"
+    if sa_path.exists():
+        sa = safe_read_json(sa_path, {})
+        result["score_audit"] = {
+            "total_books": sa.get("total_books", 0),
+            "status": sa.get("status", "N/A"),
+            "summary": sa.get("summary", {}),
+            "issues_count": len(sa.get("issues", [])),
+            "outlier_count": len(sa.get("outlier_books", [])),
+        }
+    else:
+        result["score_audit"] = {"total_books": 0, "status": "N/A"}
+
+    # 4. quality_manifest
+    qm_path = base / "quality" / "quality_manifest.json"
+    if qm_path.exists():
+        qm = safe_read_json(qm_path, {})
+        result["quality_manifest"] = {
+            "approved": len(qm.get("approved", [])),
+            "quarantined": len(qm.get("quarantined", [])),
+            "failed": len(qm.get("failed", [])),
+        }
+    else:
+        result["quality_manifest"] = {"approved": 0, "quarantined": 0, "failed": 0}
+
+    # 5. 聚合 rhythm CSV 统计
+    rhythm_dir = base / "rhythm"
+    total_chapters = 0
+    total_words = 0
+    book_count = 0
+    pleasure_dist = {}
+    pace_dist = {}
+    emotion_dist = {}
+    if rhythm_dir.exists():
+        for f in rhythm_dir.glob("*.csv"):
+            book_count += 1
+            try:
+                with open(f, encoding="utf-8-sig") as fh:
+                    reader = csv_mod.DictReader(fh)
+                    for row in reader:
+                        total_chapters += 1
+                        total_words += int(row.get("wc", 0) or 0)
+                        pt = row.get("pleasure_type", "none")
+                        pleasure_dist[pt] = pleasure_dist.get(pt, 0) + 1
+                        pace = row.get("pace", "unknown")
+                        pace_dist[pace] = pace_dist.get(pace, 0) + 1
+                        emo = row.get("emotion", "unknown")
+                        emotion_dist[emo] = emotion_dist.get(emo, 0) + 1
+            except Exception:
+                continue
+
+    result["stats"] = {
+        "books": book_count,
+        "chapters": total_chapters,
+        "words": total_words,
+    }
+    result["distributions"] = {
+        "pleasure": pleasure_dist,
+        "pace": pace_dist,
+        "emotion": emotion_dist,
+    }
+
+    return result
 
 
 @app.get("/api/guidance")
@@ -886,14 +990,23 @@ if _FRONTEND_DIR.exists():
 
 
 # ====================== 启动入口 ======================
+# 唯一启动方式: python -m xiaoshuo.api.server
+# (pyproject.toml 已配置 console_scripts: xiaoshuo-server)
 
 def main():
     parser = argparse.ArgumentParser(description="番茄小说 AI 创作辅助系统 — 统一 API 服务")
     parser.add_argument("--port", type=int, default=_DEFAULT_PORT, help=f"端口 (default: {_DEFAULT_PORT})")
     parser.add_argument("--host", default=_DEFAULT_HOST, help=f"监听地址 (default: {_DEFAULT_HOST})")
+    parser.add_argument("--reload", action="store_true", help="热重载模式 (开发用)")
     args = parser.parse_args()
 
-    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    uvicorn.run(
+        "xiaoshuo.api.server:app",
+        host=args.host,
+        port=args.port,
+        log_level="info",
+        reload=args.reload,
+    )
 
 
 if __name__ == "__main__":

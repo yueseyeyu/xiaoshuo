@@ -31,6 +31,9 @@ hardware = [
     "pynvml>=11.5",         # GPU 监控 (不可用时降级到 nvidia-smi)
 ]
 
+[project.scripts]
+xiaoshuo-server = "xiaoshuo.api.server:main"
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"

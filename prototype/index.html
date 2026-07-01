@@ -446,62 +446,30 @@
   </div>
 </section>
 <section id="page-reports" class="page">
-  <div class="page-header"><h2>报告</h2><button class="btn btn-primary" onclick="showToast('已重新生成全部报告')">批量重新生成</button></div>
+  <div class="page-header"><h2>报告</h2><button class="btn btn-primary" onclick="refreshReports()">刷新数据</button></div>
   <div class="report-toolbar">
     <div class="report-filters">
       <button class="report-filter active" data-report-filter="all" onclick="filterReports('all')">全部</button>
-      <button class="report-filter" data-report-filter="writing" onclick="filterReports('writing')">写作指导</button>
-      <button class="report-filter" data-report-filter="market" onclick="filterReports('market')">市场分析</button>
-      <button class="report-filter" data-report-filter="character" onclick="filterReports('character')">人物分析</button>
-      <button class="report-filter" data-report-filter="rhythm" onclick="filterReports('rhythm')">节奏拆解</button>
-      <button class="report-filter" data-report-filter="tech" onclick="filterReports('tech')">技法提炼</button>
+      <button class="report-filter" data-report-filter="overview" onclick="filterReports('overview')">总览</button>
+      <button class="report-filter" data-report-filter="quality" onclick="filterReports('quality')">质量门控</button>
+      <button class="report-filter" data-report-filter="score" onclick="filterReports('score')">评分审计</button>
+      <button class="report-filter" data-report-filter="rhythm" onclick="filterReports('rhythm')">节奏分布</button>
+      <button class="report-filter" data-report-filter="pleasure" onclick="filterReports('pleasure')">爽点分布</button>
+      <button class="report-filter" data-report-filter="tech" onclick="filterReports('tech')">技法卡片</button>
     </div>
-    <span class="text-muted" id="report-count">共 6 份报告</span>
+    <span class="text-muted" id="report-count">加载中...</span>
   </div>
   <div class="report-layout">
     <div class="report-main">
       <div class="report-grid" id="report-grid">
-        <div class="report-card" data-report-type="writing" onclick="openReportDetail(0)">
-          <div class="report-header"><span class="lifecycle-dot green"></span><h3>创作指导摘要</h3><button class="report-refresh" title="重新生成" onclick="regenerateReport(0)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg></button></div>
-          <p class="report-insight">当前卷需要强化主角动机转折，建议在第三章加入外部压力事件，以提升节奏张力。</p>
-          <div class="report-meta"><span>2026-06-21 · 12 条洞察</span><div class="report-tags"><span class="report-tag">写作</span><span class="report-tag">节奏</span></div></div>
-        </div>
-        <div class="report-card" data-report-type="market" onclick="openReportDetail(1)">
-          <div class="report-header"><span class="lifecycle-dot blue"></span><h3>跨书合成发现</h3><button class="report-refresh" title="重新生成" onclick="regenerateReport(1)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg></button></div>
-          <p class="report-insight">末世题材中“团体生存”与“种田”组合出现频率最高，可作为下一卷世界观锚点。</p>
-          <div class="report-meta"><span>覆盖 52 本书 · 8 个题材</span><div class="report-tags"><span class="report-tag">市场</span><span class="report-tag">末世</span></div></div>
-        </div>
-        <div class="report-card" data-report-type="tech" onclick="openReportDetail(2)">
-          <div class="report-header"><span class="lifecycle-dot amber"></span><h3>技法卡片库</h3><button class="report-refresh" title="重新生成" onclick="regenerateReport(2)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg></button></div>
-          <p class="report-insight">已提炼 156 张技法卡片，其中“悬念铺设”类占比 23%，可直接插入写作指导。</p>
-          <div class="report-meta"><span>156 张卡片· 24 个标签</span><div class="report-tags"><span class="report-tag">技法</span><span class="report-tag">卡片</span></div></div>
-        </div>
-        <div class="report-card" data-report-type="rhythm" onclick="openReportDetail(3)">
-          <div class="report-header"><span class="lifecycle-dot purple"></span><h3>第127章节奏分析</h3><button class="report-refresh" title="重新生成" onclick="regenerateReport(3)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg></button></div>
-          <p class="report-insight">本章爽点密度偏低，结尾悬念不足。建议增加一个突发事件或情绪反转。</p>
-          <div class="report-meta"><span>2026-06-20 · 节奏评分 7.1</span><div class="report-tags"><span class="report-tag">节奏</span><span class="report-tag">章节</span></div></div>
-        </div>
-        <div class="report-card" data-report-type="character" onclick="openReportDetail(4)">
-          <div class="report-header"><span class="lifecycle-dot green"></span><h3>主角成长弧线</h3><button class="report-refresh" title="重新生成" onclick="regenerateReport(4)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg></button></div>
-          <p class="report-insight">主角从被动求生到主动领导过渡自然，但中期缺乏一次重大失败来加深人物厚度。</p>
-          <div class="report-meta"><span>2026-06-19 · 5 个角色</span><div class="report-tags"><span class="report-tag">人物</span><span class="report-tag">成长</span></div></div>
-        </div>
-        <div class="report-card" data-report-type="market" onclick="openReportDetail(5)">
-          <div class="report-header"><span class="lifecycle-dot blue"></span><h3>末世题材热度趋势</h3><button class="report-refresh" title="重新生成" onclick="regenerateReport(5)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg></button></div>
-          <p class="report-insight">“丧尸种田”“异兽团队”两类开篇完读率最高，可作为新书开篇参考。</p>
-          <div class="report-meta"><span>2026-06-18 · 28 本样本</span><div class="report-tags"><span class="report-tag">市场</span><span class="report-tag">趋势</span></div></div>
-        </div>
+        <div class="text-muted" style="padding:40px;text-align:center;">正在加载报告数据...</div>
       </div>
     </div>
     <aside class="report-sidebar">
       <div class="report-summary-card">
         <h3>报告统计</h3>
         <div id="report-sidebar-stats">
-          <div class="summary-row"><span>写作指导</span><span class="summary-row-value">1</span></div>
-          <div class="summary-row"><span>市场分析</span><span class="summary-row-value">2</span></div>
-          <div class="summary-row"><span>人物分析</span><span class="summary-row-value">1</span></div>
-          <div class="summary-row"><span>节奏拆解</span><span class="summary-row-value">1</span></div>
-          <div class="summary-row"><span>技法提炼</span><span class="summary-row-value">1</span></div>
+          <div class="summary-row"><span class="text-muted">加载中...</span></div>
         </div>
       </div>
       <div class="report-summary-card" id="report-api-stats" style="display:none">
@@ -509,19 +477,7 @@
         <div class="summary-row"><span>分析书籍</span><span class="summary-row-value" id="rs-api-books">-</span></div>
         <div class="summary-row"><span>分析章节</span><span class="summary-row-value" id="rs-api-chapters">-</span></div>
         <div class="summary-row"><span>题材聚焦</span><span class="summary-row-value" id="rs-api-genre">-</span></div>
-        <div class="summary-row"><span>钩子基准</span><span class="summary-row-value" id="rs-api-hook">-</span></div>
-      </div>
-      <div class="report-summary-card">
-        <h3>最近生成</h3>
-        <div class="summary-row"><span>创作指导摘要</span><span class="summary-row-value">今天</span></div>
-        <div class="summary-row"><span>第127章节奏分析</span><span class="summary-row-value">昨天</span></div>
-        <div class="summary-row"><span>主角成长弧线</span><span class="summary-row-value">2天前</span></div>
-      </div>
-      <div class="report-summary-card">
-        <h3>待处理洞察</h3>
-        <div class="summary-row"><span>未读高优建议</span><span class="summary-row-value" style="color:var(--warning)">3</span></div>
-        <div class="summary-row"><span>已采纳建议</span><span class="summary-row-value" style="color:var(--success)">12</span></div>
-        <div class="summary-row"><span>已忽略建议</span><span class="summary-row-value">4</span></div>
+        <div class="summary-row"><span>节奏审计</span><span class="summary-row-value" id="rs-api-hook">-</span></div>
       </div>
     </aside>
   </div>

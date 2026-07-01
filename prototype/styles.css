@@ -981,6 +981,8 @@ a { color: var(--accent); text-decoration: none; }
 .report-detail-field textarea { width: 100%; min-height: 140px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-3); color: var(--text); font-size: 14px; line-height: 1.7; resize: vertical; }
 .report-detail-field textarea:focus { outline: none; border-color: var(--accent); }
 .report-detail-field input[type="text"] { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 10px var(--space-3); color: var(--text); font-size: 14px; }
+.report-detail-text { font-size: 14px; color: var(--text); line-height: 1.7; padding: var(--space-2) 0; }
+.report-detail-pre { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-3); font-size: 13px; line-height: 1.8; color: var(--text); white-space: pre-wrap; word-break: break-all; max-height: 400px; overflow-y: auto; font-family: 'Cascadia Code', 'Consolas', monospace; }
 .report-ai-suggestions { background: rgba(var(--accent-rgb),0.06); border: 1px solid rgba(var(--accent-rgb),0.12); border-radius: var(--radius-md); padding: var(--space-3); }
 .report-ai-suggestions h4 { margin: 0 0 var(--space-2); font-size: 14px; color: var(--accent); }
 .report-ai-suggestions ul { margin: 0; padding-left: 18px; color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
