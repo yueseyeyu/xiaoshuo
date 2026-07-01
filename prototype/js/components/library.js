@@ -89,14 +89,12 @@ function getBookStatus(b) {
   if (b.status === 'imported') return { label: '待分析', icon: '⏳', cls: 'pending' };
   return { label: '待分析', icon: '⏳', cls: 'pending' };
 }
+// v8.5: 不再伪造评分，仅返回后端真实数据
 function getBookScore(b) {
-  if (b.score != null) return b.score;
-  const titleHash = hashString(b.title || '');
-  return 6.5 + (titleHash % 35) / 10;
+  return b.score != null ? b.score : null;
 }
 function getBookCards(b) {
-  if (b.techniqueCards != null) return b.techniqueCards;
-  return Math.round((b.wordCount || 0) / 18000);
+  return b.techniqueCards != null ? b.techniqueCards : null;
 }
 function importBook() {
   const input = $('#book-file-input');
@@ -207,7 +205,7 @@ function applyLibrarySort(books) {
     else if (key === 'author') { va = a.author || ''; vb = b.author || ''; }
     else if (key === 'genre') { va = a.genre || ''; vb = b.genre || ''; }
     else if (key === 'wordCount') { va = a.wordCount || 0; vb = b.wordCount || 0; }
-    else if (key === 'score') { va = getBookScore(a); vb = getBookScore(b); }
+    else if (key === 'chapters') { va = (a.disassembly && a.disassembly.chapters) || a.totalChapters || 0; vb = (b.disassembly && b.disassembly.chapters) || b.totalChapters || 0; }
     else if (key === 'status') { va = a.status || ''; vb = b.status || ''; }
     else { va = a.title || ''; vb = b.title || ''; }
     if (typeof va === 'string') return dir * va.localeCompare(vb, 'zh-CN');
@@ -226,10 +224,9 @@ function renderLibraryList(books) {
     { key: 'title', label: '书名', sortable: true },
     { key: 'author', label: '作者', sortable: true },
     { key: 'genre', label: '题材', sortable: true },
+    { key: 'tags', label: '标签', sortable: false },
     { key: 'wordCount', label: '字数', sortable: true },
-    { key: 'chapters', label: '章节', sortable: false },
-    { key: 'score', label: '节奏评分', sortable: true },
-    { key: 'cards', label: '技法卡', sortable: false },
+    { key: 'chapters', label: '章节', sortable: true },
     { key: 'status', label: '状态', sortable: true },
   ];
   const headerHtml = '<div class="book-list-header">' + headers.map((h) => {
@@ -241,9 +238,6 @@ function renderLibraryList(books) {
   const rows = books.map((b) => {
     const idx = DATA.books.indexOf(b);
     const status = getBookStatus(b);
-    const score = getBookScore(b);
-    const cards = getBookCards(b);
-    const scoreCls = score >= 8 ? 'success' : (score >= 6 ? 'warning' : 'danger');
     const genreColor = coverStyle(b.title, b.genre);
     const checked = selectedBookIds.has(idx) ? 'checked' : '';
     const selectedCls = selectedBookIds.has(idx) ? ' selected' : '';
@@ -252,19 +246,23 @@ function renderLibraryList(books) {
       '<span></span></label>';
     const chapterCount = b.disassembly && b.disassembly.chapters ? b.disassembly.chapters : (b.totalChapters || 0);
     const chapterText = chapterCount > 0 ? fmtNumber(chapterCount) : '<span style="color:var(--text-muted)">-</span>';
-    const tags = (b.tags && b.tags.length) ? b.tags : ((DATA.tagPools && DATA.tagPools[b.title]) || [b.genre].filter(Boolean));
-    const tagHtml = tags.slice(0, 2).map((t) => '<span class="tag">' + escapeHtml(t) + '</span>').join('');
-    const microTags = renderBookDisassemblyTags(b) || '<span class="book-list-micro">已拆书</span>';
+    // 标签：优先用后端 tags，其次 tagPools，至少展示题材
+    var tags = (b.tags && b.tags.length) ? b.tags : ((DATA.tagPools && DATA.tagPools[b.title]) || []);
+    if (tags.length === 0 && b.genre) tags = [b.genre];
+    // 第一个标签为大类，用不同的样式
+    var tagHtml = tags.slice(0, 4).map(function(t, i) {
+      var cls = i === 0 ? 'book-tag book-tag-primary' : 'book-tag';
+      return '<span class="' + cls + '">' + escapeHtml(t) + '</span>';
+    }).join('');
     return '<div class="book-list-row' + selectedCls + '" data-index="' + idx + '" onclick="selectBook(' + idx + ')">' +
       '<div class="book-list-col col-check">' + checkbox + '</div>' +
-      '<div class="book-list-col col-title"><span class="book-list-title">' + escapeHtml(b.title) + '</span><span class="book-list-tags">' + tagHtml + '</span>' + microTags + '</div>' +
+      '<div class="book-list-col col-title"><span class="book-list-title">' + escapeHtml(b.title) + '</span></div>' +
       '<div class="book-list-col col-author">' + escapeHtml(b.author || '') + '</div>' +
       '<div class="book-list-col col-genre"><span class="book-list-dot" style="background:' + genreColor + '"></span><span class="book-list-genre">' + escapeHtml(b.genre || '') + '</span></div>' +
+      '<div class="book-list-col col-tags">' + tagHtml + '</div>' +
       '<div class="book-list-col col-wordCount">' + fmtNumber(b.wordCount || 0) + '</div>' +
       '<div class="book-list-col col-chapters">' + chapterText + '</div>' +
-      '<div class="book-list-col col-score"><span class="book-list-score ' + scoreCls + '">' + score.toFixed(1) + '</span></div>' +
-      '<div class="book-list-col col-cards">' + cards + '</div>' +
-      '<div class="book-list-col col-status"><span class="book-list-status ' + status.cls + '">' + status.icon + ' ' + status.label + '</span></div>' +
+      '<div class="book-list-col col-status"><span class="book-list-status ' + status.cls + '">' + status.label + '</span></div>' +
     '</div>';
   }).join('');
   const batchBar = selectedBookIds.size > 0
@@ -312,7 +310,7 @@ function renderBookDisassemblyTags(b) {
 function selectBook(idx) {
   selectedBookIndex = idx;
   const b = DATA.books[idx];
-  const tags = (DATA.tagPools && DATA.tagPools[b.title]) || [b.genre];
+  const tags = (b.tags && b.tags.length) ? b.tags : ((DATA.tagPools && DATA.tagPools[b.title]) || [b.genre].filter(Boolean));
   appShell.classList.remove('no-detail');
   appShell.classList.add('detail-open');
   $('#detail-empty').style.display = 'none';
@@ -324,8 +322,15 @@ function selectBook(idx) {
   $('#detail-cover').style.background = coverStyle(b.title, b.genre);
   $('#detail-title').textContent = b.title;
   $('#detail-meta').innerHTML = '<div>作者：' + escapeHtml(b.author || '') + '</div><div>题材：' + escapeHtml(b.genre || '') + '</div><div>字数：' + fmtNumber(b.wordCount || 0) + ' 字</div><div>大小：' + fmtSize(b.size_kb || 0) + '</div>';
-  $('#detail-tags').innerHTML = tags.map((t) => '<span class="tag">' + escapeHtml(t) + '</span>').join('');
-  $('#detail-files').innerHTML = '<div>TXT: ' + escapeHtml(b.file || '') + '</div><div>Rhythm: ' + escapeHtml(b.rhythm_csv || '') + '</div>';
+  $('#detail-tags').innerHTML = tags.map((t, i) => '<span class="book-tag' + (i === 0 ? ' book-tag-primary' : '') + '">' + escapeHtml(t) + '</span>').join('');
+  // 移除文件路径展示，改为操作按钮区
+  var status = getBookStatus(b);
+  var isAnalyzed = b.status === 'analyzed';
+  var actionBtn = isAnalyzed
+    ? '<button class="btn btn-secondary detail-action" style="margin-bottom:8px;" onclick="navigate(\'disassembly\')">查看拆书</button>'
+    : '';
+  actionBtn += '<button class="btn btn-primary detail-action" onclick="startAnalysisFromDetail()">' + (isAnalyzed ? '重新分析' : '开始分析') + '</button>';
+  $('#detail-files').innerHTML = actionBtn;
 }
 function closeDetail() {
   appShell.classList.add('no-detail');

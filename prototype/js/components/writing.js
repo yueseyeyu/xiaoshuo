@@ -61,6 +61,101 @@ async function loadWritingChapter(chapterNum) {
   markDraftSaved();
   renderWritingToc();
   renderOutlinePanel();
+  updateWritingContext();
+  renderSceneOutline();
+}
+
+function prevWritingChapter() {
+  if (WRITING_CURRENT_CHAPTER > 1) {
+    loadWritingChapter(WRITING_CURRENT_CHAPTER - 1);
+  }
+}
+
+function nextWritingChapter() {
+  var total = (currentProject && currentProject.totalChapters) || 300;
+  if (WRITING_CURRENT_CHAPTER < total) {
+    loadWritingChapter(WRITING_CURRENT_CHAPTER + 1);
+  }
+}
+
+function updateWritingContext() {
+  var bookEl = $('#context-book');
+  var volEl = $('#context-vol');
+  var chapEl = $('#context-chap');
+  var breadcrumbVol = $('#editor-breadcrumb-vol');
+  var breadcrumbChap = $('#editor-breadcrumb-chap');
+  var tocCount = $('.toc-count');
+  
+  var title = (currentProject && currentProject.title) || '未命名作品';
+  var totalChapters = (currentProject && currentProject.totalChapters) || 0;
+  var volSize = 60;
+  var volIndex = Math.floor((WRITING_CURRENT_CHAPTER - 1) / volSize);
+  var volTitle = '第' + (volIndex + 1) + '卷';
+  
+  // 尝试从骨架数据获取卷标题
+  if (typeof DESIGN_DATA !== 'undefined' && DESIGN_DATA.volumes && DESIGN_DATA.volumes[volIndex]) {
+    volTitle = DESIGN_DATA.volumes[volIndex].title + '·' + (DESIGN_DATA.volumes[volIndex].subtitle || '');
+  }
+  
+  if (bookEl) bookEl.textContent = title;
+  if (volEl) volEl.textContent = volTitle;
+  if (chapEl) chapEl.textContent = '第' + WRITING_CURRENT_CHAPTER + ' 章 / 第' + totalChapters + ' 章';
+  if (breadcrumbVol) breadcrumbVol.textContent = '第' + (volIndex + 1) + '卷';
+  if (breadcrumbChap) breadcrumbChap.textContent = '第' + WRITING_CURRENT_CHAPTER + ' 章';
+  if (tocCount) tocCount.textContent = totalChapters + ' 章';
+}
+
+async function renderSceneOutline() {
+  var panel = $('#scene-outline-panel');
+  if (!panel) return;
+  var body = panel.querySelector('.panel-body');
+  if (!body) return;
+  if (!currentProject || !currentProject.id) {
+    body.innerHTML = '<div style="padding:12px;color:var(--text-secondary);font-size:13px;">请先选择项目</div>';
+    return;
+  }
+  try {
+    var skeleton = await ProjectAPI.getSkeleton(currentProject.id);
+    var chapters = (skeleton && skeleton.chapters) || [];
+    // 尝试找到当前章节对应的细纲
+    var currentCh = WRITING_CURRENT_CHAPTER;
+    var matchedCh = null;
+    // chapters 可能是按段分组的，尝试匹配
+    for (var i = 0; i < chapters.length; i++) {
+      var ch = chapters[i];
+      // 如果有 ch_num 字段直接匹配
+      if (ch.num === currentCh || ch.chapter_num === currentCh) {
+        matchedCh = ch;
+        break;
+      }
+      // 如果标题包含章号
+      if (ch.title && ch.title.indexOf(String(currentCh)) >= 0) {
+        matchedCh = ch;
+        break;
+      }
+    }
+    // 如果没找到精确匹配，尝试用段索引
+    if (!matchedCh && chapters.length > 0) {
+      var segIndex = Math.floor((currentCh - 1) / 10);
+      if (segIndex < chapters.length) {
+        matchedCh = chapters[segIndex];
+      }
+    }
+    
+    if (matchedCh) {
+      body.innerHTML = 
+        '<div class="scene-outline-item"><b>目标</b><p>' + escapeHtml(matchedCh.goal || '暂无') + '</p></div>' +
+        '<div class="scene-outline-item"><b>冲突</b><p>' + escapeHtml(matchedCh.conflict || '暂无') + '</p></div>' +
+        '<div class="scene-outline-item"><b>结果</b><p>' + escapeHtml(matchedCh.result || '暂无') + '</p></div>' +
+        (matchedCh.scenes && matchedCh.scenes.length > 0 ?
+          '<div class="scene-outline-item"><b>场景</b><ul style="margin-top:4px;">' +
+          matchedCh.scenes.map(function(s) { return '<li>' + escapeHtml(s) + '</li>'; }).join('') + '</ul></div>' : '');
+    } else {
+      body.innerHTML = '<div style="padding:12px;color:var(--text-secondary);font-size:13px;">当前章节暂无细纲，请先在设计页填写章节细纲</div>';
+    }
+  } catch (e) {
+    body.innerHTML = '<div style="padding:12px;color:var(--text-secondary);font-size:13px;">细纲加载失败</div>';
+  }
 }
 
 async function saveWritingChapter() {
@@ -77,6 +172,17 @@ async function saveWritingChapter() {
       updated_at: new Date().toISOString(),
     });
     WRITING_CHAPTER_TITLES[WRITING_CURRENT_CHAPTER] = title;
+    // v8.6: 追踪今日写作量
+    var todayKey = 'writing_today_' + new Date().toDateString();
+    var prevCount = parseInt(localStorage.getItem(todayKey) || '0', 10);
+    // 只增加差值（避免重复计数）
+    var lastSavedKey = 'writing_last_saved_' + currentProject.id + '_' + WRITING_CURRENT_CHAPTER;
+    var lastSaved = parseInt(localStorage.getItem(lastSavedKey) || '0', 10);
+    var diff = wordCount - lastSaved;
+    if (diff > 0) {
+      localStorage.setItem(todayKey, String(prevCount + diff));
+    }
+    localStorage.setItem(lastSavedKey, String(wordCount));
     return true;
   } catch (e) {
     console.error('saveWritingChapter failed', e);
@@ -130,9 +236,14 @@ function updateWordCount() {
     const minutes = Math.ceil(remain / 30);
     eta.textContent = '预计 ' + (minutes >= 60 ? Math.floor(minutes / 60) + 'h ' + (minutes % 60) + 'm' : minutes + 'm');
   }
-  const today = $('#editor-today-count');
-  if (today) today.textContent = '今日 1,240 字';
-  markDraftUnsaved();
+const today = $('#editor-today-count');
+if (today) {
+  // v8.6: 动态计算今日字数（从 localStorage 读取今日写作量）
+  var todayKey = 'writing_today_' + new Date().toDateString();
+  var todayCount = parseInt(localStorage.getItem(todayKey) || '0', 10);
+  today.textContent = '今日 ' + todayCount.toLocaleString() + ' 字';
+}
+markDraftUnsaved();
 }
 function switchSidebarTab(tab) {
   const sidebar = $('#writing-sidebar');
@@ -165,15 +276,33 @@ function toggleFocus() {
     if (document.fullscreenElement) document.exitFullscreen();
   }
 }
-function toggleDeAi() {
+async function toggleDeAi() {
   deAiEnabled = !deAiEnabled;
   updateDeaiHintVisibility();
   if (deAiEnabled) {
     const text = $('#editor-textarea').value || '';
-    const aiPatterns = [/首先.*其次.*最后/, /不得不说/, /众所周知/, /总而言之/, /综上所述/];
-    const found = aiPatterns.filter(p => p.test(text));
-    const msg = found.length > 0 ? 'AI指纹检测已开启 - 检测到 ' + found.length + ' 处疑似AI痕迹' : 'AI指纹检测已开启 - 未检测到明显AI痕迹';
-    showToast(msg);
+    if (!text.trim()) { showToast('AI指纹检测已开启 - 编辑器无内容'); return; }
+    showToast('AI指纹检测中...');
+    try {
+      const resp = await fetch(API_BASE + '/api/compliance/scan?text=' + encodeURIComponent(text));
+      const data = await resp.json();
+      if (data.ok) {
+        const aiRate = (data.ai_rate || 0).toFixed(1);
+        const level = data.risk_level || 'unknown';
+        const hits = data.total_count || 0;
+        const highRisk = data.high_risk_count || 0;
+        let msg = 'AI指纹检测 - AI率 ' + aiRate + '% (' + level + ')';
+        if (highRisk > 0) msg += ' · 高风险词 ' + highRisk + ' 个';
+        else if (hits > 0) msg += ' · 指纹词 ' + hits + ' 个';
+        else msg += ' · 未检测到明显AI痕迹';
+        if (data.ai_rate_recommendation) msg += '\n' + data.ai_rate_recommendation;
+        showToast(msg, 5000);
+      } else {
+        showToast('AI指纹检测失败: ' + (data.error || '未知错误'));
+      }
+    } catch (e) {
+      showToast('AI指纹检测请求失败: ' + e.message);
+    }
   } else {
     showToast('AI指纹检测已关闭');
   }
@@ -363,25 +492,44 @@ async function searchScene() {
     console.error(e);
   }
 }
-function importDisassemblyToWriting() {
+async function importDisassemblyToWriting() {
   if (selectedBookIndex == null) {
     showToast('请先在书库中选择一本书');
     return;
   }
   const b = DATA.books[selectedBookIndex];
   showLoading();
-  setTimeout(() => {
+  try {
+    const genre = b.genre || '末世';
+    const name = b.title || b.file.replace('rhythm_', '').replace('.csv', '');
+    const { ok, data } = await apiGet('/api/disassembly/book?name=' + encodeURIComponent(name) + '&genre=' + encodeURIComponent(genre));
     hideLoading();
-    importedReportData = {
-      title: '拆书分析 - ' + b.title,
-      insight: '节奏分析：开篇紧凑，中段平稳，高潮密集。建议第127章参考此节奏模式。',
-      detail: '来自书库 ' + b.title + ' 的拆书数据',
-      importedAt: new Date().toLocaleString()
-    };
-    renderImportedReport();
-    navigate('writing');
-    showToast('已导入拆书数据到写作辅助');
-  }, 600);
+    if (ok && data && data.chapters && data.chapters.length > 0) {
+      // 从真实拆书数据中提炼节奏洞察
+      const chapters = data.chapters;
+      const fastCount = chapters.filter(c => (c.pace || c.rhythm) === 'fast').length;
+      const slowCount = chapters.filter(c => (c.pace || c.rhythm) === 'slow').length;
+      const totalWords = chapters.reduce((s, c) => s + (parseInt(c.wc) || 0), 0);
+      let insight = '共 ' + data.total + ' 章，约 ' + fmtNumber(totalWords) + ' 字。';
+      if (fastCount > chapters.length * 0.4) insight += '节奏偏快，建议在紧张情节参考。';
+      else if (slowCount > chapters.length * 0.4) insight += '节奏偏慢，适合铺垫和过渡参考。';
+      else insight += '节奏均衡，整体可参考。';
+      importedReportData = {
+        title: '拆书分析 - ' + b.title,
+        insight: insight,
+        detail: '来自书库《' + b.title + '》的拆书数据',
+        importedAt: new Date().toLocaleString()
+      };
+      renderImportedReport();
+      navigate('writing');
+      showToast('已导入拆书数据到写作辅助');
+    } else {
+      showToast('该书籍暂无拆书数据，请先执行拆书分析');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast('导入拆书数据失败: ' + e.message);
+  }
 }
 function renderImportedReport() {
   const el = document.getElementById('imported-report-panel');
@@ -400,42 +548,71 @@ function renderWritingToc() {
   const volumesContainer = $('#toc-volumes');
   if (!recentContainer || !volumesContainer) return;
 
+  // v8.5: 从项目真实章节数据构建目录
+  const totalChapters = (currentProject && currentProject.totalChapters) || 0;
   const recent = [WRITING_CURRENT_CHAPTER, WRITING_CURRENT_CHAPTER - 1, WRITING_CURRENT_CHAPTER - 7].filter(function(c) { return c > 0; });
   recentContainer.innerHTML = '<div class="toc-recent-title">最近修改</div>' +
     recent.map(function(c) { return '<div class="toc-recent-item" onclick="jumpToChapter(' + c + ')">' + c + ' ' + escapeHtml(getChapterTitle(c)) + '</div>'; }).join('');
 
+  if (!currentProject || !totalChapters) {
+    volumesContainer.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px;">请先创建项目并设置总章节数</div>';
+    return;
+  }
+
+  // 按卷组织：每60章一卷
   const volSize = 60;
-  const currentVol = Math.min(DESIGN_DATA.volumes.length - 1, Math.floor((WRITING_CURRENT_CHAPTER - 1) / volSize));
-  volumesContainer.innerHTML = DESIGN_DATA.volumes.map(function(vol, idx) {
+  const numVols = Math.ceil(totalChapters / volSize);
+  const currentVol = Math.floor((WRITING_CURRENT_CHAPTER - 1) / volSize);
+  let html = '';
+  for (let idx = 0; idx < numVols; idx++) {
     const start = idx * volSize + 1;
-    const end = Math.min((idx + 1) * volSize, 300);
+    const end = Math.min((idx + 1) * volSize, totalChapters);
     const isCurrent = idx === currentVol;
     const chapters = [];
     for (let c = start; c <= end; c++) {
       const isCurCh = c === WRITING_CURRENT_CHAPTER;
       chapters.push('<div class="toc-chapter' + (isCurCh ? ' current' : '') + '" onclick="jumpToChapter(' + c + ')">' + c + ' ' + escapeHtml(getChapterTitle(c)) + '</div>');
     }
-    return '<div class="toc-volume ' + (isCurrent ? 'active' : 'collapsed') + '">' +
-      '<div class="toc-volume-title" onclick="toggleTocVolume(this)"><span class="toc-chevron">' + (isCurrent ? '▾' : '▸') + '</span>' + escapeHtml(vol.title) + ' ' + escapeHtml(vol.subtitle) + '</div>' +
+    html += '<div class="toc-volume ' + (isCurrent ? 'active' : 'collapsed') + '">' +
+      '<div class="toc-volume-title" onclick="toggleTocVolume(this)"><span class="toc-chevron">' + (isCurrent ? '▾' : '▸') + '</span>第' + (idx + 1) + '卷 (' + start + '-' + end + '章)</div>' +
       '<div class="toc-chapters">' + chapters.join('') + '</div>' +
       '</div>';
-  }).join('');
-
+  }
+  volumesContainer.innerHTML = html;
   setTimeout(function() { initWritingTocScroll(); }, 0);
 }
-function renderOutlinePanel() {
+
+async function renderOutlinePanel() {
   const body = document.getElementById('outline-panel-body');
   if (!body) return;
-  const currentChapter = WRITING_CURRENT_CHAPTER;
-  const volIndex = Math.min(DESIGN_DATA.volumes.length - 1, Math.floor((currentChapter - 1) / 60));
-  const vol = DESIGN_DATA.volumes[volIndex];
-  const segmentStart = Math.floor((currentChapter - 1) / 10) * 10 + 1;
-  const segmentEnd = Math.min(segmentStart + 9, 300);
-  const segmentTitle = '第 ' + segmentStart + '-' + segmentEnd + ' 章';
-  const chars = DESIGN_DATA.characters.slice(0, 3).map(function(c) { return c.name; }).join(' / ') || '暂无角色';
-  const scene = DESIGN_DATA.chapters[0];
-  body.innerHTML = '<div class="outline-section"><b>当前卷</b><p>' + escapeHtml(vol ? (vol.title + '：' + vol.subtitle) : '暂无卷纲') + '</p></div>' +
-    '<div class="outline-section"><b>当前段</b><p>' + escapeHtml(segmentTitle + '：' + (vol ? vol.summary : '暂无段纲')) + '</p></div>' +
-    '<div class="outline-section"><b>角色</b><div>' + escapeHtml(chars) + '</div></div>' +
-    '<div class="outline-section"><b>场景目标</b><p>' + escapeHtml(scene ? scene.goal : '暂无场景目标') + '</p></div>';
+  if (!currentProject || !currentProject.id) {
+    body.innerHTML = '<div style="padding:16px;color:var(--text-muted);font-size:13px;">请先选择项目</div>';
+    return;
+  }
+  // v8.5: 从后端加载真实项目大纲数据
+  try {
+    const [skeleton, characters] = await Promise.all([
+      ProjectAPI.getSkeleton(currentProject.id),
+      ProjectAPI.getCharacters(currentProject.id)
+    ]);
+    const currentChapter = WRITING_CURRENT_CHAPTER;
+    const totalChapters = (currentProject && currentProject.totalChapters) || 0;
+    const volSize = 60;
+    const volIndex = Math.floor((currentChapter - 1) / volSize);
+    const segmentStart = Math.floor((currentChapter - 1) / 10) * 10 + 1;
+    const segmentEnd = Math.min(segmentStart + 9, totalChapters || 300);
+    // 骨架数据
+    const volumes = (skeleton && skeleton.volumes) || [];
+    const vol = volumes[volIndex];
+    const chars = (characters && characters.characters) || [];
+    const charNames = chars.slice(0, 3).map(function(c) { return c.name; }).join(' / ') || '暂无角色';
+    const volText = vol ? (vol.title + '：' + (vol.subtitle || vol.summary || '')) : '第' + (volIndex + 1) + '卷';
+    const segSummary = vol ? (vol.summary || '暂无段纲') : '暂无段纲';
+    body.innerHTML = '<div class="outline-section"><b>当前卷</b><p>' + escapeHtml(volText) + '</p></div>' +
+      '<div class="outline-section"><b>当前段</b><p>第 ' + segmentStart + '-' + segmentEnd + ' 章：' + escapeHtml(segSummary) + '</p></div>' +
+      '<div class="outline-section"><b>角色</b><div>' + escapeHtml(charNames) + '</div></div>' +
+      '<div class="outline-section"><b>场景目标</b><p>请在设计页填写章节场景</p></div>';
+  } catch (e) {
+    body.innerHTML = '<div class="outline-section"><b>当前卷</b><p>数据加载失败</p></div>';
+  }
 }

@@ -50,30 +50,49 @@ def estimate_word_count(size_kb: int) -> int:
 
 
 def get_book_tags(project_root: Path, genre: str, name: str) -> list[str]:
-    """从 labels 文件读取高频标签"""
+    """构建标签列表：大类(题材) + 子类(LLM分类) + 内容标签(labels高频)
+    
+    返回格式: [题材, 子类, 内容标签1, 内容标签2]
+    """
+    tags = [genre] if genre else []
+    
+    # 子类标签：从 sub_genre_llm.json 读取
+    sub_genre_path = project_root / "data" / "processed" / genre / "quality" / "sub_genre_llm.json"
+    if sub_genre_path.exists():
+        try:
+            sub_data = json.loads(sub_genre_path.read_text(encoding="utf-8-sig"))
+            sub_genre = sub_data.get(name)
+            if sub_genre:
+                tags.append(sub_genre)
+        except Exception:
+            pass
+    
+    # 内容标签：从 labels 文件读取高频标签
     labels_dir = project_root / "data" / "processed" / genre / "labels"
     candidate = labels_dir / f"{name}_labels.csv"
-    if not candidate.exists():
-        return []
-    try:
-        counts: dict[str, float] = {}
-        with open(candidate, encoding="utf-8-sig", newline="") as f:
-            for row in csv.DictReader(f):
-                if (row.get("ch_num") or "").lower() == "summary":
-                    continue
-                for k, v in row.items():
-                    if k == "ch_num":
+    if candidate.exists():
+        try:
+            counts: dict[str, float] = {}
+            with open(candidate, encoding="utf-8-sig", newline="") as f:
+                for row in csv.DictReader(f):
+                    if (row.get("ch_num") or "").lower() == "summary":
                         continue
-                    try:
-                        val = float(v or 0)
-                    except ValueError:
-                        continue
-                    if val > 0:
-                        tag = re.sub(r"^(regex_|llm_)", "", k)
-                        counts[tag] = counts.get(tag, 0.0) + val
-        return [tag for tag, _ in sorted(counts.items(), key=lambda x: x[1], reverse=True)[:3]]
-    except Exception:
-        return []
+                    for k, v in row.items():
+                        if k == "ch_num":
+                            continue
+                        try:
+                            val = float(v or 0)
+                        except ValueError:
+                            continue
+                        if val > 0:
+                            tag = re.sub(r"^(regex_|llm_)", "", k)
+                            counts[tag] = counts.get(tag, 0.0) + val
+            content_tags = [tag for tag, _ in sorted(counts.items(), key=lambda x: x[1], reverse=True)[:2]]
+            tags.extend(content_tags)
+        except Exception:
+            pass
+    
+    return tags[:4]  # 最多 4 个标签
 
 
 def get_book_score(project_root: Path, genre: str, name: str) -> float | None:
@@ -116,14 +135,21 @@ def load_novel_index(project_root: Path) -> dict[str, dict]:
 
 
 def get_available_books(project_root: Path, genre: str = "末世") -> list[dict]:
-    """从 data/processed/ 读取已处理的书列表"""
-    processed = project_root / "data" / "processed" / genre
+    """从 data/processed/ 和 data/raw/novels/ 读取书列表
+    
+    已处理的书 status=analyzed，仅原始文件的书 status=pending
+    """
     books = []
     index = load_novel_index(project_root)
     meta_by_file = index.get(genre, {})
+    
+    # 1. 已处理的书（有 rhythm CSV）
+    processed = project_root / "data" / "processed" / genre
+    analyzed_stems = set()
     if (processed / "rhythm").exists():
         for f in sorted((processed / "rhythm").glob("rhythm_*.csv")):
             stem = f.stem.replace("rhythm_", "")
+            analyzed_stems.add(stem)
             meta = None
             for file_name, m in meta_by_file.items():
                 if file_name.replace(".txt", "").strip() == stem:
@@ -142,25 +168,49 @@ def get_available_books(project_root: Path, genre: str = "末世") -> list[dict]
                 "size_kb": size_kb,
                 "status": "analyzed",
                 "file": f.name,
+                "stem": stem,
                 "tags": tags,
                 "score": score,
             })
+    
+    # 2. 仅原始文件的书（在 data/raw/novels/ 中但未处理）
+    raw_dir = project_root / "data" / "raw" / "novels" / genre
+    if raw_dir.exists():
+        for f in sorted(raw_dir.glob("*.txt")):
+            stem = f.stem
+            if stem in analyzed_stems:
+                continue
+            meta = meta_by_file.get(f.name)
+            title, author = parse_title_author(stem, meta)
+            size_kb = round(f.stat().st_size / 1024) if f.exists() else 0
+            word_count = estimate_word_count(size_kb)
+            books.append({
+                "title": title,
+                "author": author,
+                "genre": genre,
+                "wordCount": word_count,
+                "size_kb": size_kb,
+                "status": "pending",
+                "file": f.name,
+                "stem": stem,
+                "tags": [genre],
+                "score": None,
+            })
+    
     return books
 
 
 def get_genre_counts(project_root: Path) -> tuple[list[str], list[list]]:
-    """扫描 data/processed/ 下所有题材及书籍数量"""
-    processed_root = project_root / "data" / "processed"
+    """扫描 data/raw/novels/ 下所有题材及书籍数量"""
+    raw_root = project_root / "data" / "raw" / "novels"
     counts = []
     genres = []
-    if processed_root.exists():
-        for genre_dir in sorted(d for d in processed_root.iterdir() if d.is_dir()):
-            rhythm_dir = genre_dir / "rhythm"
-            if rhythm_dir.exists():
-                count = len(list(rhythm_dir.glob("rhythm_*.csv")))
-                if count > 0:
-                    genres.append(genre_dir.name)
-                    counts.append([genre_dir.name, count])
+    if raw_root.exists():
+        for genre_dir in sorted(d for d in raw_root.iterdir() if d.is_dir()):
+            count = len(list(genre_dir.glob("*.txt")))
+            if count > 0:
+                genres.append(genre_dir.name)
+                counts.append([genre_dir.name, count])
     return genres, counts
 
 

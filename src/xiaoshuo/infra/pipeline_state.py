@@ -90,3 +90,14 @@ def clear_stage():
                 PIPELINE_STAGE_FILE.unlink()
             except OSError:
                 pass
+
+
+def read_stage() -> dict | None:
+    """Read current pipeline stage, or None if idle/missing."""
+    with _lock:
+        if not PIPELINE_STAGE_FILE.exists():
+            return None
+        try:
+            return json.loads(PIPELINE_STAGE_FILE.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return None

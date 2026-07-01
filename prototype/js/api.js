@@ -61,6 +61,14 @@ async function apiFetch(path, options = {}, timeoutMs = DEFAULT_TIMEOUT) {
 function notifyApiError(path, msg) {
   // 静默上报类接口不弹 toast，避免轮询轰炸
   if (path && (path.startsWith('/api/logs/operations') || path.startsWith('/api/hardware') || path.startsWith('/api/model/status') || path.startsWith('/api/diagnosis'))) return;
+  // 429 限流错误单独处理，避免轰炸
+  if (msg && msg.includes('429')) {
+    const now = Date.now();
+    if (now - lastApiErrorToast < 10000) return; // 10秒内只提示一次
+    lastApiErrorToast = now;
+    if (typeof showToast === 'function') showToast('请求过于频繁，请稍等片刻...');
+    return;
+  }
   const now = Date.now();
   if (now - lastApiErrorToast < API_ERROR_TOAST_COOLDOWN) return;
   lastApiErrorToast = now;

@@ -295,7 +295,7 @@ function navigate(page) {
       window.history.replaceState(null, '', '#' + page);
     }
   } catch (e) {}
-  if (page === 'dashboard') { updateActivityTimes(); }
+  if (page === 'dashboard') { updateActivityTimes(); loadDashboardKPIs(); }
   if (page === 'writing') { loadWritingProjectData(); loadWritingChapter(WRITING_CURRENT_CHAPTER); renderImportedReport(); initInstructionsPanel(); renderAuthorMindPanel(); var gg=$('#goal-gate-container'); if(gg) gg.style.display=''; }
   if (page === 'disassembly') { loadDisassemblyData(); initDeconstructionTab(); }
   if (page === 'settings') { loadSettingsConfig(); renderPromptManagerPanel(); }

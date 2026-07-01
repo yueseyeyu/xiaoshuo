@@ -31,22 +31,52 @@ async function loadApiData() {
   }
   // 报告页独立加载 (v8.4: 使用 /api/reports/overview 聚合端点)
   if (typeof loadReportOverview === 'function') loadReportOverview();
+  if (typeof initReportGenres === 'function') initReportGenres();
 }
 
 
 async function loadSkeletonData() {
   const btn = $('#btn-load-skeleton');
   if (btn) { btn.textContent = '加载中...'; btn.disabled = true; }
+  
+  // v8.6: 如果有当前项目，优先从项目骨架 API 加载
+  if (currentProject && currentProject.id) {
+    try {
+      const skeleton = await ProjectAPI.getSkeleton(currentProject.id);
+      if (skeleton && skeleton.volumes && skeleton.volumes.length > 0) {
+        // 项目已有骨架数据，直接渲染
+        const [worldRes, charsRes, factionsRes] = await Promise.all([
+          ProjectAPI.getWorld(currentProject.id),
+          ProjectAPI.getCharacters(currentProject.id),
+          ProjectAPI.getFactions(currentProject.id),
+        ]);
+        renderDesignFromSkeleton({
+          volumes: skeleton.volumes || [],
+          chapters: skeleton.chapters || [],
+          world: (worldRes && worldRes.core !== undefined) ? worldRes : { core: '', powers: '' },
+          characters: (charsRes && charsRes.characters) || [],
+          factions: (factionsRes && factionsRes.factions) || [],
+        });
+        showToast('项目骨架已加载');
+        if (btn) { btn.textContent = '从AI生成骨架'; btn.disabled = false; }
+        return;
+      }
+    } catch (e) {
+      console.log('[API] Project skeleton load failed, trying fallback:', e);
+    }
+  }
+  
+  // Fallback: 尝试从 /api/skeleton 加载示例骨架
   const { ok, data, error } = await apiGet('/api/skeleton');
   if (ok && data && data.volumes) {
     appState.apiData.skeleton = data;
     renderDesignFromSkeleton(data);
-    showToast('骨架数据已加载（5卷 + 节奏基准）');
+    showToast('骨架数据已加载（示例）');
   } else {
     console.log('[API] Skeleton not available:', error);
-    showToast('API 不可用，使用本地数据');
+    showToast('API 不可用，请先创建项目');
   }
-  if (btn) { btn.textContent = '从后端加载骨架'; btn.disabled = false; }
+  if (btn) { btn.textContent = '从AI生成骨架'; btn.disabled = false; }
 }
 
 
@@ -300,21 +330,9 @@ function hideLoading() {
 
 
 
-let WRITING_CURRENT_CHAPTER = 127;
+let WRITING_CURRENT_CHAPTER = 1;
 
-const WRITING_CHAPTER_TITLES = {
-  1: '考场异变',
-  2: '初次模拟',
-  3: '能力觉醒',
-  13: '商场据点',
-  26: '深夜突围',
-  27: '暴雨前的寂静',
-  126: '黑塔来信',
-  127: '暴雨前的寂静',
-  128: '内部听证',
-  129: '临时同盟',
-  130: '零号标记'
-};
+const WRITING_CHAPTER_TITLES = {};
 
 function getChapterTitle(ch) {
   return WRITING_CHAPTER_TITLES[ch] || ('第 ' + ch + ' 章');
@@ -521,6 +539,10 @@ document.addEventListener('keydown', (e) => {
     }
     if ($('#create-project-modal').classList.contains('open')) {
       closeCreateProjectModal();
+      return;
+    }
+    if ($('#quick-start-modal') && $('#quick-start-modal').classList.contains('open')) {
+      closeQuickStart();
       return;
     }
     closeReportDetail();

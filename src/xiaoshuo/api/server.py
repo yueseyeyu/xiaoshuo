@@ -44,7 +44,7 @@ from xiaoshuo.agents.cross_review import scan_fingerprints, estimate_ai_rate
 from xiaoshuo.agents.outline_builder import build_chapter_blueprint
 from xiaoshuo.agents.model_orchestrator import get_orchestrator
 from xiaoshuo.infra.config_manager import get_config_section, get_config
-from xiaoshuo.infra.pipeline_state import clear_stage, mark_error
+from xiaoshuo.infra.pipeline_state import clear_stage, mark_error, read_stage
 
 # v8.1: 模块化拆分 — 模型、工具函数、硬件服务
 from xiaoshuo.api.models import (
@@ -145,25 +145,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="番茄小说 AI 创作辅助系统", version=APP_VERSION, lifespan=lifespan)
 
-# ── API 限流中间件（v8.1） ──
-_rate_limit_store: dict[str, list[float]] = {}
-_RATE_LIMIT_WINDOW = 60  # 秒
-_RATE_LIMIT_MAX = 120    # 每窗口最大请求数
-
+# ── API 限流中间件 ──
+# 本地开发工具，不做限流（避免刷新页面触发 429）
+# 仅保留结构以备将来需要
 @app.middleware("http")
 async def rate_limit_middleware(request, call_next):
-    from fastapi.responses import JSONResponse
-    client_ip = request.client.host if request.client else "unknown"
-    now = time.time()
-    window_start = now - _RATE_LIMIT_WINDOW
-    # 清理过期记录
-    _rate_limit_store[client_ip] = [t for t in _rate_limit_store.get(client_ip, []) if t > window_start]
-    if len(_rate_limit_store.setdefault(client_ip, [])) >= _RATE_LIMIT_MAX:
-        return JSONResponse(
-            status_code=429,
-            content={"detail": "Too Many Requests", "retry_after": _RATE_LIMIT_WINDOW},
-        )
-    _rate_limit_store[client_ip].append(now)
     return await call_next(request)
 
 
@@ -224,12 +210,23 @@ async def get_config_endpoint():
         theme_presets = prototype_cfg.get("theme_presets", []) if isinstance(prototype_cfg, dict) else []
     except Exception:
         pass
+    # v8.5: 返回模型名称供设置页展示
+    model_cfg = cfg.get("model_orchestration", {}) if isinstance(cfg, dict) else {}
+    models = model_cfg.get("models", {}) if isinstance(model_cfg, dict) else {}
+    main_model = models.get("main_model", {}) if isinstance(models, dict) else {}
+    cloud_model = models.get("cloud_model", {}) if isinstance(models, dict) else {}
+    local_model_name = main_model.get("name", "")
+    cloud_model_name = cloud_model.get("name", "")
+    cloud_provider = cloud_model.get("provider", "")
     return {
         "version": APP_VERSION,
         "genre": cfg.get("default_genre", "末世"),
         "llm_port": _get_llm_port(),
         "mode": cfg.get("mode", "local"),
         "theme_presets": theme_presets,
+        "local_model": local_model_name,
+        "cloud_model": cloud_model_name,
+        "cloud_provider": cloud_provider,
     }
 
 
@@ -334,45 +331,184 @@ def compliance_scan(text: str = Query(..., min_length=1)):
 # ── 书籍列表 & 拆书数据 ──
 
 @app.get("/api/books")
-async def get_books(genre: str = Query("末世")):
-    books = get_available_books(PROJECT_ROOT, genre)
+async def get_books(genre: str = Query("")):
     genres, counts = get_genre_counts(PROJECT_ROOT)
+    if genre and genre != "全部":
+        books = get_available_books(PROJECT_ROOT, genre)
+    else:
+        # 返回所有题材的书籍
+        books = []
+        for g in genres:
+            books.extend(get_available_books(PROJECT_ROOT, g))
     return {
         "books": books,
         "count": len(books),
-        "genre": genre,
+        "genre": genre or "全部",
         "genres": genres,
         "counts": counts,
     }
 
 
 @app.get("/api/disassembly/books")
-async def disassembly_books(genre: str = Query("末世")):
-    books = get_available_books(PROJECT_ROOT, genre)
-    return {
-        "books": [
-            {
-                "key": b["file"].replace("rhythm_", "").replace(".csv", ""),
+async def disassembly_books(genre: str = Query("")):
+    genres, _ = get_genre_counts(PROJECT_ROOT)
+    if genre and genre != "全部":
+        target_genres = [genre]
+    else:
+        target_genres = genres
+    result = []
+    for g in target_genres:
+        books = get_available_books(PROJECT_ROOT, g)
+        for b in books:
+            if b.get("status") != "analyzed":
+                continue
+            stem = b.get("stem", b["file"].replace("rhythm_", "").replace(".csv", ""))
+            csv_path = PROJECT_ROOT / "data" / "processed" / g / "rhythm" / b["file"]
+            chapters = 0
+            total_words = 0
+            pace_dist = {}
+            emotion_dist = {}
+            conflict_dist = {}
+            pleasure_dist = {}
+            if csv_path.exists():
+                try:
+                    with open(csv_path, encoding="utf-8-sig") as f:
+                        for r in csv.DictReader(f):
+                            chapters += 1
+                            wc = r.get("wc") or r.get("word_count") or "0"
+                            try:
+                                total_words += int(wc)
+                            except ValueError:
+                                pass
+                            pace = (r.get("pace") or "").strip()
+                            if pace:
+                                pace_dist[pace] = pace_dist.get(pace, 0) + 1
+                            emotion = (r.get("emotion") or "").strip()
+                            if emotion:
+                                emotion_dist[emotion] = emotion_dist.get(emotion, 0) + 1
+                            conflict = (r.get("conflict") or "").strip().lower()
+                            ck = "conflict" if conflict in ("true", "1") else "none"
+                            conflict_dist[ck] = conflict_dist.get(ck, 0) + 1
+                            pleasure = (r.get("pleasure_type") or "none").strip()
+                            pleasure_dist[pleasure] = pleasure_dist.get(pleasure, 0) + 1
+                except Exception:
+                    pass
+            result.append({
+                "key": stem,
                 "title": b["title"],
                 "genre": b["genre"],
-                "summary": {"chapters": 0, "total_words": 0},
-            }
-            for b in books
-        ]
-    }
+                "author": b.get("author", ""),
+                "tags": b.get("tags", []),
+                "summary": {
+                    "chapters": chapters,
+                    "total_words": total_words,
+                    "pace_dist": pace_dist,
+                    "emotion_dist": emotion_dist,
+                    "conflict_dist": conflict_dist,
+                    "pleasure_dist": pleasure_dist,
+                },
+            })
+    return {"books": result, "genre": genre or "全部"}
 
 
 @app.get("/api/disassembly/book")
-async def disassembly_book(name: str = Query(...), genre: str = Query("末世")):
-    safe_name = name.replace(" ", "_")
-    csv_path = PROJECT_ROOT / "data" / "processed" / genre / "rhythm" / f"rhythm_{safe_name}.csv"
-    if not csv_path.exists():
+async def disassembly_book(name: str = Query(...), genre: str = Query("")):
+    # 在 rhythm 目录中查找匹配的 CSV 文件（不依赖文件名构造）
+    rhythm_base = PROJECT_ROOT / "data" / "processed"
+    if genre and genre != "全部":
+        search_dirs = [rhythm_base / genre / "rhythm"]
+    else:
+        search_dirs = []
+        if rhythm_base.exists():
+            for g_dir in sorted(d for d in rhythm_base.iterdir() if d.is_dir()):
+                if (g_dir / "rhythm").exists():
+                    search_dirs.append(g_dir / "rhythm")
+    # 清理 name：去掉可能误传的 rhythm_ 前缀和 .csv 后缀
+    clean_name = name
+    if clean_name.startswith("rhythm_"):
+        clean_name = clean_name[len("rhythm_"):]
+    if clean_name.endswith(".csv"):
+        clean_name = clean_name[:-4]
+    
+    csv_path = None
+    book_genre = genre or "末世"
+    for d in search_dirs:
+        if not d.exists():
+            continue
+        candidate = d / f"rhythm_{clean_name}.csv"
+        if candidate.exists():
+            csv_path = candidate
+            book_genre = d.parent.name
+            break
+        for f in d.glob("rhythm_*.csv"):
+            stem = f.stem.replace("rhythm_", "")
+            if stem == clean_name or stem.replace(" ", "_") == clean_name.replace(" ", "_"):
+                csv_path = f
+                book_genre = d.parent.name
+                break
+        if csv_path:
+            break
+    if not csv_path or not csv_path.exists():
         raise HTTPException(404, f"Book not found: {name}")
-    rows = []
-    with open(csv_path, encoding="utf-8-sig") as f:
-        for r in csv.DictReader(f):
-            rows.append(r)
-    return {"book": name, "genre": genre, "chapters": rows, "total": len(rows)}
+    try:
+        rows = []
+        pace_dist = {}
+        emotion_dist = {}
+        conflict_dist = {}
+        pleasure_dist = {}
+        total_words = 0
+        with open(csv_path, encoding="utf-8-sig") as f:
+            for r in csv.DictReader(f):
+                wc = 0
+                try:
+                    wc = int(r.get("wc") or "0")
+                except ValueError:
+                    pass
+                total_words += wc
+                pace = (r.get("pace") or "").strip()
+                if pace:
+                    pace_dist[pace] = pace_dist.get(pace, 0) + 1
+                emotion = (r.get("emotion") or "").strip()
+                if emotion:
+                    emotion_dist[emotion] = emotion_dist.get(emotion, 0) + 1
+                conflict = (r.get("conflict") or "").strip().lower()
+                ck = "conflict" if conflict in ("true", "1") else "none"
+                conflict_dist[ck] = conflict_dist.get(ck, 0) + 1
+                pleasure = (r.get("pleasure_type") or "none").strip()
+                pleasure_dist[pleasure] = pleasure_dist.get(pleasure, 0) + 1
+                # 只保留前端需要的字段，避免返回过大的响应
+                rows.append({
+                    "ch": r.get("ch_num", ""),
+                    "wc": wc,
+                    "pace": pace,
+                    "emotion": emotion,
+                    "conflict": conflict in ("true", "1"),
+                    "pleasure_type": pleasure,
+                    "pleasure_level": (r.get("pleasure_level") or "").strip(),
+                    "conflict_level": (r.get("conflict_level") or "").strip(),
+                })
+        total = len(rows)
+        summary = {
+            "chapters": total,
+            "total_words": total_words,
+            "pace_dist": pace_dist,
+            "emotion_dist": emotion_dist,
+            "conflict_dist": conflict_dist,
+            "pleasure_dist": pleasure_dist,
+        }
+        # 只返回前 50 章用于节奏可视化
+        return {
+            "book": name,
+            "genre": book_genre,
+            "summary": summary,
+            "chapters": rows[:50],
+            "total": total,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error("disassembly_book error: %s", e, exc_info=True)
+        raise HTTPException(500, f"Failed to read book data: {e}")
 
 
 # ── 写作指令 ──
@@ -598,6 +734,7 @@ async def get_progress():
     return {
         "running": running,
         "startup_state": app_state.get_startup_state(),
+        "pipeline_stage": read_stage(),
         "llm_healthy": _llm_server_healthy(),
     }
 

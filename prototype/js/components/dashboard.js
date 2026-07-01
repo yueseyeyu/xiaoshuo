@@ -1,5 +1,35 @@
 "use strict";
 
+// v9: 管线实时轮询
+var _pipelinePollTimer = null;
+function startPipelinePolling() {
+  if (_pipelinePollTimer) return;
+  _pipelinePollTimer = setInterval(async function() {
+    var dashActive = $('#page-dashboard') && $('#page-dashboard').classList.contains('active');
+    if (!dashActive) { stopPipelinePolling(); return; }
+    var pipelineEl = $('#pipeline-station');
+    if (!pipelineEl || pipelineEl.style.display === 'none') return;
+    var { ok, data } = await apiGet('/api/progress', 5000);
+    if (!ok || !data) return;
+    if (!data.running) {
+      pipelineEl.style.display = 'none';
+      stopPipelinePolling();
+      return;
+    }
+    var stage = data.pipeline_stage || null;
+    var state = data.startup_state || {};
+    var pipelineSub = $('#pipeline-header-sub');
+    var pipelineStatusText = $('#pipeline-status-text');
+    var pipelineTrack = $('#pipeline-track');
+    if (pipelineSub) pipelineSub.textContent = (stage && stage.current_task) || state.message || '分析运行中';
+    if (pipelineStatusText) pipelineStatusText.textContent = state.status || 'running';
+    if (pipelineTrack) pipelineTrack.innerHTML = renderPipelineStageViz(stage, state);
+  }, 3000);
+}
+function stopPipelinePolling() {
+  if (_pipelinePollTimer) { clearInterval(_pipelinePollTimer); _pipelinePollTimer = null; }
+}
+
 // ============================================================
 // 工作台 / 项目卡片
 // ============================================================
@@ -16,10 +46,7 @@ function renderDashboardProject() {
   if (hero) hero.style.display = hasProject ? '' : 'none';
   if (empty) empty.style.display = hasProject ? 'none' : '';
   if (sidebar) sidebar.style.display = hasProject ? '' : 'none';
-  if (pipeline) pipeline.style.display = hasProject ? '' : 'none';
-  if (section) section.style.display = hasProject ? '' : 'none';
   if (kpiRow) kpiRow.style.display = hasProject ? '' : 'none';
-  if (stageBar) stageBar.style.display = hasProject ? '' : 'none';
   if (workstation) workstation.style.gridTemplateColumns = hasProject ? '' : '1fr';
   const exitDemoBtn = $('#exit-demo-btn');
   if (exitDemoBtn) exitDemoBtn.style.display = (hasProject && isDemoProject(currentProject)) ? '' : 'none';
@@ -48,6 +75,79 @@ function renderDashboardProject() {
 }
 
 // greetingByHour 已在 utils.js 中定义，此处不再重复
+
+// ============================================================
+// v8.5: 工作台动态数据加载 — 从后端获取真实数据
+// ============================================================
+async function loadDashboardKPIs() {
+  // 1. 书库统计
+  var booksEl = $('#dash-kpi-books');
+  var genresEl = $('#dash-kpi-genres');
+  var cardsEl = $('#dash-kpi-cards');
+  var statusEl = $('#dash-kpi-status');
+  if (booksEl) {
+    var { ok, data } = await apiGet('/api/books', 15000);
+    if (ok && data) {
+      if (booksEl) booksEl.textContent = data.count || 0;
+      if (genresEl) genresEl.textContent = (data.genres || []).length;
+    }
+  }
+  // 2. 技法卡片数
+  if (cardsEl) {
+    var { ok: okTc, data: tc } = await apiGet('/api/reports/overview', 15000);
+    if (okTc && tc) {
+      cardsEl.textContent = (tc.technique_cards || []).length;
+      var ra = tc.rhythm_audit || {};
+      if (statusEl) statusEl.textContent = ra.passed > 0 ? ra.passed + '/' + ra.total_books + ' 通过' : '空闲';
+    }
+  }
+  // 3. 分析进度
+  var pipelineEl = $('#pipeline-station');
+  var pipelineSub = $('#pipeline-header-sub');
+  var pipelineStatusText = $('#pipeline-status-text');
+  var pipelineTrack = $('#pipeline-track');
+  if (pipelineEl) {
+    var { ok: okP, data: progress } = await apiGet('/api/progress');
+    if (okP && progress && progress.running) {
+      pipelineEl.style.display = '';
+      var state = progress.startup_state || {};
+      var stage = progress.pipeline_stage || null;
+      if (pipelineSub) pipelineSub.textContent = (stage && stage.current_task) || state.message || '分析运行中';
+      if (pipelineStatusText) pipelineStatusText.textContent = state.status || 'running';
+      if (pipelineTrack) {
+        pipelineTrack.innerHTML = renderPipelineStageViz(stage, state);
+      }
+      startPipelinePolling();
+    } else {
+      pipelineEl.style.display = 'none';
+      stopPipelinePolling();
+    }
+  }
+  // 4. 写作进度
+  var progressCard = $('#dash-writing-progress-card');
+  if (progressCard && currentProject) {
+    progressCard.style.display = '';
+    var pct = currentProject.totalChapters ? Math.round((currentProject.writtenChapters || 0) / currentProject.totalChapters * 100) : 0;
+    var pctEl = $('#dash-progress-pct');
+    var chEl = $('#dash-progress-chapter');
+    var infoEl = $('#dash-progress-info');
+    if (pctEl) pctEl.textContent = pct + '%';
+    if (chEl) chEl.textContent = '第' + (currentProject.writtenChapters + 1 || 1) + '章';
+    if (infoEl) infoEl.textContent = (currentProject.writtenChapters || 0) + '/' + (currentProject.totalChapters || 0) + ' 章';
+  }
+  // 5. 待处理任务
+  var tasksEl = $('#dash-pending-tasks');
+  if (tasksEl && typeof tasks !== 'undefined') {
+    var active = tasks.filter(function(t) { return t.status === 'queued' || t.status === 'running'; });
+    if (active.length === 0) {
+      tasksEl.innerHTML = '<div class="mini-task"><span class="mini-status pending"></span><span class="mini-task-name">暂无任务</span><span class="mini-progress"></span></div>';
+    } else {
+      tasksEl.innerHTML = active.slice(0, 3).map(function(t) {
+        return '<div class="mini-task"><span class="mini-status ' + t.status + '"></span><span class="mini-task-name">' + escapeHtml(t.typeLabel || t.type || '任务') + '</span><span class="mini-progress">' + (t.progress || 0) + '%</span></div>';
+      }).join('');
+    }
+  }
+}
 
 function createProject() {
   $('#cp-title').value = '';
@@ -132,4 +232,83 @@ async function exitDemoProject() {
     try { await ProjectAPI.delete(demoId); } catch (e) { console.error('delete demo failed', e); }
   }
   showToast('已退出示例项目');
+}
+
+async function stopAnalysis() {
+  var { ok, data } = await apiPost('/api/stop', {});
+  if (ok && data) showToast(data.message || '已停止');
+  loadDashboardKPIs();
+}
+
+// v9: 动态管线阶段可视化
+var PIPELINE_STAGES = [
+  { key: 'chunk', label: '分块', icon: '\u2702\uFE0F' },
+  { key: 'recursive_summarize', label: '递归摘要', icon: '\u{1F4DC}' },
+  { key: 'rhythm', label: '节奏分析', icon: '\u{1F3B5}' },
+  { key: 'emotion', label: '情绪标注', icon: '\u{1F496}' },
+  { key: 'conflict', label: '冲突检测', icon: '\u26A1' },
+  { key: 'pleasure', label: '爽点分析', icon: '\u{1F380}' },
+  { key: 'synthesize', label: '综合输出', icon: '\u{1F4E6}' },
+];
+
+function renderPipelineStageViz(stage, state) {
+  // 如果没有 stage 详情，显示简化版
+  if (!stage) {
+    var msg = (state && state.message) || '分析运行中';
+    var pct = (state && state.progress) || 0;
+    return '<div class="pipeline-simple">' +
+      '<div class="pipeline-simple-msg">' + escapeHtml(msg) + '</div>' +
+      '<div class="pipeline-simple-bar"><div class="pipeline-simple-fill" style="width:' + pct + '%"></div></div>' +
+    '</div>';
+  }
+
+  var stageNum = stage.stage_num || 0;
+  var totalStages = stage.total || PIPELINE_STAGES.length;
+  var percent = stage.percent || 0;
+  var currentKey = stage.stage || '';
+  var currentBook = stage.current_book || '';
+  var currentTask = stage.current_task || '';
+  var status = stage.status || 'running';
+  var completedBooks = stage.completed_books || [];
+
+  // 构建阶段步骤条
+  var stagesHtml = PIPELINE_STAGES.map(function(s, i) {
+    var idx = i + 1;
+    var cls = 'pending';
+    if (idx < stageNum) cls = 'completed';
+    else if (idx === stageNum) cls = status === 'error' ? 'error' : 'running';
+    return '<div class="pipeline-step ' + cls + '">' +
+      '<div class="pipeline-step-icon">' + s.icon + '</div>' +
+      '<div class="pipeline-step-label">' + s.label + '</div>' +
+    '</div>';
+  }).join('');
+
+  // 进度信息
+  var progressPct = totalStages > 0 ? Math.round((stageNum - 1) / totalStages * 100 + percent / totalStages) : 0;
+  var infoHtml = '<div class="pipeline-info-row">' +
+    '<span class="pipeline-info-task">' + escapeHtml(currentTask || '处理中...') + '</span>' +
+    (currentBook ? '<span class="pipeline-info-book">\u{1F4D6} ' + escapeHtml(currentBook) + '</span>' : '') +
+    '<span class="pipeline-info-pct">' + progressPct + '%</span>' +
+  '</div>';
+
+  // 进度条
+  var barHtml = '<div class="pipeline-progress-bar">' +
+    '<div class="pipeline-progress-fill' + (status === 'running' ? ' animated' : '') + '" style="width:' + progressPct + '%"></div>' +
+  '</div>';
+
+  // 已完成书籍
+  var booksHtml = '';
+  if (completedBooks.length > 0) {
+    booksHtml = '<div class="pipeline-completed-books">' +
+      '<span class="pipeline-completed-label">已完成 (' + completedBooks.length + '):</span>' +
+      completedBooks.slice(-5).map(function(b) { return '<span class="pipeline-book-chip">' + escapeHtml(b) + '</span>'; }).join('') +
+    '</div>';
+  }
+
+  return '<div class="pipeline-stages-viz">' +
+    '<div class="pipeline-steps-row">' + stagesHtml + '</div>' +
+    barHtml +
+    infoHtml +
+    booksHtml +
+  '</div>';
 }
