@@ -27,6 +27,7 @@ import yaml
 from pathlib import Path
 from xiaoshuo import PROJECT_ROOT
 from xiaoshuo.infra.logging_config import get_logger
+from xiaoshuo.pipeline.paths import rhythm_dir as _rhythm_dir
 logger = get_logger(__name__)
 from collections import Counter
 from datetime import datetime
@@ -36,8 +37,6 @@ INDEX_PATH = PROJECT_ROOT / "data" / "raw" / "novel_index.json"
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
 
-def _rhythm_dir(genre):
-    return PROJECT_ROOT / "data" / "processed" / genre / "rhythm"
 
 
 def _manifest_path(genre):

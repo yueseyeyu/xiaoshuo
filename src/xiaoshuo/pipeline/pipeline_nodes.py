@@ -20,11 +20,18 @@ pipeline_nodes.py — 管线节点封装 (v8.2)
 from __future__ import annotations
 
 import sys
+import threading
 from pathlib import Path
 from typing import Optional
 
 from xiaoshuo import PROJECT_ROOT
 from xiaoshuo.pipeline.base import PipelineNode, PipelineRunner
+from xiaoshuo.infra.logging_config import get_logger
+
+logger = get_logger("pipeline.nodes")
+
+# P0-BUG02: 全局锁，防止并行组(group=2)下多线程同时修改 sys.argv 导致竞态
+_argv_lock = threading.Lock()
 
 
 class _ModuleCallNode(PipelineNode):
@@ -39,37 +46,47 @@ class _ModuleCallNode(PipelineNode):
         self.name = self.script_name
 
     def run(self, genre: str = "末世", **kwargs) -> bool:
-        """设置 sys.argv 并调用模块 main()。"""
+        """设置 sys.argv 并调用模块 main()。
+
+        P0-BUG02 修复: 使用全局线程锁串行化 sys.argv 访问，
+        防止 PipelineRunner 并行组(group=2)下多线程竞态。
+        长期方案(P2)是将各节点改为函数式 API，彻底消除 sys.argv 依赖。
+        """
         # 构建 argv
         argv = [self.script_name + ".py"]
         if genre and "--genre" not in self._extra_args:
             argv.extend(["--genre", genre])
         argv.extend(self._extra_args)
 
-        # 保存/恢复 sys.argv
-        old_argv = sys.argv[:]
-        sys.argv = argv
-        try:
-            import importlib
-            mod = importlib.import_module(self.module_path)
-            if hasattr(mod, "main"):
-                mod.main()
-                return True
-            else:
-                # 没有main函数，尝试直接调用关键函数
-                print(f"  [WARN] {self.module_path} has no main(), skipping")
-                return True
-        except SystemExit as e:
-            # argparse 调用 sys.exit()
-            code = e.code if isinstance(e.code, int) else 1
-            return code == 0
-        except Exception as e:
-            if self._optional:
-                print(f"  [WARN] {self.script_name} failed (non-blocking): {e}")
-                return True  # optional 节点失败不阻断
-            raise
-        finally:
-            sys.argv = old_argv
+        # 加锁: 串行化 sys.argv 修改 (P0 修复)
+        with _argv_lock:
+            old_argv = sys.argv[:]
+            sys.argv = argv
+            try:
+                import importlib
+                mod = importlib.import_module(self.module_path)
+                if hasattr(mod, "main"):
+                    mod.main()
+                    return True
+                else:
+                    # 没有main函数，跳过
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        "%s has no main(), skipping", self.module_path)
+                    return True
+            except SystemExit as e:
+                # argparse 调用 sys.exit()
+                code = e.code if isinstance(e.code, int) else 1
+                return code == 0
+            except Exception as e:
+                if self._optional:
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        "%s failed (non-blocking): %s", self.script_name, e)
+                    return True  # optional 节点失败不阻断
+                raise
+            finally:
+                sys.argv = old_argv
 
 
 # ── 具体节点定义 ──
@@ -81,11 +98,43 @@ class BookProcessorNode(_ModuleCallNode):
     stage_info = (1, 9, "入库处理")
 
 
-class RhythmAnalyzerNode(_ModuleCallNode):
-    """② 拆书节奏分析"""
-    module_path = "xiaoshuo.pipeline.rhythm_analyzer"
-    script_name = "rhythm_analyzer"
+class RhythmAnalyzerNode(PipelineNode):
+    """② 拆书节奏分析 (函数式 API, 无 sys.argv 依赖)"""
+    name = "rhythm_analyzer"
     stage_info = (2, 9, "拆书节奏分析")
+
+    def __init__(self, extra_args: list[str] | None = None, optional: bool = False):
+        self._extra_args = extra_args or []
+        self._optional = optional
+
+    def run(self, genre: str = "末世", **kwargs) -> bool:
+        """直接调用 rhythm 子包的函数式 API，无需 sys.argv hack。"""
+        from xiaoshuo.pipeline.rhythm import analyze_book, compare
+        from xiaoshuo.pipeline.paths import novels_dir
+
+        novels_d = novels_dir(genre)
+        files = sorted(novels_d.glob("*.txt")) if novels_d.exists() else []
+        if not files:
+            logger.error("No .txt files in %s", novels_d)
+            return False
+
+        # 支持 --books 过滤
+        books_filter = None
+        for i, arg in enumerate(self._extra_args):
+            if arg == "--books" and i + 1 < len(self._extra_args):
+                books_filter = set(self._extra_args[i + 1].split(","))
+        if books_filter:
+            files = [f for f in files if f.stem[:40] in books_filter]
+
+        logger.info("%d novels in genre=%s, rule-first + LLM verify", len(files), genre)
+        summaries = []
+        for fp in files:
+            s = analyze_book(fp)
+            if s:
+                summaries.append(s)
+        if len(summaries) >= 3:
+            compare(summaries)
+        return True
 
 
 class LLMBatchScoreNode(_ModuleCallNode):
@@ -149,10 +198,10 @@ class TechniqueStoreNode(PipelineNode):
             from xiaoshuo.pipeline.technique_store import process_genre
             self.report_progress(0, f"提取{genre}技法卡片")
             count = process_genre(genre)
-            print(f"  [OK] 技法卡片提取完成: {count} 条")
+            logger.info("  [OK] 技法卡片提取完成: %d 条", count)
             return True
         except Exception as e:
-            print(f"  [FAIL] 技法卡片提取失败: {e}")
+            logger.error("  [FAIL] 技法卡片提取失败: %s", e)
             return False
 
 

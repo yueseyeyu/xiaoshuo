@@ -28,6 +28,7 @@ from datetime import datetime
 from pathlib import Path
 from xiaoshuo import PROJECT_ROOT
 from xiaoshuo.infra.config_manager import get_deepseek_config
+from xiaoshuo.pipeline.paths import rhythm_dir as _rhythm_dir
 
 
 # ── 路径 ──
@@ -35,8 +36,6 @@ _REPORTS_DIR = PROJECT_ROOT / "data" / "reports"
 _PROMPT_PATH = PROJECT_ROOT / "assets" / "prompts" / "pro_genre_guide.txt"
 
 
-def _rhythm_dir(genre):
-    return PROJECT_ROOT / "data" / "processed" / genre / "rhythm"
 
 
 def _load_deepseek_config():

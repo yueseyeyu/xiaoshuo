@@ -18,6 +18,7 @@ import re
 import sys
 from pathlib import Path
 from xiaoshuo.infra.logging_config import get_logger
+from xiaoshuo.pipeline.text_utils import count_chinese as _count_chinese
 
 logger = get_logger(__name__)
 
@@ -43,10 +44,6 @@ def split_chapters(text):
     if not chapters and text.strip():
         chapters.append({"title": "全文", "body": text.strip(), "wc": len(text.strip())})
     return chapters
-
-
-def _count_chinese(text):
-    return sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
 
 
 def _detect_hooks(text):

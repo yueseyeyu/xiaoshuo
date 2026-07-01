@@ -46,6 +46,7 @@ from sentence_transformers import SentenceTransformer
 from xiaoshuo import PROJECT_ROOT
 from xiaoshuo.infra.config_manager import get_config
 from xiaoshuo.pipeline.rhythm_analyzer import extract_chapters
+from xiaoshuo.pipeline.paths import rhythm_dir as _rhythm_dir
 
 # ── 常量 ──
 _NOVELS_DIR = PROJECT_ROOT / "data" / "raw" / "novels"
@@ -103,8 +104,6 @@ _PACE_LABELS = {
 }
 
 
-def _rhythm_dir(genre):
-    return PROJECT_ROOT / "data" / "processed" / genre / "rhythm"
 
 
 def _cache_dir(genre):

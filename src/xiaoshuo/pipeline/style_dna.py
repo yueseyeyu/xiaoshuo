@@ -47,6 +47,11 @@ from pathlib import Path
 from typing import Optional
 
 from xiaoshuo.infra.logging_config import get_logger
+from xiaoshuo.pipeline.text_utils import (
+    count_chinese as _count_chinese,
+    split_paragraphs as _split_paragraphs,
+    split_sentences as _split_sentences,
+)
 
 logger = get_logger("style_dna")
 
@@ -54,27 +59,6 @@ logger = get_logger("style_dna")
 # ====================================================================
 # 工具函数
 # ====================================================================
-
-def _count_chinese(text: str) -> int:
-    """统计中文字符数。"""
-    return sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
-
-
-def _split_sentences(text: str) -> list[str]:
-    """中文分句 (按。！？；…分割, 保留引号内内容)。"""
-    # 去除空白行
-    text = re.sub(r'\n+', '\n', text).strip()
-    # 按句末标点分割
-    parts = re.split(r'[。！？；…\n]+', text)
-    # 过滤空句和过短碎片
-    return [s.strip() for s in parts if s.strip() and len(s.strip()) >= 2]
-
-
-def _split_paragraphs(text: str) -> list[str]:
-    """按段落分割 (双换行或单换行)。"""
-    paras = re.split(r'\n+', text.strip())
-    return [p.strip() for p in paras if p.strip()]
-
 
 # ====================================================================
 # D1: 句法 (Syntax) 检测词表

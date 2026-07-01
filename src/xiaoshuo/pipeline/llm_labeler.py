@@ -175,7 +175,7 @@ def run_labeling(book_name="all", sample_rate=0.1, dry_run=False, genre=None):
     # P0-1: LLM health check before any calls
     if not dry_run:
         try:
-            urllib.request.urlopen(f"{LLAMA_BASE}/health", timeout=5)
+            __import__("xiaoshuo.infra.llm_client", fromlist=["check_llm_health"]).check_llm_health(timeout=5)
             print(f"[LLM] Health check passed: {LLAMA_BASE}")
         except Exception:
             print(f"[FAIL] LLM server unreachable at {LLAMA_BASE}")

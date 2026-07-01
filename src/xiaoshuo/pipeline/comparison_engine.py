@@ -19,13 +19,22 @@ import json
 import statistics
 import sys
 import time
-import urllib.request
 import re
 import yaml
 from pathlib import Path
 
 from xiaoshuo import PROJECT_ROOT
-# PROJECT_ROOT imported from src.xiaoshuo
+from xiaoshuo.infra.logging_config import get_logger
+# P2: SSOT — 从 rhythm.patterns 导入所有正则模式，消除重复维护
+from xiaoshuo.pipeline.rhythm.patterns import (
+    RICH_HOOK_PATTERNS, RICH_CONFLICT_PATTERNS, RICH_PLEASURE_PATTERNS,
+    RICH_POS_KW, RICH_NEG_KW, RICH_PHYSIO_KW,
+    DIALOGUE_PAT, EXCLAM_PAT, CLIFFHANGER,
+)
+from xiaoshuo.pipeline.text_utils import count_chinese
+
+logger = get_logger("comparison_engine")
+
 OUTPUT_DIR = PROJECT_ROOT / "data" / "reports"
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
@@ -297,46 +306,26 @@ def _rich_scan(text):
     total_chars = max(len(text.replace('\n', '').replace(' ', '')), 1)
     sentences = max(len(re.findall(r'[。！？…\n]', text)), 1)
 
-    # Hook patterns (4 types)
-    hooks = {
-        "cliffhanger": len(re.findall(r'悬念|究竟|到底|未完|待续|下回|欲知', text)),
-        "reversal": len(re.findall(r'反转|逆袭|翻盘|竟然|原来|真相|秘密', text)),
-        "emotion_bomb": len(re.findall(r'牺牲|守护|最[后终]|绝不|为了|只为', text)),
-        "info_drop": len(re.findall(r'透露|揭示|浮现|终于|知道', text)),
-    }
+    # Hook patterns (4 types) — SSOT: from rhythm.patterns.RICH_HOOK_PATTERNS
+    hooks = {k: len(p.findall(text)) for k, p in RICH_HOOK_PATTERNS.items()}
 
-    # Conflict patterns (5 types)
-    conflicts = {
-        "combat": len(re.findall(r'战斗|杀|轰|斩|刺|劈|拳|剑|枪|刀', text)),
-        "psychological": len(re.findall(r'恐惧|愤怒|绝望|挣扎|崩溃|怀疑|内疚', text)),
-        "moral": len(re.findall(r'选择|天平|代价|牺牲|背叛', text)),
-        "environmental": len(re.findall(r'崩塌|毁灭|洪水|地震|毒气|辐射', text)),
-        "social": len(re.findall(r'排挤|误会|陷害|诬蔑|舆论', text)),
-    }
+    # Conflict patterns (5 types) — SSOT: from rhythm.patterns.RICH_CONFLICT_PATTERNS
+    conflicts = {k: len(p.findall(text)) for k, p in RICH_CONFLICT_PATTERNS.items()}
 
-    # Pleasure patterns (8 types)
-    pleasures = {
-        "face_slap": len(re.findall(r'打脸|反杀|碾压|打翻|吊打|秒杀', text)),
-        "breakthrough": len(re.findall(r'突破|升级|进阶|觉醒|领悟|融会', text)),
-        "overwhelm": len(re.findall(r'镇压|横扫|碾压|碾压一切|无敌', text)),
-        "comeback": len(re.findall(r'绝地|翻盘|逆袭|反败|逆转', text)),
-        "hidden_master": len(re.findall(r'隐藏|低调|收敛|扮猪|显露|真正实力', text)),
-        "bond": len(re.findall(r'守护|并肩|托付|生死|交心|羁绊', text)),
-        "cognition": len(re.findall(r'原来如此|终于明白|恍然大悟|我懂了|悟了', text)),
-        "sacrifice": len(re.findall(r'牺牲自己|舍身|赴死|以命|拼尽|最后一', text)),
-    }
+    # Pleasure patterns (8 types) — SSOT: from rhythm.patterns.RICH_PLEASURE_PATTERNS
+    pleasures = {k: len(p.findall(text)) for k, p in RICH_PLEASURE_PATTERNS.items()}
 
     # ── Positive/negative/excl densities (per 100 chars, matching rhythm_analyzer) ──
-    pos_kw = re.findall(r'好|强|厉害|痛快|爽|舒服|赞|惊|震|叹|佩|牛|棒|绝|妙|胜', text)
-    neg_kw = re.findall(r'恐惧|愤怒|绝望|挣扎|崩溃|怀疑|内疚|悲|痛|苦|恨|忧|愁|惨|伤|死|亡|危|难', text)
-    excl_count = len(re.findall(r'[！!]', text))
+    pos_kw = RICH_POS_KW.findall(text)
+    neg_kw = RICH_NEG_KW.findall(text)
+    excl_count = len(EXCLAM_PAT.findall(text))
     pos_density = len(pos_kw) / wc * 100
     neg_density = len(neg_kw) / wc * 100
     excl_density = excl_count / wc * 100
 
     # ── Dialogue (count chars within dialogue, matching rhythm_analyzer) ──
-    dialogue_matches = re.findall(r'[“""][^”""]*[”""]', text)
-    dialogue_chars = sum(len(m) for m in dialogue_matches)
+    # SSOT: 使用 patterns.py 中的 DIALOGUE_PAT (与 rule_analyzer 完全一致)
+    dialogue_chars = sum(len(m.group()) for m in DIALOGUE_PAT.finditer(text))
     dialogue_ratio = dialogue_chars / max(wc, 1)
 
     # ── Normalization aligned with rhythm_analyzer ──
@@ -352,7 +341,7 @@ def _rich_scan(text):
     # pleasure_intensity: composite score 0-10 (Platt scaling approx)
     total_pleasures = sum(pleasures.values())
     pleasure_kw_density = total_pleasures / wc * 100  # per 100 chars
-    physio_count = len(re.findall(r'心跳|呼吸|血[液压]|肌肉|骨骼|瞳孔|冷汗|颤抖|颤栗|寒毛|鸡皮|毛孔', text))
+    physio_count = len(RICH_PHYSIO_KW.findall(text))
     pleasure_raw = (
         pos_density * 2.0 +
         conflict_density * 1.5 +
@@ -370,9 +359,10 @@ def _rich_scan(text):
     pure_text = text.replace("\n", "").replace(" ", "")
     unique_chars = len(set(pure_text))
     vocab_diversity = unique_chars / max(len(pure_text), 1)
+    # P2 修复: 与 rule_analyzer 对齐 — vocab_diversity 因子从 10 改为 3, 添加 max(0.0, ...) 防负值
     readability_score = round(
-        min(1.0, (avg_sentence_len / 80) * 0.5 + (1 - vocab_diversity * 10) * 0.3 +
-         (abs(avg_sentence_len - 35) / 50) * 0.2), 3)
+        max(0.0, min(1.0, (avg_sentence_len / 80) * 0.5 + (1 - vocab_diversity * 3) * 0.3 +
+         (abs(avg_sentence_len - 35) / 50) * 0.2)), 3)
 
     # Per-1000-word normalization (cross-length fair comparison)
     kword = max(chinese / 1000, 1)
@@ -386,9 +376,12 @@ def _rich_scan(text):
         seg_ch = len(re.findall(r'[\u4e00-\u9fff]', seg))
         seg_wc = max(seg_ch, 1)
         seg_sent = max(len(re.findall(r'[。！？…\n]', seg)), 1)
-        seg_h = sum(len(re.findall(p, seg)) for p in [r'悬念|究竟|到底|反转|竟然|秘密|真相'])
-        seg_c = sum(len(re.findall(p, seg)) for p in [r'战斗|杀|对抗|冲突|危机|危险'])
-        seg_p = sum(len(re.findall(p, seg)) for p in [r'打脸|突破|碾压|觉醒|领悟|翻盘'])
+        seg_h = sum(len(p.findall(seg)) for p in [
+            RICH_HOOK_PATTERNS['cliffhanger'], RICH_HOOK_PATTERNS['reversal']])
+        seg_c = sum(len(p.findall(seg)) for p in [
+            RICH_CONFLICT_PATTERNS['combat'], RICH_CONFLICT_PATTERNS['psychological']])
+        seg_p = sum(len(p.findall(seg)) for p in [
+            RICH_PLEASURE_PATTERNS['face_slap'], RICH_PLEASURE_PATTERNS['breakthrough']])
         seg_metrics.append({
             "chars": seg_ch,
             "hook_density": round(seg_h / max(seg_wc / 1000, 1), 3),
@@ -602,8 +595,8 @@ def generate_report(result, output_base):
     md_path.parent.mkdir(parents=True, exist_ok=True)
     md_path.write_text("\n".join(lines), encoding='utf-8')
 
-    print(f"[OK] {json_path}")
-    print(f"[OK] {md_path}")
+    logger.info("[OK] %s", json_path)
+    logger.info("[OK] %s", md_path)
 
 
 # ── CodeBuddy generation (not for end-user content) ──
@@ -689,48 +682,49 @@ def evaluate_author_chapter(text, genre="末世", chapter_num=1, with_llm=True):
 
     Returns: dict with all evaluation results.
     """
-    print(f"\n{'='*60}")
-    print(f"  新人稿件签约评估 | genre={genre} | ch={chapter_num}")
-    print(f"{'='*60}")
+    logger.info("%s", "=" * 60)
+    logger.info("  新人稿件签约评估 | genre=%s | ch=%s", genre, chapter_num)
+    logger.info("%s", "=" * 60)
 
     # Step 1: Scan author's chapter
-    print("  [Step 1] 节奏扫描...")
+    logger.info("  [Step 1] 节奏扫描...")
     author_metrics = _rich_scan(text)
-    ch = max(len(re.findall(r'[\u4e00-\u9fff]', text)), 1)
-    print(f"  [OK] {ch}字 | hook={author_metrics['hook_density']:.3f} "
-          f"conflict={author_metrics['conflict_density']:.3f} "
-          f"pleasure={author_metrics['pleasure_density']:.3f}")
+    ch = count_chinese(text)
+    logger.info("  [OK] %d字 | hook=%.3f conflict=%.3f pleasure=%.3f",
+                ch, author_metrics['hook_density'],
+                author_metrics['conflict_density'],
+                author_metrics['pleasure_density'])
 
     # Step 2: Load benchmark
-    print("  [Step 2] 加载精品基准...")
+    logger.info("  [Step 2] 加载精品基准...")
     percentiles = compute_benchmark_percentiles(genre)
     n_books = percentiles.get("hook_density", {}).get("n", 0) if percentiles else 0
-    print(f"  [OK] {n_books}本精品书百分位基准")
+    logger.info("  [OK] %d本精品书百分位基准", n_books)
 
     # Step 3: Signing probability
-    print("  [Step 3] 签约概率估计...")
+    logger.info("  [Step 3] 签约概率估计...")
     signing = estimate_signing_probability(author_metrics, percentiles)
     if signing:
-        print(f"  [OK] 概率={signing['probability']}% | {signing['label']}")
+        logger.info("  [OK] 概率=%s%% | %s", signing['probability'], signing['label'])
         for a in signing.get("advice", []):
-            print(f"  [{a['priority']}] {a['dim']}: {a['suggestion']}")
+            logger.info("  [%s] %s: %s", a['priority'], a['dim'], a['suggestion'])
     else:
-        print("  [SKIP] 基准数据不可用")
+        logger.warning("  [SKIP] 基准数据不可用")
 
     # Step 4: LLM contrast (optional)
     llm_result = None
     if with_llm:
-        print("  [Step 4] 生成AI对照版...")
+        logger.info("  [Step 4] 生成AI对照版...")
         llm_text = generate_llm_version(genre, chapter_num, text[:2000])
         if llm_text:
             llm_metrics = _rich_scan(llm_text)
-            print(f"  [OK] LLM版{len(llm_text)}字 | hook={llm_metrics['hook_density']:.3f}")
+            logger.info("  [OK] LLM版%d字 | hook=%.3f", len(llm_text), llm_metrics['hook_density'])
             # Compare
             versions = {"author": text, "ai_contrast": llm_text}
             comparison = compare_versions(versions, chapter_num)
             llm_result = {"text": llm_text, "metrics": llm_metrics, "comparison": comparison}
         else:
-            print("  [SKIP] LLM不可用")
+            logger.warning("  [SKIP] LLM不可用")
 
     result = {
         "chapter": chapter_num,
@@ -830,8 +824,8 @@ def generate_evaluation_report(result, output_base):
     md_path.parent.mkdir(parents=True, exist_ok=True)
     md_path.write_text("\n".join(lines), encoding='utf-8')
 
-    print(f"\n  [OK] JSON: {json_path}")
-    print(f"  [OK] MD:   {md_path}")
+    logger.info("  [OK] JSON: %s", json_path)
+    logger.info("  [OK] MD:   %s", md_path)
     return {"json": json_path, "md": md_path}
 
 

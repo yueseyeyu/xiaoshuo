@@ -23,6 +23,7 @@ from pathlib import Path
 
 from xiaoshuo import PROJECT_ROOT
 from xiaoshuo.infra.logging_config import get_logger
+from xiaoshuo.pipeline.paths import rhythm_dir as _rhythm_dir
 logger = get_logger(__name__)
 # L1-1: LLMLingua-2 lazy init (thread-safe, ~10-15% prompt processing speedup)
 _lingua_lock = threading.Lock()
@@ -54,8 +55,6 @@ NOVELS_DIR = PROJECT_ROOT / "data" / "raw" / "novels"
 INDEX_PATH = PROJECT_ROOT / "data" / "raw" / "novel_index.json"
 
 
-def _rhythm_dir(genre):
-    return PROJECT_ROOT / "data" / "processed" / genre / "rhythm"
 
 
 def _llm_dir(genre):
@@ -94,11 +93,9 @@ from xiaoshuo.pipeline.rhythm_analyzer import extract_chapters
 
 
 def check_server():
-    try:
-        urllib.request.urlopen(f"{LLAMA_BASE}/health", timeout=3)
-        return True
-    except (urllib.error.URLError, TimeoutError, ConnectionError):
-        return False
+    """Check LLM server health via unified llm_client."""
+    from xiaoshuo.infra.llm_client import check_llm_health
+    return check_llm_health(timeout=3)
 
 
 # ── Rubric template (DRY: shared by single-pass and self-consistency scoring) ──
@@ -188,11 +185,14 @@ def llm_score_rubric(chapter_text, ch_num, conn=None):
                             headers={"Content-Type": "application/json"})
                 resp = json.loads(conn.getresponse().read())
             else:
-                req = urllib.request.Request(
-                    f"{LLAMA_BASE}/v1/chat/completions",
-                    data, {"Content-Type": "application/json"}
+                # P2: 统一走 llm_client (自动重试 + thinking清理 + 超时管理)
+                from xiaoshuo.infra.llm_client import llm_chat
+                raw = llm_chat(
+                    user_msg, system=system_msg,
+                    max_tokens=180, temperature=0.1, timeout=60,
+                    strip_thinking=True,
                 )
-                resp = json.loads(urllib.request.urlopen(req, timeout=60).read())
+                resp = {"choices": [{"message": {"content": raw}}]}
             raw = resp.get("choices", [{}])[0].get("message", {}).get("content", "")
             if not raw and attempt < len(retry_delays):
                 continue  # empty response → retry
@@ -265,11 +265,14 @@ def llm_score_self_consistency(chapter_text, ch_num, n_samples=3, conn=None):
                             headers={"Content-Type": "application/json"})
                 resp = json.loads(conn.getresponse().read())
             else:
-                req = urllib.request.Request(
-                    f"{LLAMA_BASE}/v1/chat/completions",
-                    data, {"Content-Type": "application/json"}
+                # P2: 统一走 llm_client
+                from xiaoshuo.infra.llm_client import llm_chat
+                raw = llm_chat(
+                    user_msg, system=system_msg,
+                    max_tokens=180, temperature=t, timeout=45,
+                    strip_thinking=True,
                 )
-                resp = json.loads(urllib.request.urlopen(req, timeout=45).read())
+                resp = {"choices": [{"message": {"content": raw}}]}
             raw = resp["choices"][0]["message"].get("content", "")
             for pat in [r'\{[^{}]*?"intensity"[^{}]*?\}', r'\{[^{]*"intensity"[^}]*\}']:
                 m = re.search(pat, raw)

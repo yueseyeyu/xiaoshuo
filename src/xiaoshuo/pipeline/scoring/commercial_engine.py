@@ -35,6 +35,7 @@ from collections import Counter
 
 from xiaoshuo import PROJECT_ROOT
 from xiaoshuo.infra.config_manager import get_config, get_config_section, get_deepseek_config
+from xiaoshuo.pipeline.paths import rhythm_dir as _rhythm_dir
 
 # ── Sub-module imports (for analyze_single_novel) ──
 from xiaoshuo.pipeline.scoring.vad_analyzer import compute_vad
@@ -53,9 +54,6 @@ def _calib_dir(genre):
     return PROJECT_ROOT / "data" / "reports" / genre / "calibration"
 
 
-def _rhythm_dir(genre):
-    """Genre-aware rhythm CSV dir: data/processed/{genre}/rhythm/"""
-    return PROJECT_ROOT / "data" / "processed" / genre / "rhythm"
 
 
 # ── Bayesian BMA weights (loaded once from calibrate_v2) ──

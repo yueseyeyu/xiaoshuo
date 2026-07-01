@@ -21,14 +21,13 @@ import re
 from pathlib import Path
 from collections import Counter
 from xiaoshuo.infra.config_manager import get_config
+from xiaoshuo.pipeline.paths import rhythm_dir as _rhythm_dir
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 NOVELS_DIR = PROJECT_ROOT / "data" / "raw" / "novels"
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
 
-def _rhythm_dir(genre):
-    return PROJECT_ROOT / "data" / "processed" / genre / "rhythm"
 
 # LLM server config
 def _load_llama_base():

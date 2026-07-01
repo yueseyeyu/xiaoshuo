@@ -26,6 +26,7 @@ import sys
 from pathlib import Path
 from xiaoshuo import PROJECT_ROOT
 from datetime import datetime
+from xiaoshuo.pipeline.paths import rhythm_dir as _rhythm_dir
 
 # PROJECT_ROOT imported from src.xiaoshuo
 # sys.path hack removed (v8.0)
@@ -40,8 +41,6 @@ except ImportError:
     _CONTRACT_AVAILABLE = False
 
 
-def _rhythm_dir(genre):
-    return PROJECT_ROOT / "data" / "processed" / genre / "rhythm"
 
 
 def _manual_dir(genre):

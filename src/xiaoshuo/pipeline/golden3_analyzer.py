@@ -38,15 +38,9 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from xiaoshuo.infra.logging_config import get_logger
+from xiaoshuo.pipeline.text_utils import count_chinese as _count_chinese
 
 logger = get_logger("golden3")
-
-
-# ── 工具函数 ──
-
-def _count_chinese(text: str) -> int:
-    """统计中文字符数。"""
-    return sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
 
 
 # ── G1: 高能钩子检测词表 ──

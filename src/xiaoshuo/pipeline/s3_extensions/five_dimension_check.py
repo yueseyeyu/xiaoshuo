@@ -24,6 +24,10 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from xiaoshuo.infra.logging_config import get_logger
+from xiaoshuo.pipeline.text_utils import (
+    count_chinese as _count_chinese,
+    split_sentences as _split_sentences,
+)
 
 logger = get_logger("five_dim_check")
 
@@ -53,14 +57,6 @@ class FiveDimReport:
             self.total_pass += 1
         else:
             self.total_fail += 1
-
-
-def _count_chinese(text: str) -> int:
-    return sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
-
-
-def _split_sentences(text: str) -> list[str]:
-    return [s.strip() for s in re.split(r'[。！？!?\n]+', text) if s.strip()]
 
 
 def _extract_dialogues(text: str) -> list[str]:

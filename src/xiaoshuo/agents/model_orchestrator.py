@@ -80,8 +80,16 @@ def _strip_thinking_tags(text: str) -> str:
     """
     if not text:
         return text
-    cleaned = re.sub(r"<thinking>.*?</response>\s*", "", text, flags=re.DOTALL)
-    cleaned = re.sub(r"<thinking>.*$", "", cleaned, flags=re.DOTALL)
+    # 1. 移除完整的 <thinking>...</thinking> 块 (含内容)
+    cleaned = re.sub(r"<thinking>[\s\S]*?</thinking>\s*", "", text)
+    # 2. 移除未闭合的 <thinking> 到末尾 (截断场景)
+    cleaned = re.sub(r"<thinking>[\s\S]*$", "", cleaned)
+    # 3. 移除残留的孤立 </thinking> 标签
+    cleaned = re.sub(r"</thinking>\s*", "", cleaned)
+    # 4. 兼容 <think>...</think> 标签 (DeepSeek-R1 风格)
+    cleaned = re.sub(r"<think>[\s\S]*?</think>\s*", "", cleaned)
+    cleaned = re.sub(r"<think>[\s\S]*$", "", cleaned)
+    cleaned = re.sub(r"</think>\s*", "", cleaned)
     return cleaned.strip()
 
 

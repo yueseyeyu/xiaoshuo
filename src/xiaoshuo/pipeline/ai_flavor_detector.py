@@ -26,6 +26,7 @@ import statistics
 import sys
 from pathlib import Path
 from xiaoshuo.infra.logging_config import get_logger
+from xiaoshuo.pipeline.text_utils import count_chinese as _count_chinese
 
 logger = get_logger(__name__)
 
@@ -37,10 +38,6 @@ def _load_config():
         return cfg.get("analysis", {}).get("ai_flavor_detection", {})
     except Exception:
         return {}
-
-
-def _count_chinese(text):
-    return sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
 
 
 # ── 负面规则：禁止项检测 ──

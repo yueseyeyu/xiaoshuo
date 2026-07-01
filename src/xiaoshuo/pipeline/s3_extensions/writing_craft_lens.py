@@ -20,6 +20,7 @@ import re
 from dataclasses import dataclass, field
 
 from xiaoshuo.infra.logging_config import get_logger
+from xiaoshuo.pipeline.text_utils import count_chinese as _count_chinese
 
 logger = get_logger("writing_craft")
 
@@ -34,10 +35,6 @@ class CraftReport:
     issues: list[str] = field(default_factory=list)
     suggestions: list[str] = field(default_factory=list)
     summary: str = ""
-
-
-def _count_chinese(text: str) -> int:
-    return sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
 
 
 # ── 十三种结尾钩子类型 ──

@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from xiaoshuo.infra.logging_config import get_logger
+from xiaoshuo.pipeline.text_utils import count_chinese as _count_chinese
 
 logger = get_logger("narrative_schedule")
 
@@ -58,10 +59,6 @@ class ScheduleReport:
 
 
 # ── 辅助函数 ──
-
-def _count_chinese(text: str) -> int:
-    return sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
-
 
 def _extract_dialogues(text: str) -> list[dict]:
     """提取对话及其归属角色 (简化版: 匹配 "角色说：" 模式)。

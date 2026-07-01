@@ -22,9 +22,8 @@ import sys
 from pathlib import Path
 
 from xiaoshuo import PROJECT_ROOT
+from xiaoshuo.pipeline.paths import rhythm_dir as _rhythm_dir
 # PROJECT_ROOT imported from src.xiaoshuo
-def _rhythm_dir(genre):
-    return PROJECT_ROOT / "data" / "processed" / genre / "rhythm"
 
 
 def _load_rhythm_csv(csv_path):
