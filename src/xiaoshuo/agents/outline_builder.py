@@ -682,6 +682,7 @@ def build_chapter_blueprint(
     outline_summary: str = "",
     canon_context: str = "",
     previous_chapter_summary: str = "",
+    world_state_context: str = "",
 ) -> dict:
     """Generate a structured chapter blueprint (施工单) for Part C hand-writing.
 
@@ -693,6 +694,9 @@ def build_chapter_blueprint(
         outline_summary: Brief summary of the overall outline
         canon_context: Relevant Canon entries (characters, rules, etc.)
         previous_chapter_summary: Summary of the previous chapter (empty for ch1)
+        world_state_context: WSE 推演状态上下文 (v8.6 新增)，
+            由 CreativeContext.build_world_simulation_context() 生成。
+            注入后 LLM 生成的大纲将基于势力/角色的运行时状态和推演事件。
 
     Returns:
         dict matching CHAPTER_BLUEPRINT_SCHEMA, or {"error": str} on failure
@@ -714,14 +718,21 @@ def build_chapter_blueprint(
     else:
         progress_hint = "终局: 最终决战, 伏笔全面回收, 角色弧线完成"
 
+    # v8.6: 注入世界推演状态上下文
+    ws_hint = ""
+    if world_state_context:
+        ws_hint = f"\n世界推演状态:\n{world_state_context[:2000]}"
+
     user_msg = (
         f"题材: {genre}\n"
         f"章节: 第{chapter_num}章 / 共{total_chapters}章 ({progress}%)\n"
         f"阶段: {progress_hint}\n"
         f"大纲概要: {outline_summary[:800] if outline_summary else '(未提供)'}\n"
         f"Canon 设定: {canon_context[:800] if canon_context else '(未提供)'}"
-        f"{prev_hint}\n\n"
+        f"{prev_hint}"
+        f"{ws_hint}\n\n"
         f"请为第{chapter_num}章生成施工单 (JSON格式)。"
+        f"\n注意: 如果提供了世界推演状态，施工单中的人物、冲突、行动应与推演状态一致。"
     )
 
     messages = [
@@ -762,6 +773,8 @@ def build_chapter_blueprint(
         blueprint.setdefault("cliffhanger", "")
         blueprint.setdefault("required_canon", [])
         blueprint.setdefault("reward_type", "")  # v8.1: 爽感奖励类型
+        # v8.6: 标记是否使用了世界推演上下文
+        blueprint.setdefault("used_world_state", bool(world_state_context))
         return blueprint
     except json.JSONDecodeError as e:
         return {"error": f"JSON parse failed: {e}", "raw": raw[:500], "chapter_num": chapter_num}

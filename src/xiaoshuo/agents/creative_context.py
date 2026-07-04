@@ -262,6 +262,213 @@ class CreativeContext:
 
         return "\n".join(parts) if parts else ""
 
+    # ── 世界推演上下文构建 (v8.6 WSE 深化) ──
+
+    @staticmethod
+    def build_world_simulation_context(
+        project_id: str,
+        chapter: int | None = None,
+    ) -> str:
+        """从世界推演状态构建写作上下文，注入章节蓝图/大纲生成。
+
+        读取项目的 world_state（势力状态、角色运行时状态、推演事件），
+        将其格式化为结构化文本，让 LLM 生成的大纲基于推演结果。
+
+        Args:
+            project_id: 项目 ID
+            chapter: 指定章节号；None 则用 world_state 当前章节
+
+        Returns:
+            结构化文本，可直接拼入 outline/blueprint 的 user prompt
+        """
+        try:
+            from xiaoshuo.api.services import world_state_service as wss
+        except ImportError:
+            logger.warning("world_state_service 不可用，跳过推演上下文")
+            return ""
+
+        ws = wss.get_world_state(project_id)
+        if ws is None:
+            logger.debug("项目 %s 无 world_state", project_id)
+            return ""
+
+        target_chapter = chapter if chapter is not None else ws.get("chapter", 0)
+
+        parts: list[str] = []
+        parts.append(f"## 世界推演状态 (第{target_chapter}章快照)")
+
+        # ── 势力状态 ──
+        factions_state = ws.get("factions_state", [])
+        if factions_state:
+            parts.append(f"\n### 势力动态 ({len(factions_state)} 个势力)")
+            for fs in factions_state:
+                name = fs.get("name", fs.get("id", "未知"))
+                stability = fs.get("stability", 0.5)
+                morale = fs.get("morale", 0.5)
+                treasury = fs.get("treasury", 0.5)
+                threat = fs.get("threat_level", 0.3)
+                power = fs.get("power_level", 5)
+
+                # 状态摘要
+                status_tags: list[str] = []
+                if stability < 0.3:
+                    status_tags.append("⚠️内部不稳")
+                if morale < 0.3:
+                    status_tags.append("士气低落")
+                if threat > 0.7:
+                    status_tags.append("⚠️外部威胁严重")
+                if treasury < 0.2:
+                    status_tags.append("财政枯竭")
+                tag_str = f" [{', '.join(status_tags)}]" if status_tags else ""
+
+                parts.append(
+                    f"- **{name}** (实力Lv.{power}){tag_str}: "
+                    f"稳定{stability:.0%} 士气{morale:.0%} "
+                    f"财政{treasury:.0%} 威胁{threat:.0%}"
+                )
+
+        # ── 角色运行时状态 ──
+        chars_state = ws.get("characters_state", [])
+        if chars_state:
+            parts.append(f"\n### 角色运行时状态 ({len(chars_state)} 人)")
+            for cs in chars_state:
+                name = cs.get("name", "未知角色")
+                health = cs.get("health", 1.0)
+                mood = cs.get("mood", "normal")
+                location = cs.get("location", "未知")
+                fac_id = cs.get("faction_id", "")
+
+                mood_map = {
+                    "normal": "平静", "confident": "自信", "weary": "疲惫",
+                    "fearful": "恐惧", "angry": "愤怒",
+                }
+                mood_cn = mood_map.get(mood, mood)
+                health_str = f"{health:.0%}" if health < 1.0 else "健康"
+                fac_str = f" (属{fac_id})" if fac_id else ""
+
+                state_tags: list[str] = []
+                if health < 0.3:
+                    state_tags.append("重伤")
+                if mood in ("fearful", "angry"):
+                    state_tags.append(mood_cn)
+                tag_str = f" [{', '.join(state_tags)}]" if state_tags else ""
+
+                parts.append(
+                    f"- **{name}**{fac_str}: {health_str}, 心情{mood_cn}, "
+                    f"位于{location}{tag_str}"
+                )
+
+        # ── 近期推演事件 (取最近 10 条) ──
+        all_events: list[dict] = []
+        for snap in ws.get("snapshots", []):
+            snap_ch = snap.get("chapter", 0)
+            if chapter is not None and snap_ch > chapter:
+                continue
+            for ev in snap.get("events", []):
+                all_events.append(ev)
+
+        # 按章节排序，取最近 10 条
+        all_events.sort(key=lambda e: (e.get("chapter", 0), e.get("round", 0)))
+        recent_events = all_events[-10:] if all_events else []
+
+        if recent_events:
+            parts.append(f"\n### 近期推演事件 (最近 {len(recent_events)} 条)")
+            type_map = {
+                "character_action": "角色行动",
+                "faction_decision": "势力决策",
+                "impact_propagation": "影响传播",
+                "conflict_detected": "冲突爆发",
+            }
+            for ev in recent_events:
+                ev_ch = ev.get("chapter", 0)
+                ev_type = type_map.get(ev.get("type", ""), ev.get("type", ""))
+                ev_actor = ev.get("actor", "")
+                ev_desc = ev.get("description", "")
+
+                # 提取关键效果
+                effects = ev.get("effects", [])
+                effect_summary = ""
+                if effects:
+                    effect_parts = []
+                    for eff in effects[:3]:
+                        field = eff.get("field", "")
+                        delta = eff.get("delta", 0)
+                        target = eff.get("target_id", "")
+                        sign = "+" if delta >= 0 else ""
+                        effect_parts.append(f"{target}.{field}{sign}{delta:.2f}")
+                    effect_summary = f" → [{', '.join(effect_parts)}]"
+
+                parts.append(f"- [第{ev_ch}章 {ev_type}] {ev_actor}: {ev_desc}{effect_summary}")
+
+        # ── 写作指导建议 ──
+        if factions_state or chars_state:
+            parts.append("\n### 写作指导 (基于推演状态)")
+            suggestions: list[str] = []
+
+            # 检测高危势力
+            critical_factions = [
+                fs for fs in factions_state
+                if fs.get("stability", 1) < 0.3 or fs.get("threat_level", 0) > 0.7
+            ]
+            if critical_factions:
+                names = [fs.get("name", fs.get("id", "")) for fs in critical_factions]
+                suggestions.append(
+                    f"⚠️ {', '.join(names)} 处于危机状态，"
+                    f"本章可安排相关势力冲突或角色被迫卷入"
+                )
+
+            # 检测受伤角色
+            injured_chars = [
+                cs for cs in chars_state if cs.get("health", 1.0) < 0.3
+            ]
+            if injured_chars:
+                names = [cs.get("name", "") for cs in injured_chars]
+                suggestions.append(
+                    f"⚠️ {', '.join(names)} 重伤未愈，"
+                    f"相关场景应体现伤势影响，不宜安排高强度战斗"
+                )
+
+            # 检测情绪异常
+            emotional_chars = [
+                cs for cs in chars_state
+                if cs.get("mood") in ("angry", "fearful")
+            ]
+            if emotional_chars:
+                for cs in emotional_chars:
+                    name = cs.get("name", "")
+                    mood = cs.get("mood", "")
+                    mood_cn = {"angry": "愤怒", "fearful": "恐惧"}.get(mood, mood)
+                    suggestions.append(
+                        f"💡 {name} 当前情绪「{mood_cn}」，"
+                        f"对话和行为应体现该情绪倾向"
+                    )
+
+            # 检测近期冲突事件
+            recent_conflicts = [
+                ev for ev in recent_events
+                if ev.get("type") == "conflict_detected"
+            ]
+            if recent_conflicts:
+                suggestions.append(
+                    f"📌 近期有 {len(recent_conflicts)} 次势力冲突，"
+                    f"本章应处理冲突后果或推动冲突升级"
+                )
+
+            if not suggestions:
+                suggestions.append("当前世界状态稳定，可安排日常推进或伏笔章节")
+
+            for s in suggestions:
+                parts.append(f"- {s}")
+
+        result = "\n".join(parts)
+        logger.info(
+            "build_world_simulation_context: project=%s, chapter=%s, "
+            "factions=%d, chars=%d, events=%d, output=%d chars",
+            project_id, target_chapter, len(factions_state),
+            len(chars_state), len(recent_events), len(result),
+        )
+        return result
+
     @property
     def is_available(self) -> bool:
         """是否有可用的 Part A 分析数据。"""

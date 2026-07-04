@@ -1,0 +1,608 @@
+/**
+ * 全局样式 — 暗色主题变量 + 基础重置
+ *
+ * 从 prototype/styles.css 提取核心设计令牌，保持视觉一致性
+ */
+
+/* ===== Theme variables (与 prototype 保持一致) ===== */
+:root {
+  /* Backgrounds */
+  --bg: #0B1120;
+  --bg-elevated: #0f172a;
+  --surface: rgba(255,255,255,0.03);
+  --surface-solid: #111827;
+  --surface-hover: rgba(255,255,255,0.06);
+  --surface-highlight: rgba(255,255,255,0.06);
+  --surface-highlight-strong: rgba(255,255,255,0.08);
+  --surface-subtle: rgba(255,255,255,0.03);
+  --surface-highlight-hover: rgba(255,255,255,0.05);
+  --surface-faint: rgba(255,255,255,0.02);
+
+  /* Borders */
+  --border: rgba(255,255,255,0.08);
+  --border-hover: rgba(255,255,255,0.14);
+  --border-highlight: rgba(255,255,255,0.12);
+  --border-highlight-strong: rgba(255,255,255,0.15);
+  --border-strong: rgba(255,255,255,0.2);
+
+  /* Text */
+  --text: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-secondary-rgb: 148,163,184;
+  --text-disabled: rgba(148,163,184,0.5);
+  --text-muted: rgba(148,163,184,0.6);
+
+  /* Accent / Brand */
+  --accent: #38BDF8;
+  --accent-rgb: 56,189,248;
+  --brand-serene: #38BDF8;
+  --brand-serene-light: #0ea5e9;
+  --brand-arctic: #22D3EE;
+  --brand-arctic-light: #06B6D4;
+  --brand-lavender: #A78BFA;
+  --brand-lavender-light: #8B5CF6;
+  --brand-aurora: #818CF8;
+  --brand-aurora-light: #6366F1;
+  --brand-obsidian: #A1A1AA;
+  --indigo: #818CF8;
+  --indigo-rgb: 129,140,248;
+  --violet: #A78BFA;
+  --violet-rgb: 167,139,250;
+  --amber: #F59E0B;
+  --amber-rgb: 245,158,11;
+  --purple: #a855f7;
+  --info: #3b82f6;
+  --info-rgb: 59,130,246;
+  --info-bg: #1e3a5f;
+
+  /* Status */
+  --success: #22c55e;
+  --success-rgb: 34,197,94;
+  --success-light: #10b981;
+  --warning: #f59e0b;
+  --warning-rgb: 245,158,11;
+  --danger: #ef4444;
+  --danger-rgb: 239,68,68;
+  --zinc: #a1a1aa;
+  --zinc-rgb: 161,161,170;
+
+  /* Overlay */
+  --overlay-bg: rgba(0,0,0,0.45);
+  --overlay-bg-soft: rgba(0,0,0,0.3);
+
+  /* Topbar */
+  --topbar-glass: rgba(11,17,32,0.72);
+  --topbar-height: 48px;
+  --hero-stat-bg: rgba(0,0,0,0.18);
+  --hero-stat-bg-hover: rgba(0,0,0,0.28);
+
+  /* Design Tokens */
+  --radius: 10px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-pill: 999px;
+  --shadow-lg: 0 10px 30px rgba(0,0,0,0.35);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --z-base: 1;
+  --z-topbar: 50;
+  --z-sidebar: 60;
+  --z-overlay: 75;
+  --z-drawer: 80;
+  --z-sticky: 90;
+  --z-popover: 95;
+  --z-tooltip: 100;
+  --z-focus-panel: 200;
+  --z-toast: 200;
+  --z-modal: 250;
+  --sidebar-bg: var(--bg-elevated);
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Modal */
+  --modal-glass: rgba(15,23,42,0.88);
+
+  /* Logs */
+  --logs-get-bg: #1e3a5f;
+  --logs-get-color: #60a5fa;
+  --logs-post-bg: #1e4a1e;
+  --logs-post-color: #4ade80;
+  --logs-put-bg: #4a3b1e;
+  --logs-put-color: #fbbf24;
+  --logs-delete-bg: #4a1e1e;
+  --logs-delete-color: #f87171;
+  --logs-status-ok-color: #4ade80;
+  --logs-status-err-color: #f87171;
+  --logs-status-warn-color: #fbbf24;
+
+  /* Scrollbar */
+  --scrollbar-track: rgba(255,255,255,0.02);
+  --scrollbar-thumb: rgba(255,255,255,0.1);
+  --scrollbar-thumb-hover: rgba(255,255,255,0.18);
+}
+
+/* ===== Reset ===== */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* ===== Scrollbar ===== */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* ===== Selection ===== */
+::selection {
+  background: rgba(56,189,248,0.25);
+  color: var(--text);
+}
+
+/* ================================================================
+   品牌色氛围系统 — 从 prototype/styles.css 恢复
+   每种 accent 切换 bg / surface / border / hero-station 光效
+   ================================================================ */
+
+/* 静谧蓝 (默认) */
+[data-accent="serene"] {
+  --bg: #0B1120;
+  --bg-elevated: #0f172a;
+  --surface: rgba(56,189,248,0.025);
+  --surface-subtle: rgba(56,189,248,0.02);
+  --surface-highlight: rgba(56,189,248,0.045);
+  --surface-highlight-strong: rgba(56,189,248,0.07);
+  --border: rgba(56,189,248,0.07);
+  --border-highlight: rgba(56,189,248,0.1);
+  --border-highlight-strong: rgba(56,189,248,0.14);
+  --border-strong: rgba(56,189,248,0.18);
+  --surface-hover: rgba(56,189,248,0.05);
+  --surface-highlight-hover: rgba(56,189,248,0.06);
+  --surface-faint: rgba(56,189,248,0.015);
+  --accent: #38BDF8;
+  --accent-rgb: 56,189,248;
+  --scrollbar-track: rgba(56,189,248,0.02);
+  --scrollbar-thumb: rgba(56,189,248,0.08);
+  --scrollbar-thumb-hover: rgba(56,189,248,0.14);
+  --topbar-glass: rgba(11,17,32,0.72);
+}
+
+/* 极光青 */
+[data-accent="arctic"] {
+  --bg: #061317;
+  --bg-elevated: #0a1a1f;
+  --surface: rgba(34,211,238,0.025);
+  --surface-subtle: rgba(34,211,238,0.02);
+  --surface-highlight: rgba(34,211,238,0.045);
+  --surface-highlight-strong: rgba(34,211,238,0.07);
+  --border: rgba(34,211,238,0.07);
+  --border-highlight: rgba(34,211,238,0.1);
+  --border-highlight-strong: rgba(34,211,238,0.14);
+  --border-strong: rgba(34,211,238,0.18);
+  --surface-hover: rgba(34,211,238,0.05);
+  --surface-highlight-hover: rgba(34,211,238,0.06);
+  --surface-faint: rgba(34,211,238,0.015);
+  --accent: #22D3EE;
+  --accent-rgb: 34,211,238;
+  --scrollbar-track: rgba(34,211,238,0.02);
+  --scrollbar-thumb: rgba(34,211,238,0.08);
+  --scrollbar-thumb-hover: rgba(34,211,238,0.14);
+  --topbar-glass: rgba(6,19,23,0.72);
+}
+
+/* 薰衣草 */
+[data-accent="lavender"] {
+  --bg: #100D1A;
+  --bg-elevated: #151124;
+  --surface: rgba(167,139,250,0.025);
+  --surface-subtle: rgba(167,139,250,0.02);
+  --surface-highlight: rgba(167,139,250,0.045);
+  --surface-highlight-strong: rgba(167,139,250,0.07);
+  --border: rgba(167,139,250,0.07);
+  --border-highlight: rgba(167,139,250,0.1);
+  --border-highlight-strong: rgba(167,139,250,0.14);
+  --border-strong: rgba(167,139,250,0.18);
+  --surface-hover: rgba(167,139,250,0.05);
+  --surface-highlight-hover: rgba(167,139,250,0.06);
+  --surface-faint: rgba(167,139,250,0.015);
+  --accent: #A78BFA;
+  --accent-rgb: 167,139,250;
+  --scrollbar-track: rgba(167,139,250,0.02);
+  --scrollbar-thumb: rgba(167,139,250,0.08);
+  --scrollbar-thumb-hover: rgba(167,139,250,0.14);
+  --topbar-glass: rgba(16,13,26,0.72);
+}
+
+/* 极光靛 */
+[data-accent="aurora"] {
+  --bg: #0C0D1C;
+  --bg-elevated: #111224;
+  --surface: rgba(129,140,248,0.025);
+  --surface-subtle: rgba(129,140,248,0.02);
+  --surface-highlight: rgba(129,140,248,0.045);
+  --surface-highlight-strong: rgba(129,140,248,0.07);
+  --border: rgba(129,140,248,0.07);
+  --border-highlight: rgba(129,140,248,0.1);
+  --border-highlight-strong: rgba(129,140,248,0.14);
+  --border-strong: rgba(129,140,248,0.18);
+  --surface-hover: rgba(129,140,248,0.05);
+  --surface-highlight-hover: rgba(129,140,248,0.06);
+  --surface-faint: rgba(129,140,248,0.015);
+  --accent: #818CF8;
+  --accent-rgb: 129,140,248;
+  --scrollbar-track: rgba(129,140,248,0.02);
+  --scrollbar-thumb: rgba(129,140,248,0.08);
+  --scrollbar-thumb-hover: rgba(129,140,248,0.14);
+  --topbar-glass: rgba(12,13,28,0.72);
+}
+
+/* ================================================================
+   亮色主题 — 从 prototype/styles.css 恢复
+   ================================================================ */
+[data-theme="light"] {
+  --bg: #f8fafc;
+  --bg-elevated: #ffffff;
+  --surface: rgba(0,0,0,0.03);
+  --surface-solid: #f1f5f9;
+  --surface-hover: rgba(0,0,0,0.05);
+  --surface-highlight: rgba(0,0,0,0.04);
+  --surface-highlight-strong: rgba(0,0,0,0.06);
+  --surface-subtle: rgba(0,0,0,0.02);
+  --surface-highlight-hover: rgba(0,0,0,0.04);
+  --surface-faint: rgba(0,0,0,0.02);
+  --border: rgba(0,0,0,0.08);
+  --border-hover: rgba(0,0,0,0.14);
+  --border-highlight: rgba(0,0,0,0.10);
+  --border-highlight-strong: rgba(0,0,0,0.12);
+  --border-strong: rgba(0,0,0,0.2);
+  --shadow-lg: 0 10px 30px rgba(0,0,0,0.10);
+  --text: #0f172a;
+  --text-secondary: #64748b;
+  --text-secondary-rgb: 100,116,139;
+  --text-disabled: rgba(100,116,139,0.55);
+  --topbar-glass: rgba(248,250,252,0.72);
+  --overlay-bg: rgba(0,0,0,0.35);
+  --overlay-bg-soft: rgba(0,0,0,0.18);
+  --hero-stat-bg: rgba(0,0,0,0.06);
+  --hero-stat-bg-hover: rgba(0,0,0,0.10);
+
+  --modal-glass: rgba(255,255,255,0.88);
+
+  --logs-get-bg: #e0f2fe;
+  --logs-get-color: #0369a1;
+  --logs-post-bg: #dcfce7;
+  --logs-post-color: #15803d;
+  --logs-put-bg: #fef3c7;
+  --logs-put-color: #b45309;
+  --logs-delete-bg: #fee2e2;
+  --logs-delete-color: #b91c1c;
+  --logs-status-ok-color: #15803d;
+  --logs-status-err-color: #dc2626;
+  --logs-status-warn-color: #b45309;
+}
+
+/* Light 下品牌色使用稍深 hex 保证对比度 */
+[data-theme="light"][data-accent="serene"]   { --accent: var(--brand-serene-light); --accent-rgb: 14,165,233; }
+[data-theme="light"][data-accent="arctic"]   { --accent: var(--brand-arctic-light); --accent-rgb: 6,182,212; }
+[data-theme="light"][data-accent="lavender"] { --accent: var(--brand-lavender-light); --accent-rgb: 139,92,246; }
+[data-theme="light"][data-accent="aurora"]   { --accent: var(--brand-aurora-light); --accent-rgb: 99,102,241; }
+
+/* ================================================================
+   Hero Station 光效 — 页面核心视觉锚点
+   渐变背景 + 径向光晕 + 玻璃拟态边框
+   ================================================================ */
+
+.hero-station {
+  position: relative;
+  background: linear-gradient(135deg, rgba(56,189,248,0.16) 0%, rgba(56,189,248,0.05) 50%, rgba(56,189,248,0.01) 100%);
+  border: 1px solid rgba(56,189,248,0.14);
+  border-radius: 16px;
+  padding: 28px 32px;
+  box-shadow:
+    0 8px 32px rgba(0,0,0,0.22),
+    0 0 0 1px rgba(56,189,248,0.06),
+    inset 0 1px 0 rgba(56,189,248,0.06);
+  overflow: hidden;
+}
+
+.hero-station::before {
+  content: '';
+  position: absolute;
+  top: -60%;
+  right: -10%;
+  width: 420px;
+  height: 420px;
+  background: radial-gradient(ellipse 420px 320px at 80% 20%, rgba(56,189,248,0.12) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.hero-station::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 300px;
+  height: 200px;
+  background: radial-gradient(ellipse 300px 200px at 20% 80%, rgba(56,189,248,0.06) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* 各品牌色 Hero 光效 */
+[data-accent="arctic"] .hero-station {
+  background: linear-gradient(135deg, rgba(34,211,238,0.16) 0%, rgba(34,211,238,0.05) 50%, rgba(34,211,238,0.01) 100%);
+  border-color: rgba(34,211,238,0.14);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.22), 0 0 0 1px rgba(34,211,238,0.06), inset 0 1px 0 rgba(34,211,238,0.06);
+}
+[data-accent="arctic"] .hero-station::before {
+  background: radial-gradient(ellipse 420px 320px at 80% 20%, rgba(34,211,238,0.12) 0%, transparent 70%);
+}
+[data-accent="arctic"] .hero-station::after {
+  background: radial-gradient(ellipse 300px 200px at 20% 80%, rgba(34,211,238,0.06) 0%, transparent 70%);
+}
+
+[data-accent="lavender"] .hero-station {
+  background: linear-gradient(135deg, rgba(167,139,250,0.16) 0%, rgba(167,139,250,0.05) 50%, rgba(167,139,250,0.01) 100%);
+  border-color: rgba(167,139,250,0.14);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.22), 0 0 0 1px rgba(167,139,250,0.06), inset 0 1px 0 rgba(167,139,250,0.06);
+}
+[data-accent="lavender"] .hero-station::before {
+  background: radial-gradient(ellipse 420px 320px at 80% 20%, rgba(167,139,250,0.12) 0%, transparent 70%);
+}
+[data-accent="lavender"] .hero-station::after {
+  background: radial-gradient(ellipse 300px 200px at 20% 80%, rgba(167,139,250,0.06) 0%, transparent 70%);
+}
+
+[data-accent="aurora"] .hero-station {
+  background: linear-gradient(135deg, rgba(129,140,248,0.16) 0%, rgba(129,140,248,0.05) 50%, rgba(129,140,248,0.01) 100%);
+  border-color: rgba(129,140,248,0.14);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.22), 0 0 0 1px rgba(129,140,248,0.06), inset 0 1px 0 rgba(129,140,248,0.06);
+}
+[data-accent="aurora"] .hero-station::before {
+  background: radial-gradient(ellipse 420px 320px at 80% 20%, rgba(129,140,248,0.12) 0%, transparent 70%);
+}
+[data-accent="aurora"] .hero-station::after {
+  background: radial-gradient(ellipse 300px 200px at 20% 80%, rgba(129,140,248,0.06) 0%, transparent 70%);
+}
+
+/* 确保 Hero 内容绘制在光晕之上 */
+.hero-station > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ================================================================
+   全局过渡动画 — 品牌色切换时平滑过渡
+   仅对需要氛围过渡的容器应用，避免全局通配符影响性能
+   ================================================================ */
+html,
+body,
+.sidebar,
+.topbar,
+.hero-station,
+.hero-station::before,
+.hero-station::after,
+.kpi-card,
+.kpi-card::before,
+.library-kpi-card,
+.library-kpi-card::before,
+.hero-stat,
+.side-card,
+.bento-card,
+.task-card,
+.report-card,
+.settings-card,
+.book-card,
+.pipeline-stage.running {
+  transition:
+    background-color 0.45s ease,
+    border-color 0.45s ease,
+    box-shadow 0.45s ease;
+}
+
+/* ================================================================
+   KPI 卡片顶部光带 — 从 prototype/styles.css 恢复
+   ================================================================ */
+.kpi-card {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px 24px;
+  overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: inset 0 1px 0 var(--surface-subtle);
+}
+
+.kpi-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 10%;
+  width: 80%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(56,189,248,0.3), transparent);
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+
+.kpi-card:hover::before {
+  opacity: 1;
+}
+
+.kpi-card:hover {
+  transform: translateY(-3px) scale(1.01);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.25), inset 0 1px 0 var(--surface-subtle);
+}
+
+/* 各品牌色 KPI 光带 */
+[data-accent="arctic"] .kpi-card::before {
+  background: linear-gradient(90deg, transparent, rgba(34,211,238,0.3), transparent);
+}
+[data-accent="lavender"] .kpi-card::before {
+  background: linear-gradient(90deg, transparent, rgba(167,139,250,0.3), transparent);
+}
+[data-accent="aurora"] .kpi-card::before {
+  background: linear-gradient(90deg, transparent, rgba(129,140,248,0.3), transparent);
+}
+
+/* ================================================================
+   通用按钮系统 — 全局统一样式
+   ================================================================ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-highlight);
+}
+
+.btn:active {
+  transform: scale(0.97);
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+
+.btn-primary:hover {
+  filter: brightness(1.1);
+  color: var(--bg);
+}
+
+.btn-secondary {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+
+.btn-secondary:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-secondary);
+}
+
+.btn-ghost:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+
+.btn-icon {
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.btn-lg {
+  padding: 12px 24px;
+  font-size: 15px;
+  border-radius: 10px;
+}
+
+.btn-danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+.btn-danger:hover {
+  filter: brightness(1.15);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* ================================================================
+   通用页头样式 — 统一所有 View 的 page-header 视觉标准
+   各 View 可通过 scoped 样式覆盖布局（如 flex-direction）
+   但字号/字重/间距应遵循此处的设计令牌
+   ================================================================ */
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.page-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}

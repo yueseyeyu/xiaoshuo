@@ -1,0 +1,115 @@
+GLM 改动审视报告
+一、HardwareView + 路由 + 导航（11/11 通过）
+#	检查项	结论
+1	HardwareView.vue 文件存在（549 行）	✅
+2	模型状态网格（主模型 + 交叉审查模型，含状态/端口/量化）	✅
+3	5 项硬件指标（GPU温度/显存/内存/CPU/GPU利用率）含阈值色变	✅
+4	显存分配详情（已用/空闲/总量 + 进度条）	✅
+5	5s 自动轮询 + visibilitychange 暂停/恢复	✅
+6	使用 DashboardAPI.getHardware() 而非直接 apiGet	✅
+7	/hardware 路由指向 HardwareView.vue	✅
+8	SideBar 底部导航新增"硬件"项（日志↔硬件↔设置）	✅
+9	TopBar 硬件下拉底部"查看完整监控 →"按钮，跳转 /hardware	✅
+二、Cytoscape 关系图增强（15/15 通过）
+#	检查项	FactionGraph	CharacterGraph
+1	cy.on('tap', 'node', ...) 节点点击	✅ L180	✅ L187
+2	emit('select', ...) 事件	✅ L183	✅ L190
+3	图例叠加层（类型颜色 + 关系线含义）	✅	✅
+4	缩放控制按钮（+/−/适应屏幕）	✅	✅
+5	COSE 布局 nodeRepulsion + idealEdgeLength	✅ 8000/100	✅ 6000/80
+6	WorldView 绑定 @select 到 store 方法	✅ selectFaction	✅ selectCharacter
+7	WorldView page-header 字号 18px/600	✅	—
+8	style.css 全局 .page-header 基础样式	✅ L596-608	—
+三、构建与代码质量
+指标	数值
+构建	157 模块，0 错误，829ms
+as any	0
+as unknown as	2（Cytoscape 兼容，与上轮相同）
+: any（裸类型注解）	0（上轮 3 处全部修复）
+Record<string, any>	2（DeconstructModal:16、QuickStartWizard:89，已有代码非本轮引入）
+console.log	0
+TODO/FIXME/HACK	0
+apiGet/apiPost 直接导入（排除 api/）	0
+四、Views 规模
+View	行数	变化
+HardwareView	549	新增
+其余 9 个 View	4,788	与上轮一致
+合计（10 Views）	5,337	—
+五、发现的问题
+问题 1：Record<string, any> 2 处（⚠️ 已有代码，非本轮引入）
+文件	行号	代码
+DeconstructModal.vue	16	const data = ref<Record<string, any> | null>(null)
+QuickStartWizard.vue	89	const templates: Record<string, any[]> = {}
+虽然 : any 裸注解已清零，但 Record<string, any> 本质上是泛型参数中的 any。建议后续改为 Record<string, unknown> 或具体类型。
+
+问题 2：api/writing.ts 中 WritingStyleRule 类型与 WritingSidebar 本地 StyleRule 不一致
+api/writing.ts 定义 WritingStyleRule: { dimension, rule, weight }
+WritingSidebar.vue:63 本地定义 StyleRule: { dimension, rule, weight }（恰好相同）
+目前两者字段一致所以不报错，但如果后端返回的字段结构变化，两边需要同时修改，存在维护风险。建议 WritingSidebar 直接导入 WritingStyleRule 替代本地 StyleRule。
+
+六、总结
+维度	评级	说明
+HardwareView 实现	✅ 优秀	549 行完整实现，模型网格/硬件指标/显存/轮询全部到位
+Cytoscape 增强	✅ 优秀	两个图组件均具备节点点击→emit→store 联动、图例、缩放控制
+样式统一	✅ 通过	WorldView page-header 已统一为 18px/600，全局 .page-header 已定义
+构建	✅ 通过	157 模块 0 错误
+类型安全	✅ 优秀	as any=0、: any=0、console.log=0、TODO=0
+架构分层	✅ 优秀	无 apiGet/apiPost 跨层泄漏
+核心结论：GLM 本轮改动质量优秀。26 项检查全部通过，无新增代码质量问题。HardwareView 填补了 prototype 硬件页面的功能缺口，Cytoscape 关系图交互增强显著提升了可用性。page-header 样式统一解决了 9 个 View 间的视觉不一致问题。仅 2 处 Record<string, any> 为已有代码的轻微瑕疵，建议后续优化。GLM 改动审视报告
+一、HardwareView + 路由 + 导航（11/11 通过）
+#	检查项	结论
+1	HardwareView.vue 文件存在（549 行）	✅
+2	模型状态网格（主模型 + 交叉审查模型，含状态/端口/量化）	✅
+3	5 项硬件指标（GPU温度/显存/内存/CPU/GPU利用率）含阈值色变	✅
+4	显存分配详情（已用/空闲/总量 + 进度条）	✅
+5	5s 自动轮询 + visibilitychange 暂停/恢复	✅
+6	使用 DashboardAPI.getHardware() 而非直接 apiGet	✅
+7	/hardware 路由指向 HardwareView.vue	✅
+8	SideBar 底部导航新增"硬件"项（日志↔硬件↔设置）	✅
+9	TopBar 硬件下拉底部"查看完整监控 →"按钮，跳转 /hardware	✅
+二、Cytoscape 关系图增强（15/15 通过）
+#	检查项	FactionGraph	CharacterGraph
+1	cy.on('tap', 'node', ...) 节点点击	✅ L180	✅ L187
+2	emit('select', ...) 事件	✅ L183	✅ L190
+3	图例叠加层（类型颜色 + 关系线含义）	✅	✅
+4	缩放控制按钮（+/−/适应屏幕）	✅	✅
+5	COSE 布局 nodeRepulsion + idealEdgeLength	✅ 8000/100	✅ 6000/80
+6	WorldView 绑定 @select 到 store 方法	✅ selectFaction	✅ selectCharacter
+7	WorldView page-header 字号 18px/600	✅	—
+8	style.css 全局 .page-header 基础样式	✅ L596-608	—
+三、构建与代码质量
+指标	数值
+构建	157 模块，0 错误，829ms
+as any	0
+as unknown as	2（Cytoscape 兼容，与上轮相同）
+: any（裸类型注解）	0（上轮 3 处全部修复）
+Record<string, any>	2（DeconstructModal:16、QuickStartWizard:89，已有代码非本轮引入）
+console.log	0
+TODO/FIXME/HACK	0
+apiGet/apiPost 直接导入（排除 api/）	0
+四、Views 规模
+View	行数	变化
+HardwareView	549	新增
+其余 9 个 View	4,788	与上轮一致
+合计（10 Views）	5,337	—
+五、发现的问题
+问题 1：Record<string, any> 2 处（⚠️ 已有代码，非本轮引入）
+文件	行号	代码
+DeconstructModal.vue	16	const data = ref<Record<string, any> | null>(null)
+QuickStartWizard.vue	89	const templates: Record<string, any[]> = {}
+虽然 : any 裸注解已清零，但 Record<string, any> 本质上是泛型参数中的 any。建议后续改为 Record<string, unknown> 或具体类型。
+
+问题 2：api/writing.ts 中 WritingStyleRule 类型与 WritingSidebar 本地 StyleRule 不一致
+api/writing.ts 定义 WritingStyleRule: { dimension, rule, weight }
+WritingSidebar.vue:63 本地定义 StyleRule: { dimension, rule, weight }（恰好相同）
+目前两者字段一致所以不报错，但如果后端返回的字段结构变化，两边需要同时修改，存在维护风险。建议 WritingSidebar 直接导入 WritingStyleRule 替代本地 StyleRule。
+
+六、总结
+维度	评级	说明
+HardwareView 实现	✅ 优秀	549 行完整实现，模型网格/硬件指标/显存/轮询全部到位
+Cytoscape 增强	✅ 优秀	两个图组件均具备节点点击→emit→store 联动、图例、缩放控制
+样式统一	✅ 通过	WorldView page-header 已统一为 18px/600，全局 .page-header 已定义
+构建	✅ 通过	157 模块 0 错误
+类型安全	✅ 优秀	as any=0、: any=0、console.log=0、TODO=0
+架构分层	✅ 优秀	无 apiGet/apiPost 跨层泄漏
+核心结论：GLM 本轮改动质量优秀。26 项检查全部通过，无新增代码质量问题。HardwareView 填补了 prototype 硬件页面的功能缺口，Cytoscape 关系图交互增强显著提升了可用性。page-header 样式统一解决了 9 个 View 间的视觉不一致问题。仅 2 处 Record<string, any> 为已有代码的轻微瑕疵，建议后续优化。

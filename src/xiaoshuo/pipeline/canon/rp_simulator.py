@@ -709,6 +709,153 @@ class RPSimulator:
 
         return result
 
+    # ── v8.6: WSE 联动 — 基于世界推演状态的角色推演 ──
+
+    def simulate_with_world_state(
+        self,
+        character: str,
+        scene: dict,
+        world_state: dict,
+        opponent: dict | None = None,
+        llm_call=None,
+    ) -> dict:
+        """v8.6: 基于世界推演状态的角色入戏推演。
+
+        在传统的 DNA + 场景 prompt 基础上，注入 WSE 的运行时状态：
+        - 角色的当前 health/mood/location
+        - 所属势力的 stability/morale/threat_level
+        - 近期推演事件
+
+        让角色推演不再是"静态DNA"，而是"动态状态驱动"。
+
+        Args:
+            character: 角色名
+            scene: 场景设定
+            world_state: WSE 世界状态 dict，包含:
+                - factions_state: [{id, name, stability, morale, threat_level, ...}]
+                - characters_state: [{name, health, mood, location, faction_id, ...}]
+                - snapshots: [{chapter, events: [...]}]
+            opponent: 对手设定（可选）
+            llm_call: LLM 调用函数
+
+        Returns:
+            {"prompt": "...", "response": {...}, "world_state_snapshot": str, "error": None}
+        """
+        dna = self.build_dna_from_canon(character)
+        if "error" in dna:
+            return {"error": dna["error"], "prompt": None, "response": None}
+
+        # 从 world_state 提取该角色的运行时状态
+        char_runtime = None
+        chars_state = world_state.get("characters_state", [])
+        for cs in chars_state:
+            if cs.get("name") == character:
+                char_runtime = cs
+                break
+
+        # 从 world_state 提取所属势力状态
+        faction_runtime = None
+        if char_runtime and char_runtime.get("faction_id"):
+            fac_id = char_runtime["faction_id"]
+            for fs in world_state.get("factions_state", []):
+                if fs.get("id") == fac_id:
+                    faction_runtime = fs
+                    break
+
+        # 提取近期事件
+        recent_events: list[str] = []
+        for snap in world_state.get("snapshots", [])[-3:]:  # 最近3个快照
+            for ev in snap.get("events", [])[-5:]:  # 每个快照取5条
+                ev_desc = ev.get("description", "")
+                if ev_desc:
+                    recent_events.append(f"- [第{ev.get('chapter', 0)}章] {ev_desc}")
+
+        # 构建运行时状态上下文
+        runtime_parts: list[str] = []
+        if char_runtime:
+            health = char_runtime.get("health", 1.0)
+            mood = char_runtime.get("mood", "normal")
+            location = char_runtime.get("location", "未知")
+            mood_cn = {
+                "normal": "平静", "confident": "自信", "weary": "疲惫",
+                "fearful": "恐惧", "angry": "愤怒",
+            }.get(mood, mood)
+            runtime_parts.append(
+                f"[角色运行时状态]\n"
+                f"- 生命值: {health:.0%}\n"
+                f"- 当前情绪: {mood_cn}\n"
+                f"- 所在位置: {location}"
+            )
+            if health < 0.3:
+                runtime_parts.append("- ⚠️ 角色重伤未愈，行动力和判断力下降")
+            if mood == "angry":
+                runtime_parts.append("- ⚠️ 角色处于愤怒状态，言行可能偏激")
+            if mood == "fearful":
+                runtime_parts.append("- ⚠️ 角色处于恐惧状态，倾向于回避或逃跑")
+
+        if faction_runtime:
+            stability = faction_runtime.get("stability", 0.5)
+            morale = faction_runtime.get("morale", 0.5)
+            threat = faction_runtime.get("threat_level", 0.3)
+            fac_name = faction_runtime.get("name", "所属势力")
+            runtime_parts.append(
+                f"[势力运行时状态 — {fac_name}]\n"
+                f"- 稳定度: {stability:.0%}\n"
+                f"- 士气: {morale:.0%}\n"
+                f"- 外部威胁: {threat:.0%}"
+            )
+            if stability < 0.3:
+                runtime_parts.append("- ⚠️ 势力内部不稳，角色可能面临站队压力")
+            if threat > 0.7:
+                runtime_parts.append("- ⚠️ 外部威胁严重，角色需警惕入侵")
+            if morale < 0.3:
+                runtime_parts.append("- ⚠️ 势力士气低落，角色可能动摇")
+
+        if recent_events:
+            runtime_parts.append(
+                "[近期世界事件]\n" + "\n".join(recent_events[-10:])
+            )
+
+        # 构建 prompt
+        base_prompt = self.build_prompt(dna, scene, opponent)
+        runtime_context = "\n\n".join(runtime_parts)
+
+        if runtime_context:
+            # 将运行时状态插入到 [记忆加载] 之后、[输出要求] 之前
+            full_prompt = base_prompt.replace(
+                "[输出要求]",
+                f"{runtime_context}\n\n[输出要求]\n"
+                "注意：你的反应必须与上述运行时状态一致。"
+                "如果角色受伤，体现伤痛影响；如果势力不稳，体现焦虑或忠诚。"
+            )
+        else:
+            full_prompt = base_prompt
+
+        if llm_call is None:
+            return {
+                "prompt": full_prompt,
+                "response": None,
+                "world_state_snapshot": runtime_context,
+                "error": None,
+            }
+
+        try:
+            raw_response = llm_call(full_prompt)
+            parsed = self.parse_response(raw_response)
+            return {
+                "prompt": full_prompt,
+                "response": parsed,
+                "world_state_snapshot": runtime_context,
+                "error": None,
+            }
+        except Exception as e:
+            return {
+                "prompt": full_prompt,
+                "response": None,
+                "world_state_snapshot": runtime_context,
+                "error": str(e),
+            }
+
     # ── 内部工具 ──
 
     def _parse_md_sections(self, text: str) -> dict:

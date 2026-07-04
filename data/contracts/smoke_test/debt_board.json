@@ -1,8 +1,8 @@
 {
   "book": "smoke_test",
-  "updated": "2026-06-19T19:19:34.092299",
-  "total": 5,
-  "pending": 5,
+  "updated": "2026-07-04T14:48:13.686187",
+  "total": 7,
+  "pending": 7,
   "debts": [
     {
       "id": 1,
@@ -53,6 +53,32 @@
       "status": "pending",
       "created_at": "2026-06-19T19:19:34.091755",
       "resolved_at": null
+    },
+    {
+      "id": 6,
+      "origin_ch": 10,
+      "type": "伏笔",
+      "summary": "测试债务",
+      "severity": "high",
+      "status": "pending",
+      "created_at": "2026-07-04T14:42:35.150555",
+      "resolved_at": null,
+      "faction_id": null,
+      "target_faction_id": null,
+      "is_faction_debt": false
+    },
+    {
+      "id": 7,
+      "origin_ch": 10,
+      "type": "伏笔",
+      "summary": "测试债务",
+      "severity": "high",
+      "status": "pending",
+      "created_at": "2026-07-04T14:48:13.686187",
+      "resolved_at": null,
+      "faction_id": null,
+      "target_faction_id": null,
+      "is_faction_debt": false
     }
   ]
 }

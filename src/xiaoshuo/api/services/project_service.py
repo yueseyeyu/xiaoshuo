@@ -12,18 +12,23 @@
 import json
 import os
 import time
+import uuid
 from pathlib import Path
 from typing import Optional
 
-CURRENT_SCHEMA_VERSION = "1.1.0"
+from xiaoshuo import PROJECT_ROOT
+from xiaoshuo.infra.config_manager import get_config
 
-_PROJECT_DIR = Path(__file__).resolve().parents[4] / "data" / "projects"
+CURRENT_SCHEMA_VERSION = "1.2.0"
+
+_cfg = get_config()
+_projects_dir = _cfg.get("paths", {}).get("projects_dir", "data/projects")
+_PROJECT_DIR = PROJECT_ROOT / _projects_dir if not Path(_projects_dir).is_absolute() else Path(_projects_dir)
 _PROJECT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _generate_id() -> str:
     """生成项目唯一 ID：uuid 短码 + 时间戳后缀，避免毫秒碰撞。"""
-    import uuid
     return uuid.uuid4().hex[:8] + str(int(time.time() * 1000))[-8:]
 
 
@@ -71,6 +76,7 @@ def _new_project_stub(meta: dict) -> dict:
         "characters": [],
         "factions": [],
         "chapters": [],
+        "world_state": None,
     }
 
 
@@ -118,15 +124,31 @@ DEMO_PROJECT = {
         "powers": "模拟点、天赋树、死亡惩罚、情报熵。",
     },
     "characters": [
-        {"name": "林默", "role": "主角", "desc": "冷静果断，拥有末日模拟器，能在梦中预演未来4小时。"},
-        {"name": "苏婉", "role": "女主", "desc": "医学生，擅长急救与毒理分析，团队医疗核心。"},
-        {"name": "老K", "role": "导师", "desc": "退役特种兵，传授生存技巧，是主角初期的武力依靠。"},
+        {"name": "林默", "role": "主角", "identity": "前高考生，觉醒模拟器能力",
+         "personality": "冷静果断，有强烈的责任感",
+         "ability": "末日模拟器 · 4小时预演",
+         "desc": "冷静果断，拥有末日模拟器，能在梦中预演未来4小时。",
+         "dynamic_state": {"health": 0.9, "mood": "confident", "location": "废弃商场据点", "recent_actions": ["击退尸潮", "建立据点"]}},
+        {"name": "苏婉", "role": "女主", "identity": "医学生",
+         "personality": "理性温和，在绝境中仍坚持人道主义",
+         "ability": "急救 · 毒理分析",
+         "desc": "医学生，擅长急救与毒理分析，团队医疗核心。",
+         "dynamic_state": {"health": 1.0, "mood": "normal", "location": "据点医疗室", "recent_actions": ["研发抗体", "救治伤员"]}},
+        {"name": "老K", "role": "导师", "identity": "退役特种兵",
+         "personality": "沉稳老练，寡言少语",
+         "ability": "战术指挥 · 精准射击",
+         "desc": "退役特种兵，传授生存技巧，是主角初期的武力依靠。",
+         "dynamic_state": {"health": 0.7, "mood": "weary", "location": "据点哨塔", "recent_actions": ["巡逻侦察", "训练新人"]}},
     ],
     "factions": [
-        {"name": "黑塔", "desc": "神秘组织，掌控轮回核心。"},
-        {"name": "避难所", "desc": "官方幸存者聚集地。"},
-        {"name": "拾荒者", "desc": "游离于秩序之外的幸存者。"},
-        {"name": "清理人", "desc": "黑塔下属的执行部队。"},
+        {"id": "fac_heit", "name": "黑塔", "type": "神秘组织", "desc": "神秘组织，掌控轮回核心。",
+         "state": {"stability": 0.9, "morale": 0.8, "treasury": 0.85, "threat_level": 0.4, "power_level": 9}},
+        {"id": "fac_ref", "name": "避难所", "type": "官方组织", "desc": "官方幸存者聚集地。",
+         "state": {"stability": 0.6, "morale": 0.55, "treasury": 0.5, "threat_level": 0.6, "power_level": 6}},
+        {"id": "fac_scav", "name": "拾荒者", "type": "帮派", "desc": "游离于秩序之外的幸存者。",
+         "state": {"stability": 0.35, "morale": 0.45, "treasury": 0.2, "threat_level": 0.8, "power_level": 3}},
+        {"id": "fac_clean", "name": "清理人", "type": "军事组织", "desc": "黑塔下属的执行部队。",
+         "state": {"stability": 0.75, "morale": 0.7, "treasury": 0.6, "threat_level": 0.5, "power_level": 7}},
     ],
     "chapters": [
         {"num": 1, "title": "考场异变", "status": "written", "word_count": 2100},

@@ -914,11 +914,12 @@ nsfw_roleplay:
 api_server:
   host: "127.0.0.1"
   port: 8089                           # 后端服务端口；CLI --port 可覆盖
-  static_dir: "prototype"              # 前端静态文件目录（相对项目根）
+  static_dir: "frontend/dist"          # Vue 3 构建产物（npm run build 生成）
   static_mount: "/"                    # 静态文件挂载路径
   cors:
     allow_origins:                     # 同源部署时仍保留，防止直接跨站调用 API
       - "http://localhost:8089"
       - "http://127.0.0.1:8089"
-    allow_methods: ["GET", "POST", "OPTIONS"]
+      - "http://localhost:5173"           # Vite 开发服务器
+    allow_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
     allow_headers: ["*"]
