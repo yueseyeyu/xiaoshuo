@@ -79,6 +79,7 @@ def format_hardware_response(state: dict) -> dict:
             "vram_used_mb": vram_used,
             "vram_total_mb": vram_total,
             "fan_speed": fan_speed,
+            "vram_processes": state.get("vram_processes", []),
         },
         "cpu": {"pct": state.get("cpu_percent", 0.0)},
         "ram": {"pct": round(min(sys_used / sys_total * 100, 100), 1) if sys_total else 0,

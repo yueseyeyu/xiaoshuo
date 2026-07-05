@@ -3,8 +3,10 @@
 xiaoshuo.infra.config_manager — 配置管理器（单一事实源缓存）
 ==========================================================
 v7.5: 替代各模块独立 yaml.safe_load() 调用，提供线程安全的全局单例。
+v8.8: 自动 mtime 热重载 — config.yaml 修改后无需手动 reload_config()，
+      下次 get_config() 自动检测文件变更并重载（零新依赖）。
 - 首次调用时读 config.yaml，后续调用返回缓存
-- 支持热重载（reload()）
+- 支持热重载（reload() 手动 / mtime 自动）
 - 线程安全（double-checked locking）
 
 用法: from xiaoshuo.infra.config_manager import get_config
@@ -18,6 +20,7 @@ from pathlib import Path
 
 
 _config: dict | None = None
+_config_mtime: float = 0.0  # v8.8: 记录上次加载时的文件 mtime
 _lock = threading.Lock()
 _config_path: Path | None = None
 
@@ -32,27 +35,53 @@ def _get_config_path() -> Path:
 
 
 def get_config() -> dict:
-    """获取全局配置（单例，线程安全）。首次调用自动加载。"""
-    global _config
-    if _config is not None:
+    """获取全局配置（单例，线程安全）。
+
+    v8.8: 自动检测 config.yaml 文件修改（mtime），变更时自动重载。
+    无需手动调用 reload_config()，改完 config.yaml 下次调用即生效。
+    """
+    global _config, _config_mtime
+    path = _get_config_path()
+
+    # 快速路径: 检查 mtime 是否变化（无锁，仅读浮点数）
+    try:
+        current_mtime = path.stat().st_mtime
+    except OSError:
+        current_mtime = 0.0
+
+    if _config is not None and current_mtime == _config_mtime:
         return _config
 
     with _lock:
-        if _config is not None:
+        # double-check: 可能在等锁期间已被其他线程重载
+        try:
+            current_mtime = path.stat().st_mtime
+        except OSError:
+            current_mtime = 0.0
+        if _config is not None and current_mtime == _config_mtime:
             return _config
-        path = _get_config_path()
+
         with open(path, "r", encoding="utf-8") as f:
             _config = yaml.safe_load(f) or {}
+        _config_mtime = current_mtime
         return _config
 
 
 def reload_config() -> dict:
-    """强制热重载配置（修改 config.yaml 后调用）。"""
-    global _config
+    """强制热重载配置（修改 config.yaml 后调用）。
+
+    v8.8: 通常无需手动调用 — get_config() 已自动检测 mtime 变更。
+    保留此函数用于: 需要立即重载但不想等待下次 get_config() 的场景。
+    """
+    global _config, _config_mtime
     with _lock:
         path = _get_config_path()
         with open(path, "r", encoding="utf-8") as f:
             _config = yaml.safe_load(f) or {}
+        try:
+            _config_mtime = path.stat().st_mtime
+        except OSError:
+            _config_mtime = 0.0
         return _config
 
 

@@ -10,7 +10,7 @@
     "written_chapters": 0,
     "summary": "",
     "created_at": "2026-06-29 16:24:33",
-    "updated_at": "2026-06-29 16:24:33"
+    "updated_at": "2026-07-04 15:25:32"
   },
   "skeleton": {
     "volumes": [],
@@ -23,5 +23,12 @@
   "characters": [],
   "factions": [],
   "chapters": [],
-  "id": "d45f830c21473083"
+  "id": "d45f830c21473083",
+  "world_state": {
+    "chapter": 0,
+    "regions": [],
+    "factions_state": [],
+    "characters_state": [],
+    "snapshots": []
+  }
 }

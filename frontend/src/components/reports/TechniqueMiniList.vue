@@ -36,7 +36,9 @@ function toggleCat(cat: string) {
   <div class="tech-mini-list">
     <div v-for="(items, cat) in techByCat" :key="cat" class="tech-cat-group" :class="{ expanded: expandedCats.has(cat) }">
       <div class="tech-cat-header" @click.stop="toggleCat(cat)">
-        <span class="tech-cat-toggle">&#9654;</span>
+        <span class="tech-cat-toggle">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="9 18 15 12 9 6"/></svg>
+        </span>
         <span class="tech-cat-name">{{ cat }}</span>
         <span class="tech-cat-count">{{ items.length }} 张</span>
       </div>
@@ -53,30 +55,70 @@ function toggleCat(cat: string) {
 </template>
 
 <style scoped>
-.tech-mini-list { margin-bottom: 8px; }
-.tech-cat-group { margin-bottom: 4px; }
+.tech-mini-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tech-cat-group {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: all 0.15s;
+}
+.tech-cat-group:hover {
+  border-color: var(--accent);
+}
+.tech-cat-group.expanded {
+  border-color: var(--accent);
+  box-shadow: 0 2px 8px rgba(var(--accent-rgb), 0.08);
+}
 .tech-cat-header {
-  display: flex; align-items: center; gap: 6px; padding: 6px 8px;
-  border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
-  font-size: 12px; transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  background: var(--surface-faint);
+  transition: all 0.15s;
 }
-.tech-cat-header:hover { background: var(--surface-hover); }
-.tech-cat-toggle { font-size: 10px; color: var(--text-muted); transition: transform 0.15s; }
+.tech-cat-header:hover { background: rgba(var(--accent-rgb), 0.08); }
+.tech-cat-toggle {
+  color: var(--accent);
+  transition: transform 0.15s;
+  display: flex;
+}
 .tech-cat-group.expanded .tech-cat-toggle { transform: rotate(90deg); }
-.tech-cat-name { flex: 1; font-weight: 500; }
-.tech-cat-count { font-size: 11px; color: var(--text-secondary); }
+.tech-cat-name { flex: 1; font-weight: 600; color: var(--text); }
+.tech-cat-count {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb), 0.1);
+}
 .tech-cat-body {
-  padding: 8px; background: var(--surface-solid);
-  border: 1px solid var(--border); border-top: none; border-radius: 0 0 6px 6px;
+  padding: 6px 8px;
+  background: var(--surface-solid);
+  border-top: 1px solid var(--border);
 }
-.tech-item { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.tech-item { padding: 6px 0; border-bottom: 1px solid var(--border); }
 .tech-item:last-child { border-bottom: none; }
-.tech-item-title { font-size: 13px; font-weight: 500; margin-bottom: 2px; }
-.tech-item-desc { font-size: 11px; color: var(--text-secondary); margin-bottom: 6px; }
+.tech-item-title { font-size: 12px; font-weight: 600; margin-bottom: 2px; color: var(--text); }
+.tech-item-desc { font-size: 11px; color: var(--text-secondary); margin-bottom: 6px; line-height: 1.4; }
 .tech-apply-btn {
-  font-size: 11px; padding: 2px 8px; border: 1px solid var(--accent); border-radius: 4px;
-  background: transparent; color: var(--accent); cursor: pointer; transition: all 0.15s;
+  font-size: 11px;
+  padding: 3px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  transition: all 0.15s;
+  font-weight: 500;
 }
-.tech-apply-btn:hover { background: var(--accent); color: #0a0a0a; }
-.tech-more { font-size: 11px; color: var(--text-muted); text-align: center; padding: 8px 0; }
+.tech-apply-btn:hover { background: var(--accent); color: var(--bg); }
+.tech-more { font-size: 11px; color: var(--text-muted); text-align: center; padding: 6px 0; }
 </style>

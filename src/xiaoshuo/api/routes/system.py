@@ -6,11 +6,12 @@ from __future__ import annotations
 import logging
 import time
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Body
 from fastapi.responses import Response
 
 from xiaoshuo import __version__ as APP_VERSION
 from xiaoshuo.infra.config_manager import get_config, get_config_section
+from xiaoshuo.infra.user_settings import load_settings, save_settings
 from xiaoshuo.agents.model_orchestrator import get_orchestrator
 from xiaoshuo.infra.pipeline_state import read_stage
 from xiaoshuo.api.app_state import app_state
@@ -60,6 +61,22 @@ async def get_config_endpoint():
         "cloud_model": cloud_model.get("name", ""),
         "cloud_provider": cloud_model.get("provider", ""),
     }
+
+
+@router.get("/api/settings")
+async def get_settings_endpoint():
+    """返回前端用户设置（JSON 文件持久化）。"""
+    return load_settings()
+
+
+@router.post("/api/settings")
+async def save_settings_endpoint(settings: dict = Body(...)):
+    """保存前端用户设置。"""
+    try:
+        save_settings(settings)
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 @router.get("/api/search", response_model=SearchResponse)

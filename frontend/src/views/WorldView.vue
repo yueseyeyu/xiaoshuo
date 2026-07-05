@@ -6,20 +6,25 @@
  * A4: 集成 Cytoscape 关系图
  * A5: 推演控制台
  */
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, onUnmounted } from 'vue'
 import { useProjectStore } from '@/stores/project'
 import { useWorldStore } from '@/stores/world'
 import { useUiStore } from '@/stores/ui'
+import { useSystemStore } from '@/stores/system'
 import FactionGraph from '@/components/world/FactionGraph.vue'
 import CharacterGraph from '@/components/world/CharacterGraph.vue'
 import SimulationConsole from '@/components/world/SimulationConsole.vue'
 import SimulationLog from '@/components/world/SimulationLog.vue'
 import { WorldAPI } from '@/api/world'
+import AppSelect from '@/components/common/AppSelect.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
+import TabBar from '@/components/common/TabBar.vue'
 import type { SimulationEvent } from '@/types'
 
 const projectStore = useProjectStore()
 const worldStore = useWorldStore()
 const uiStore = useUiStore()
+const systemStore = useSystemStore()
 
 const activeTab = ref<'factions' | 'characters' | 'graph' | 'simulation'>('factions')
 
@@ -46,24 +51,56 @@ const showExportPanel = ref(false)
 // ── 项目选择 ──
 const selectedProjectId = ref<string>('')
 
+const projectOptions = computed(() => [
+  { value: '', label: '请选择项目...' },
+  ...projectStore.projects.map((p) => ({
+    value: p.id,
+    label: `${p.title}${p.is_demo ? ' (示例)' : ''}`,
+  })),
+])
+
 // ── 生命周期 ──
 onMounted(async () => {
   await projectStore.loadProjects()
-  // 自动选中 demo 项目或第一个项目
-  const demo = projectStore.projects.find((p) => p.is_demo)
-  if (demo) {
-    selectedProjectId.value = demo.id
-  } else if (projectStore.projects.length > 0) {
-    selectedProjectId.value = projectStore.projects[0].id
+  // 优先跟随当前项目，否则回退到 demo 或第一个项目
+  if (projectStore.currentProject?.id) {
+    selectedProjectId.value = projectStore.currentProject.id
+  } else {
+    const demo = projectStore.projects.find((p) => p.is_demo)
+    if (demo) {
+      selectedProjectId.value = demo.id
+    } else if (projectStore.projects.length > 0) {
+      selectedProjectId.value = projectStore.projects[0].id
+    }
   }
 })
 
 watch(selectedProjectId, async (id) => {
-  if (id) {
-    await worldStore.loadProjectData(id)
-    await worldStore.loadEvents(id)
+  if (!id) return
+  if (id === projectStore.currentProject?.id) {
+    // 当前项目已作为 store 状态加载，避免重复请求
+    return
   }
+  await worldStore.loadProjectData(id)
+  await worldStore.loadEvents(id)
 })
+
+watch(() => projectStore.currentProject?.id, async (newId) => {
+  if (newId) {
+    selectedProjectId.value = newId
+    await worldStore.loadProjectData(newId)
+    await worldStore.loadEvents(newId)
+  } else {
+    selectedProjectId.value = ''
+    worldStore.clearData()
+    diffResult.value = null
+    exportResult.value = null
+    showExportPanel.value = false
+    exporting.value = false
+    simProgress.value = 0
+    simTotalRounds.value = 0
+  }
+}, { immediate: true })
 
 // ── 推演 ──
 const simFromChapter = ref(0)
@@ -72,7 +109,7 @@ const simProgress = ref(0)
 const simTotalRounds = ref(0)
 let cancelSimulation: (() => void) | null = null
 
-async function runSimulation() {
+async function doRunSimulation() {
   if (!selectedProjectId.value) return
 
   worldStore.startSimulation()
@@ -110,14 +147,31 @@ async function runSimulation() {
   )
 }
 
+async function runSimulation() {
+  if (!selectedProjectId.value) return
+
+  const ok = await systemStore.ensureModelRunning('世界推演')
+  if (!ok) return
+
+  await doRunSimulation()
+}
+
 function stopSimulation() {
+  cleanupSimulation()
+  uiStore.showToast('推演已停止', 'info')
+}
+
+function cleanupSimulation() {
   if (cancelSimulation) {
     cancelSimulation()
     cancelSimulation = null
   }
   worldStore.completeSimulation()
-  uiStore.showToast('推演已停止', 'info')
 }
+
+onUnmounted(() => {
+  cleanupSimulation()
+})
 
 async function saveSnapshot() {
   if (!selectedProjectId.value) return
@@ -183,44 +237,78 @@ async function exportToOutline() {
   }
   exporting.value = false
 }
+
+const tabs = [
+  { key: 'factions', label: '势力', icon: 'flag' },
+  { key: 'characters', label: '角色', icon: 'user' },
+  { key: 'graph', label: '关系图谱', icon: 'graph' },
+  { key: 'simulation', label: '推演日志', icon: 'log' },
+] as const
+
+function tabIcon(name: string) {
+  const icons: Record<string, string> = {
+    flag: 'M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7',
+    user: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
+    graph: 'M18 20V10M12 20V4M6 20v-6',
+    log: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8',
+  }
+  return icons[name] || ''
+}
+
+function typeColor(type?: string): string {
+  const colors: Record<string, string> = {
+    '神秘组织': '#A78BFA',
+    '官方组织': '#38BDF8',
+    '帮派': '#F59E0B',
+    '军事组织': '#EF4444',
+    '宗门': '#22D3EE',
+    '帝国': '#818CF8',
+    '议会': '#22c55e',
+  }
+  return colors[type || ''] || '#94a3b8'
+}
 </script>
 
 <template>
   <div class="world-view">
-    <!-- 页头 -->
-    <div class="page-header">
-      <h2>世界推演</h2>
-      <span class="text-muted" v-if="worldStore.isLoaded">
-        第 {{ worldStore.currentChapter }} 章 · {{ worldStore.factionCount }} 势力 · {{ worldStore.characterCount }} 角色
-      </span>
-    </div>
-
-    <!-- 项目选择器 -->
-    <div class="project-selector">
-      <label>选择项目：</label>
-      <select v-model="selectedProjectId" class="project-select">
-        <option value="" disabled>请选择...</option>
-        <option
-          v-for="p in projectStore.projects"
-          :key="p.id"
-          :value="p.id"
+    <!-- 指挥台页头 -->
+    <div class="command-header">
+      <div class="command-title">
+        <div class="command-title-main">
+          <h2>世界推演</h2>
+          <span v-if="worldStore.isLoaded" class="command-breadcrumb">
+            第 {{ worldStore.currentChapter }} 章 · {{ worldStore.factionCount }} 势力 · {{ worldStore.characterCount }} 角色
+          </span>
+        </div>
+      </div>
+      <div class="command-project">
+        <AppSelect
+          v-model="selectedProjectId"
+          :options="projectOptions"
+          class="project-select"
+        />
+        <span v-if="worldStore.loading" class="status-pill loading">
+          <span class="status-dot pulse"></span>加载中
+        </span>
+        <span v-if="worldStore.error" class="status-pill error">{{ worldStore.error }}</span>
+        <span
+          class="status-pill"
+          :class="{ 'status-online': systemStore.modelRunning, 'status-offline': !systemStore.modelRunning }"
+          :title="systemStore.modelRunning ? systemStore.modelName : '点击启动推演时将提示启动'"
         >
-          {{ p.title }}{{ p.is_demo ? ' (示例)' : '' }}
-        </option>
-      </select>
-      <span v-if="worldStore.loading" class="loading-text">加载中...</span>
-      <span v-if="worldStore.error" class="error-text">{{ worldStore.error }}</span>
+          <span class="status-dot" :class="{ active: systemStore.modelRunning }"></span>
+          {{ systemStore.modelRunning ? systemStore.modelName + ' 运行中' : '模型未运行' }}
+        </span>
+      </div>
     </div>
 
     <!-- 加载中 / 空状态 -->
-    <div v-if="!selectedProjectId" class="empty-state">
-      <div class="empty-icon">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <circle cx="12" cy="12" r="10" /><path d="M12 2a10 10 0 0 1 10 10H12V2z" />
-        </svg>
-      </div>
-      <p>请选择一个项目开始</p>
-    </div>
+    <EmptyState
+      v-if="!selectedProjectId"
+      icon="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"
+      title="请选择一个项目开始推演"
+      description="世界状态、势力关系与角色动态将在此聚合呈现。"
+    />
 
     <template v-else-if="worldStore.isLoaded">
       <!-- 推演控制台 -->
@@ -242,25 +330,17 @@ async function exportToOutline() {
       />
 
       <!-- Tab 切换 -->
-      <div class="tab-bar">
-        <button
-          v-for="tab in [
-            { key: 'factions', label: '势力面板' },
-            { key: 'characters', label: '角色面板' },
-            { key: 'graph', label: '关系图谱' },
-            { key: 'simulation', label: '推演日志' },
-          ]"
-          :key="tab.key"
-          class="tab-btn"
-          :class="{ active: activeTab === tab.key }"
-          @click="activeTab = tab.key as typeof activeTab"
-        >
-          {{ tab.label }}
-        </button>
-      </div>
+      <TabBar
+        v-model="activeTab"
+        :options="tabs.map(t => ({ label: t.label, value: t.key, icon: tabIcon(t.icon) }))"
+      />
 
       <!-- 势力面板 -->
       <div v-show="activeTab === 'factions'" class="panel-content">
+        <div class="panel-heading">
+          <h3>势力状态</h3>
+          <span class="panel-count">{{ worldStore.factions.length }} 个势力</span>
+        </div>
         <div class="entity-grid" v-if="worldStore.factions.length">
           <div
             v-for="fac in worldStore.factions"
@@ -270,38 +350,57 @@ async function exportToOutline() {
             @click="worldStore.selectFaction(fac.id || fac.name)"
           >
             <div class="entity-header">
-              <span class="entity-name">{{ fac.name }}</span>
-              <span class="entity-type" v-if="fac.type">{{ fac.type }}</span>
+              <div class="entity-identity">
+                <div class="entity-avatar" :style="{ background: typeColor(fac.type) }">
+                  <span>{{ fac.name.slice(0, 1) }}</span>
+                </div>
+                <div>
+                  <div class="entity-name">{{ fac.name }}</div>
+                  <div class="entity-type" v-if="fac.type">{{ fac.type }}</div>
+                </div>
+              </div>
+              <span class="power-badge" v-if="fac.state?.power_level">Lv.{{ fac.state.power_level }}</span>
             </div>
             <p class="entity-desc">{{ fac.desc }}</p>
             <div v-if="fac.state" class="state-bars">
               <div class="state-bar">
                 <span class="bar-label">稳定</span>
                 <div class="bar-track"><div class="bar-fill" :style="{ width: formatPercent(fac.state.stability), background: stateColor(fac.state.stability) }"></div></div>
+                <span class="bar-value">{{ formatPercent(fac.state.stability) }}</span>
               </div>
               <div class="state-bar">
                 <span class="bar-label">士气</span>
                 <div class="bar-track"><div class="bar-fill" :style="{ width: formatPercent(fac.state.morale), background: stateColor(fac.state.morale) }"></div></div>
+                <span class="bar-value">{{ formatPercent(fac.state.morale) }}</span>
               </div>
               <div class="state-bar">
                 <span class="bar-label">财政</span>
                 <div class="bar-track"><div class="bar-fill" :style="{ width: formatPercent(fac.state.treasury), background: stateColor(fac.state.treasury) }"></div></div>
+                <span class="bar-value">{{ formatPercent(fac.state.treasury) }}</span>
               </div>
               <div class="state-bar">
                 <span class="bar-label">威胁</span>
                 <div class="bar-track"><div class="bar-fill" :style="{ width: formatPercent(fac.state.threat_level), background: stateColor(fac.state.threat_level) }"></div></div>
+                <span class="bar-value">{{ formatPercent(fac.state.threat_level) }}</span>
               </div>
-            </div>
-            <div class="entity-footer">
-              <span class="power-badge" v-if="fac.state?.power_level">实力 Lv.{{ fac.state.power_level }}</span>
             </div>
           </div>
         </div>
-        <div v-else class="empty-inline">暂无势力数据</div>
+        <div v-else class="empty-inline">
+          <div class="empty-inline-icon">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"/></svg>
+          </div>
+          <p>暂无势力数据</p>
+          <span class="text-muted">启动推演或导入项目以生成势力</span>
+        </div>
       </div>
 
       <!-- 角色面板 -->
       <div v-show="activeTab === 'characters'" class="panel-content">
+        <div class="panel-heading">
+          <h3>角色动态</h3>
+          <span class="panel-count">{{ worldStore.characters.length }} 个角色</span>
+        </div>
         <div class="entity-grid" v-if="worldStore.characters.length">
           <div
             v-for="char in worldStore.characters"
@@ -311,8 +410,15 @@ async function exportToOutline() {
             @click="worldStore.selectCharacter(char.name)"
           >
             <div class="entity-header">
-              <span class="entity-name">{{ char.name }}</span>
-              <span class="entity-type role-tag" :class="char.role">{{ char.role }}</span>
+              <div class="entity-identity">
+                <div class="entity-avatar avatar-character">
+                  <span>{{ char.name.slice(0, 1) }}</span>
+                </div>
+                <div>
+                  <div class="entity-name">{{ char.name }}</div>
+                  <div class="entity-type role-tag" :class="char.role">{{ char.role || '角色' }}</div>
+                </div>
+              </div>
             </div>
             <p class="entity-desc">{{ char.desc }}</p>
             <div class="char-ability" v-if="char.ability">
@@ -323,26 +429,41 @@ async function exportToOutline() {
               <div class="state-bar">
                 <span class="bar-label">生命</span>
                 <div class="bar-track"><div class="bar-fill" :style="{ width: formatPercent(char.dynamic_state.health), background: stateColor(char.dynamic_state.health) }"></div></div>
+                <span class="bar-value">{{ formatPercent(char.dynamic_state.health) }}</span>
               </div>
               <div class="char-meta">
-                <span>心情: {{ char.dynamic_state.mood }}</span>
-                <span>位置: {{ char.dynamic_state.location }}</span>
+                <span class="meta-pill"><b>心情</b>{{ char.dynamic_state.mood }}</span>
+                <span class="meta-pill"><b>位置</b>{{ char.dynamic_state.location }}</span>
               </div>
             </div>
           </div>
         </div>
-        <div v-else class="empty-inline">暂无角色数据</div>
+        <div v-else class="empty-inline">
+          <div class="empty-inline-icon">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/></svg>
+          </div>
+          <p>暂无角色数据</p>
+          <span class="text-muted">启动推演或导入项目以生成角色</span>
+        </div>
       </div>
 
       <!-- 关系图谱 -->
       <div v-show="activeTab === 'graph'" class="panel-content">
-        <div class="graph-section">
-          <h3 class="graph-title">势力关系图</h3>
-          <FactionGraph :factions="worldStore.factions" @select="worldStore.selectFaction($event.id || $event.name)" />
-        </div>
-        <div class="graph-section">
-          <h3 class="graph-title">角色关系图</h3>
-          <CharacterGraph :characters="worldStore.characters" @select="worldStore.selectCharacter($event.name)" />
+        <div class="graph-layout">
+          <div class="graph-card">
+            <div class="graph-card-header">
+              <h3>势力关系图</h3>
+              <span class="graph-hint">节点大小 = 实力，连线 = 关系强度</span>
+            </div>
+            <FactionGraph :factions="worldStore.factions" @select="worldStore.selectFaction($event.id || $event.name)" />
+          </div>
+          <div class="graph-card">
+            <div class="graph-card-header">
+              <h3>角色关系图</h3>
+              <span class="graph-hint">点击节点查看角色详情</span>
+            </div>
+            <CharacterGraph :characters="worldStore.characters" @select="worldStore.selectCharacter($event.name)" />
+          </div>
         </div>
       </div>
 
@@ -372,51 +493,55 @@ async function exportToOutline() {
 <style scoped>
 .world-view {
   padding: 24px;
-  max-width: 1400px;
+  width: 100%;
   margin: 0 auto;
 }
 
-.page-header {
+/* ── 指挥台页头 ── */
+.command-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.command-title-main {
   display: flex;
   align-items: baseline;
   gap: 12px;
-  margin-bottom: 16px;
 }
 
-.page-header h2 {
-  font-size: 18px;
-  font-weight: 600;
+.command-title h2 {
+  font-size: 20px;
+  font-weight: 700;
   color: var(--text);
   margin: 0;
+  letter-spacing: -0.01em;
 }
 
-.text-muted {
-  color: var(--text-muted);
+.command-breadcrumb {
+  color: var(--text-secondary);
   font-size: 13px;
 }
 
-/* ── 项目选择器 ── */
-.project-selector {
+.command-project {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 20px;
-}
-
-.project-selector label {
-  font-size: 13px;
-  color: var(--text-secondary);
+  gap: 10px;
 }
 
 .project-select {
-  padding: 6px 12px;
+  min-width: 220px;
+  padding: 8px 12px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   color: var(--text);
   font-size: 13px;
   cursor: pointer;
-  min-width: 200px;
 }
 
 .project-select:focus {
@@ -424,40 +549,75 @@ async function exportToOutline() {
   border-color: var(--accent);
 }
 
-.loading-text {
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.status-pill.error {
+  color: var(--danger);
+  border-color: rgba(var(--danger-rgb), 0.3);
+  background: rgba(var(--danger-rgb), 0.06);
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.status-dot.pulse {
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.status-dot.active {
+  background: var(--success);
+}
+
+.status-pill.status-online {
+  color: var(--success);
+  border-color: rgba(var(--success-rgb), 0.35);
+  background: rgba(var(--success-rgb), 0.08);
+}
+
+.status-pill.status-offline {
   color: var(--text-muted);
 }
 
-.error-text {
-  font-size: 12px;
-  color: var(--danger);
+/* ── 面板内容 ── */
+.panel-content {
+  animation: fadeIn 0.25s ease;
 }
 
-/* ── Tab ── */
-.tab-bar {
+.panel-heading {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 16px;
-  border-bottom: 1px solid var(--border);
 }
 
-.tab-btn {
-  padding: 8px 16px;
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.15s;
+.panel-heading h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
 }
 
-.tab-btn:hover { color: var(--text); }
-
-.tab-btn.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
+.panel-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 3px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
 }
 
 /* ── 实体卡片 ── */
@@ -468,76 +628,107 @@ async function exportToOutline() {
 }
 
 .entity-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 16px;
+  background: var(--surface-solid);
+  border: 1px solid var(--border-hover);
+  border-radius: 14px;
+  padding: 18px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
 
 .entity-card:hover {
-  border-color: var(--border-hover);
-  background: var(--surface-hover);
+  border-color: var(--accent);
+  background: var(--surface);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
 .entity-card.selected {
   border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), 0 8px 24px rgba(var(--accent-rgb), 0.12);
 }
 
 .entity-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
+  gap: 12px;
+}
+
+.entity-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.entity-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+
+.avatar-character {
+  background: linear-gradient(135deg, var(--accent), rgba(var(--accent-rgb), 0.6));
 }
 
 .entity-name {
   font-size: 15px;
   font-weight: 600;
   color: var(--text);
+  line-height: 1.3;
 }
 
 .entity-type {
   font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 10px;
-  background: var(--surface-highlight);
-  color: var(--text-secondary);
+  color: var(--text-muted);
+  margin-top: 2px;
 }
 
-.role-tag.主角 { background: rgba(56,189,248,0.15); color: var(--accent); }
-.role-tag.女主 { background: rgba(34,197,94,0.15); color: var(--success); }
-.role-tag.导师 { background: rgba(129,140,248,0.15); color: var(--indigo); }
-.role-tag.反派 { background: rgba(239,68,68,0.15); color: var(--danger); }
-.role-tag.配角 { background: rgba(245,158,11,0.15); color: var(--warning); }
+.role-tag.主角 { color: var(--accent); }
+.role-tag.女主 { color: var(--success); }
+.role-tag.导师 { color: var(--indigo); }
+.role-tag.反派 { color: var(--danger); }
+.role-tag.配角 { color: var(--warning); }
 
 .entity-desc {
   font-size: 13px;
   color: var(--text-secondary);
-  line-height: 1.5;
-  margin: 0 0 12px 0;
+  line-height: 1.55;
+  margin: 0 0 14px 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /* ── 状态条 ── */
 .state-bars {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-bottom: 12px;
+  gap: 8px;
 }
 
 .state-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .bar-label {
   font-size: 11px;
   color: var(--text-muted);
-  width: 28px;
+  width: 30px;
   flex-shrink: 0;
 }
 
@@ -552,21 +743,25 @@ async function exportToOutline() {
 .bar-fill {
   height: 100%;
   border-radius: 3px;
-  transition: width 0.3s ease;
+  transition: width 0.4s ease;
 }
 
-.entity-footer {
-  display: flex;
-  justify-content: flex-end;
+.bar-value {
+  font-size: 11px;
+  color: var(--text-secondary);
+  width: 32px;
+  text-align: right;
+  flex-shrink: 0;
 }
 
 .power-badge {
   font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 10px;
-  background: rgba(129,140,248,0.15);
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: rgba(var(--indigo-rgb), 0.12);
   color: var(--indigo);
   font-weight: 600;
+  flex-shrink: 0;
 }
 
 .char-ability {
@@ -583,26 +778,61 @@ async function exportToOutline() {
 .char-state {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .char-meta {
   display: flex;
-  gap: 12px;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.meta-pill {
   font-size: 11px;
+  color: var(--text-secondary);
+  padding: 4px 10px;
+  background: var(--surface-faint);
+  border-radius: 20px;
+}
+
+.meta-pill b {
   color: var(--text-muted);
+  margin-right: 6px;
+  font-weight: 500;
 }
 
 /* ── 关系图 ── */
-.graph-section {
-  margin-bottom: 24px;
+.graph-layout {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
 }
 
-.graph-title {
+.graph-card {
+  background: var(--surface-solid);
+  border: 1px solid var(--border-hover);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.graph-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.graph-card-header h3 {
   font-size: 14px;
   font-weight: 600;
   color: var(--text);
-  margin-bottom: 8px;
+  margin: 0;
+}
+
+.graph-hint {
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 /* ── 空状态 ── */
@@ -611,22 +841,90 @@ async function exportToOutline() {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 60px 20px;
+  padding: 80px 20px;
   text-align: center;
 }
 
-.empty-icon { color: var(--text-muted); margin-bottom: 12px; }
+.empty-icon {
+  color: var(--text-muted);
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
 
 .empty-state p {
-  font-size: 15px;
-  color: var(--text-secondary);
-  margin: 0 0 4px 0;
+  font-size: 16px;
+  color: var(--text);
+  font-weight: 500;
+  margin: 0 0 6px 0;
+}
+
+.empty-state .text-muted {
+  font-size: 13px;
+  color: var(--text-muted);
 }
 
 .empty-inline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   text-align: center;
-  padding: 40px;
+  padding: 60px 20px;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+}
+
+.empty-inline-icon {
   color: var(--text-muted);
+  margin-bottom: 12px;
+  opacity: 0.45;
+}
+
+.empty-inline p {
+  margin: 0 0 4px 0;
   font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.empty-inline .text-muted {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.text-muted {
+  color: var(--text-muted);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 1024px) {
+  .graph-layout {
+    grid-template-columns: 1fr;
+  }
+  .command-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 768px) {
+  .entity-grid {
+    grid-template-columns: 1fr;
+  }
+  .tab-bar {
+    width: 100%;
+    overflow-x: auto;
+  }
 }
 </style>

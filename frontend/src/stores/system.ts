@@ -8,6 +8,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { DashboardAPI, type ModelStatusData, type ConfigData } from '@/api/dashboard'
+import { useUiStore } from '@/stores/ui'
 
 export const useSystemStore = defineStore('system', () => {
   // ── State ──
@@ -18,6 +19,7 @@ export const useSystemStore = defineStore('system', () => {
   const lastModelUpdate = ref(0)
 
   let pollTimer: ReturnType<typeof setInterval> | null = null
+  let visibilityHandler: (() => void) | null = null
 
   // ── Computed ──
   const mainModel = computed(() => modelStatus.value?.models?.main_model ?? null)
@@ -72,6 +74,46 @@ export const useSystemStore = defineStore('system', () => {
     }
   }
 
+  /**
+   * 统一大模型入口守卫。
+   * 若模型已运行直接返回 true；未运行则弹窗询问用户，确认后启动并等待就绪。
+   */
+  async function ensureModelRunning(operationName = '此操作'): Promise<boolean> {
+    const uiStore = useUiStore()
+
+    // 先刷新一次状态，避免误判
+    await fetchModelStatus()
+    if (modelRunning.value) return true
+
+    const confirmed = await uiStore.showConfirm({
+      title: '需要启动大模型',
+      message: `${operationName}会开启本地大模型，期间将占用 GPU 显存并产生功耗。是否继续？`,
+      confirmText: '启动并继续',
+      cancelText: '取消',
+      type: 'warning',
+    })
+    if (!confirmed) return false
+
+    uiStore.showToast('正在启动大模型，请稍候...', 'info')
+    await toggleModel()
+
+    // 轮询等待模型就绪（最长 60 秒）
+    const maxWaitMs = 60000
+    const pollIntervalMs = 1500
+    const startAt = Date.now()
+    while (Date.now() - startAt < maxWaitMs) {
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs))
+      await fetchModelStatus()
+      if (modelRunning.value) {
+        uiStore.showToast('大模型已就绪', 'success')
+        return true
+      }
+    }
+
+    uiStore.showToast('大模型启动超时，请检查硬件监控或手动启动', 'error')
+    return false
+  }
+
   /** 加载系统配置（版本号等） */
   async function fetchConfig() {
     const res = await DashboardAPI.getConfig()
@@ -86,7 +128,26 @@ export const useSystemStore = defineStore('system', () => {
     stopPolling()
     // 立即获取一次
     fetchModelStatus()
-    pollTimer = setInterval(fetchModelStatus, intervalMs)
+    pollTimer = setInterval(() => {
+      if (document.hidden) return
+      fetchModelStatus()
+    }, intervalMs)
+
+    if (!visibilityHandler) {
+      visibilityHandler = () => {
+        if (!document.hidden && !pollTimer) {
+          fetchModelStatus()
+          pollTimer = setInterval(() => {
+            if (document.hidden) return
+            fetchModelStatus()
+          }, intervalMs)
+        } else if (document.hidden && pollTimer) {
+          clearInterval(pollTimer)
+          pollTimer = null
+        }
+      }
+      document.addEventListener('visibilitychange', visibilityHandler)
+    }
   }
 
   /** 停止轮询 */
@@ -94,6 +155,10 @@ export const useSystemStore = defineStore('system', () => {
     if (pollTimer) {
       clearInterval(pollTimer)
       pollTimer = null
+    }
+    if (visibilityHandler) {
+      document.removeEventListener('visibilitychange', visibilityHandler)
+      visibilityHandler = null
     }
   }
 
@@ -116,6 +181,7 @@ export const useSystemStore = defineStore('system', () => {
     // actions
     fetchModelStatus,
     toggleModel,
+    ensureModelRunning,
     fetchConfig,
     startPolling,
     stopPolling,

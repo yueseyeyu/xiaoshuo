@@ -180,7 +180,7 @@ async function generateSkeletonFromPremise(qs: typeof qsData.value) {
     <div class="qs-overlay" @click.self="emit('close')">
       <div class="qs-modal">
         <div class="qs-modal-header">
-          <h3>⚡ 快速开始：从梗概到大纲</h3>
+          <h3><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-3px;margin-right:4px;"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>快速开始：从梗概到大纲</h3>
           <button class="icon-btn" @click="emit('close')">×</button>
         </div>
         <!-- 步骤指示器 -->

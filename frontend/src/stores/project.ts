@@ -86,15 +86,32 @@ export const useProjectStore = defineStore('project', () => {
   /** 退出并删除 demo 项目 */
   async function exitDemoProject(): Promise<void> {
     const demoId = currentProject.value?.id
-    currentProject.value = null
+    clearCurrent()
     if (demoId) {
       await ProjectAPI.remove(demoId)
-      await loadProjects()
     }
+    await loadProjects()
   }
 
   function clearCurrent() {
     currentProject.value = null
+  }
+
+  /** 页面冷启动时恢复当前项目：优先 demo，否则第一个项目 */
+  async function restoreCurrentProject(): Promise<boolean> {
+    if (currentProject.value) return true
+    await loadProjects()
+    const demo = projects.value.find((p) => p.is_demo)
+    if (demo) {
+      await loadProject(demo.id)
+      return true
+    }
+    const first = projects.value[0]
+    if (first) {
+      await loadProject(first.id)
+      return true
+    }
+    return false
   }
 
   return {
@@ -111,5 +128,6 @@ export const useProjectStore = defineStore('project', () => {
     loadDemoProject,
     exitDemoProject,
     clearCurrent,
+    restoreCurrentProject,
   }
 })

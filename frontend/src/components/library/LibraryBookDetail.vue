@@ -141,7 +141,7 @@ function coverStyle(_title: string, genre: string): string {
 }
 .book-tag-primary {
   background: var(--accent);
-  color: #0a0a0a;
+  color: var(--bg);
 }
 
 .icon-btn {

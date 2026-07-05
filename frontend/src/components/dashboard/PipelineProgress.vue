@@ -16,14 +16,24 @@ const emit = defineEmits<{
 }>()
 
 const PIPELINE_STAGES = [
-  { key: 'chunk', label: '分块', icon: '✂️' },
-  { key: 'recursive_summarize', label: '递归摘要', icon: '📜' },
-  { key: 'rhythm', label: '节奏分析', icon: '🎵' },
-  { key: 'emotion', label: '情绪标注', icon: '💖' },
-  { key: 'conflict', label: '冲突检测', icon: '⚡' },
-  { key: 'pleasure', label: '爽点分析', icon: '🎀' },
-  { key: 'synthesize', label: '综合输出', icon: '📦' },
+  { key: 'chunk', label: '分块', icon: 'scissors' },
+  { key: 'recursive_summarize', label: '递归摘要', icon: 'layers' },
+  { key: 'rhythm', label: '节奏分析', icon: 'activity' },
+  { key: 'emotion', label: '情绪标注', icon: 'heart' },
+  { key: 'conflict', label: '冲突检测', icon: 'zap' },
+  { key: 'pleasure', label: '爽点分析', icon: 'star' },
+  { key: 'synthesize', label: '综合输出', icon: 'package' },
 ]
+
+const STAGE_ICON_PATHS: Record<string, string> = {
+  scissors: 'M6 9l6 6 M6 15l6-6 M20 4l-4 16',
+  layers: 'M12 2L2 7l10 5 10-5-10-5z M2 17l10 5 10-5 M2 12l10 5 10-5',
+  activity: 'M22 12h-4l-3 9L9 3l-3 9H2',
+  heart: 'M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z',
+  zap: 'M13 2L3 14h9l-1 8 10-12h-9l1-8z',
+  star: 'M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z',
+  package: 'M12.89 1.45l8 4A2 2 0 0 1 22 7.24v9.53a2 2 0 0 1-1.11 1.79l-8 4a2 2 0 0 1-1.79 0l-8-4a2 2 0 0 1-1.1-1.8V7.24a2 2 0 0 1 1.1-1.79l8-4a2 2 0 0 1 1.79 0z M2.32 6.16l9.68 4.84 9.68-4.84 M12 22.76V11',
+}
 
 const pipelineStage = computed(() => props.progressData?.pipeline_stage ?? null)
 const pipelineRunning = computed(() => props.progressData?.running ?? false)
@@ -72,7 +82,9 @@ const pipelinePercent = computed(() => {
             pending: !pipelineStage || i + 1 > (pipelineStage.stage_num || 0),
           }"
         >
-          <div class="pipeline-step-icon">{{ s.icon }}</div>
+          <svg class="pipeline-step-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path :d="STAGE_ICON_PATHS[s.icon]" />
+          </svg>
           <div class="pipeline-step-label">{{ s.label }}</div>
         </div>
       </div>
@@ -85,7 +97,9 @@ const pipelinePercent = computed(() => {
       <!-- 进度信息 -->
       <div class="pipeline-info-row">
         <span class="pipeline-info-task">{{ pipelineStage?.current_task || '处理中...' }}</span>
-        <span v-if="pipelineStage?.current_book" class="pipeline-info-book">📖 {{ pipelineStage.current_book }}</span>
+        <span v-if="pipelineStage?.current_book" class="pipeline-info-book">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px;margin-right:3px;"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>{{ pipelineStage.current_book }}
+        </span>
         <span class="pipeline-info-pct">{{ pipelinePercent }}%</span>
       </div>
 
@@ -98,6 +112,18 @@ const pipelinePercent = computed(() => {
           class="pipeline-book-chip"
         >{{ b }}</span>
       </div>
+    </div>
+  </div>
+
+  <!-- 未运行状态 -->
+  <div v-else class="pipeline-idle">
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
+      <path d="M13 2v7h7"/>
+    </svg>
+    <div class="pipeline-idle-text">
+      <span class="pipeline-idle-title">暂无运行中的管线任务</span>
+      <span class="pipeline-idle-desc">导入书籍并启动拆书分析后，实时进度将显示在这里</span>
     </div>
   </div>
 </template>
@@ -192,7 +218,8 @@ const pipelinePercent = computed(() => {
   background: rgba(239, 68, 68, 0.08);
 }
 .pipeline-step-icon {
-  font-size: 18px;
+  width: 18px;
+  height: 18px;
 }
 .pipeline-step-label {
   font-size: 11px;
@@ -257,6 +284,33 @@ const pipelinePercent = computed(() => {
   padding: 2px 8px;
   border-radius: 4px;
   background: var(--surface-hover);
+  color: var(--text-secondary);
+}
+.pipeline-idle {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.pipeline-idle svg { flex-shrink: 0; }
+.pipeline-idle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+.pipeline-idle-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.pipeline-idle-desc {
+  font-size: 12px;
   color: var(--text-secondary);
 }
 </style>

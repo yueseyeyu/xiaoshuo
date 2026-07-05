@@ -17,15 +17,18 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useProjectStore } from '@/stores/project'
 import { useUiStore } from '@/stores/ui'
+import { useSystemStore } from '@/stores/system'
 import { ProjectAPI } from '@/api/project'
 import { ReportsAPI } from '@/api/reports'
-import { DashboardAPI } from '@/api/dashboard'
 import type { Volume, SkeletonChapter, WorldInfo, Character, Faction } from '@/types'
+import TabBar from '@/components/common/TabBar.vue'
 import QuickStartWizard from '@/components/design/QuickStartWizard.vue'
 import DesignEditModal, { type EditType } from '@/components/design/DesignEditModal.vue'
+import FactionGraph from '@/components/design/FactionGraph.vue'
 
 const projectStore = useProjectStore()
 const uiStore = useUiStore()
+const systemStore = useSystemStore()
 
 // ── 页面状态 ──
 const activeTab = ref<'rough' | 'detailed' | 'world' | 'factions' | 'characters'>('rough')
@@ -65,11 +68,13 @@ async function loadSkeleton() {
 }
 
 async function loadBlueprint() {
+  const ok = await systemStore.ensureModelRunning('生成章节蓝图')
+  if (!ok) return
   blueprintLoading.value = true
   const res = await ReportsAPI.getBlueprint({
     chapter: 1,
     total_chapters: 300,
-    genre: '末世',
+    genre: projectStore.projectGenre || '末世',
     project_id: projectStore.currentProject?.id,
   })
   if (res.ok && res.data) blueprintResult.value = res.data
@@ -87,12 +92,20 @@ const progressPct = computed(() => totalChapters.value > 0 ? Math.round((written
 
 // ── 子页签定义 ──
 const tabs = [
-  { key: 'rough' as const, label: '粗纲', icon: '📋' },
-  { key: 'detailed' as const, label: '细纲', icon: '📝' },
-  { key: 'world' as const, label: '世界观', icon: '🌍' },
-  { key: 'characters' as const, label: '角色', icon: '👤' },
-  { key: 'factions' as const, label: '势力', icon: '⚔️' },
+  { key: 'rough' as const, label: '粗纲', icon: 'layers' },
+  { key: 'detailed' as const, label: '细纲', icon: 'list' },
+  { key: 'world' as const, label: '世界观', icon: 'globe' },
+  { key: 'characters' as const, label: '角色', icon: 'user' },
+  { key: 'factions' as const, label: '势力', icon: 'shield' },
 ]
+
+const tabIcons: Record<string, string> = {
+  layers: 'M12 2L2 7l10 5 10-5-10-5z M2 17l10 5 10-5 M2 12l10 5 10-5',
+  list: 'M8 6h13 M8 12h13 M8 18h13 M3 6h.01 M3 12h.01 M3 18h.01',
+  globe: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z M2 12h20 M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z',
+  user: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
+  shield: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
+}
 
 // ── 能力体系拆分 ──
 const powersList = computed(() => {
@@ -101,10 +114,6 @@ const powersList = computed(() => {
 })
 
 // ── 方法 ──
-function switchTab(tab: typeof activeTab.value) {
-  activeTab.value = tab
-}
-
 async function loadDesignData() {
   if (!currentProject.value?.id) return
   loading.value = true
@@ -272,18 +281,8 @@ async function saveEdit() {
 // ── 从 AI 生成骨架 ──
 async function loadFromAI() {
   if (!currentProject.value?.id) return
-  uiStore.showToast('正在检查模型状态...', 'info')
-  const modelRes = await DashboardAPI.getModelStatus()
-  if (!modelRes.ok || !modelRes.data || modelRes.data.mode === 'unknown') {
-    uiStore.showToast('无法获取模型状态，请检查后端服务', 'error')
-    return
-  }
-  const models = modelRes.data.models || {}
-  const anyRunning = Object.values(models).some(m => m && m.running)
-  if (!anyRunning) {
-    uiStore.showToast('本地模型未启动，请先在设置页检查模型', 'error')
-    return
-  }
+  const ok = await systemStore.ensureModelRunning('AI 生成骨架')
+  if (!ok) return
   uiStore.showToast('模型已就绪，正在生成骨架...', 'info')
   const skelRes = await ProjectAPI.getSkeleton(currentProject.value.id)
   if (skelRes.ok && skelRes.data && skelRes.data.volumes?.length > 0) {
@@ -305,24 +304,6 @@ async function onQuickStartGenerated() {
   loading.value = false
 }
 
-// ── 势力 SVG 计算 ──
-const factionPositions = computed(() => {
-  const n = factions.value.length
-  if (n === 0) return []
-  const cx = 300, cy = 150
-  if (n === 1) return [{ x: cx, y: cy, name: factions.value[0].name }]
-  if (n === 2) return [
-    { x: cx - 100, y: cy, name: factions.value[0].name },
-    { x: cx + 100, y: cy, name: factions.value[1].name },
-  ]
-  const radiusX = Math.min(200, 100 + n * 15)
-  const radiusY = Math.min(90, 50 + n * 8)
-  return factions.value.map((f, i) => {
-    const angle = (i / n) * Math.PI * 2 - Math.PI / 2
-    return { x: cx + Math.cos(angle) * radiusX, y: cy + Math.sin(angle) * radiusY, name: f.name }
-  })
-})
-
 // ── 生命周期 ──
 onMounted(async () => {
   // 检查拆书页联动
@@ -335,13 +316,13 @@ onMounted(async () => {
     }
   } catch { /* ignore */ }
 
-  if (hasProject.value && currentProject.value?.id) {
-    await loadDesignData()
+  if (!projectStore.currentProject?.id) {
+    await projectStore.restoreCurrentProject()
   }
 })
 
-watch(() => currentProject.value?.id, async (newId) => {
-  if (newId) {
+watch(() => projectStore.currentProject, async (project) => {
+  if (project?.id) {
     await loadDesignData()
   } else {
     volumes.value = []
@@ -349,15 +330,32 @@ watch(() => currentProject.value?.id, async (newId) => {
     characters.value = []
     factions.value = []
     worldData.value = { core: '', powers: '' }
+    skeletonText.value = ''
+    blueprintResult.value = null
   }
-})
+}, { immediate: true })
 </script>
 
 <template>
   <div class="design-page">
+    <!-- 页头 -->
+    <div class="page-header">
+      <div class="page-header-main">
+        <h2>设计</h2>
+        <span class="page-subtitle">粗纲、细纲、世界观、角色与势力</span>
+      </div>
+      <button v-if="hasProject" class="btn btn-primary btn-sm" @click="openQuickStart">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        快速开始
+      </button>
+    </div>
+
     <!-- 拆书联动提示 -->
     <div v-if="disassemblyHint" class="dis-hint-bar">
-      <span>💡 拆书建议：{{ disassemblyHint }}</span>
+      <span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px;"><path d="M9.663 17h4.673M12 3v1M6.343 4.343l-.707-.707M18.364 4.343l.707-.707M4 12h1M19 12h1M6.343 19.657l-.707.707M18.364 19.657l.707.707M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0z"/></svg>
+        拆书建议：{{ disassemblyHint }}
+      </span>
       <button class="dis-hint-close" @click="disassemblyHint = null">×</button>
     </div>
 
@@ -369,19 +367,22 @@ watch(() => currentProject.value?.id, async (newId) => {
       <h3 class="empty-title">开始设计你的小说</h3>
       <p class="empty-desc">从一句话梗概开始，系统帮你生成完整的大纲骨架。<br>也可以先体验示例项目，了解设计页的全部能力。</p>
       <div class="empty-actions">
-        <button class="btn btn-primary btn-lg" @click="openQuickStart">⚡ 快速开始</button>
+        <button class="btn btn-primary btn-lg" @click="openQuickStart">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          快速开始
+        </button>
       </div>
       <div class="empty-features">
         <div class="empty-feature" @click="openQuickStart">
-          <div class="feat-icon">⚡</div>
+          <svg class="feat-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
           <div><b>AI 生成骨架</b><span>选题材 → 写梗概 → 自动生成五卷粗纲</span></div>
         </div>
         <div class="empty-feature" @click="activeTab = 'detailed'">
-          <div class="feat-icon">📝</div>
+          <svg class="feat-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13 M8 12h13 M8 18h13 M3 6h.01 M3 12h.01 M3 18h.01"/></svg>
           <div><b>网文细纲</b><span>钩子 / 爽点 / 伏笔 / 期待感，专为网文设计</span></div>
         </div>
         <div class="empty-feature" @click="activeTab = 'characters'">
-          <div class="feat-icon">👤</div>
+          <svg class="feat-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/></svg>
           <div><b>角色 & 势力</b><span>结构化卡片 + 关系图，不再前后矛盾</span></div>
         </div>
       </div>
@@ -391,18 +392,10 @@ watch(() => currentProject.value?.id, async (newId) => {
     <template v-else>
       <!-- 子导航 -->
       <nav class="design-subnav">
-        <div class="subnav-left">
-          <button
-            v-for="tab in tabs"
-            :key="tab.key"
-            class="subnav-item"
-            :class="{ active: activeTab === tab.key }"
-            @click="switchTab(tab.key)"
-          >
-            <span class="subnav-icon">{{ tab.icon }}</span>
-            <span>{{ tab.label }}</span>
-          </button>
-        </div>
+        <TabBar
+          v-model="activeTab"
+          :options="tabs.map(t => ({ label: t.label, value: t.key, icon: tabIcons[t.icon] }))"
+        />
         <div class="subnav-right">
           <button class="btn btn-secondary btn-sm" :disabled="skeletonLoading" @click="loadSkeleton">{{ skeletonLoading ? '加载中...' : '示例骨架' }}</button>
           <button class="btn btn-secondary btn-sm" :disabled="blueprintLoading" @click="loadBlueprint">{{ blueprintLoading ? '加载中...' : '蓝图' }}</button>
@@ -509,46 +502,9 @@ watch(() => currentProject.value?.id, async (newId) => {
 
           <!-- 势力 -->
           <div v-show="activeTab === 'factions'" class="design-pane">
-            <div class="faction-svg-card">
+            <div class="faction-graph-card">
               <h4>势力关系图</h4>
-              <svg viewBox="0 0 600 300" class="relation-svg" v-if="factions.length > 0">
-                <defs>
-                  <marker id="faction-arrow" markerWidth="10" markerHeight="10" refX="20" refY="3" orient="auto" markerUnits="strokeWidth">
-                    <path d="M0,0 L0,6 L9,3 z" fill="var(--text-secondary)" />
-                  </marker>
-                </defs>
-                <!-- 连线 -->
-                <template v-if="factionPositions.length > 2">
-                  <line
-                    v-for="(p, i) in factionPositions.slice(1)"
-                    :key="'line-' + i"
-                    :x1="factionPositions[0].x" :y1="factionPositions[0].y"
-                    :x2="p.x" :y2="p.y"
-                    stroke="var(--border)" stroke-width="1"
-                  />
-                </template>
-                <!-- 节点 -->
-                <g
-                  v-for="(p, i) in factionPositions"
-                  :key="'node-' + i"
-                  style="cursor:pointer;"
-                  @click="openEditFaction(i)"
-                >
-                  <circle
-                    :cx="p.x" :cy="p.y"
-                    :r="i === 0 ? 28 : 24"
-                    fill="var(--surface)"
-                    :stroke="i === 0 ? 'var(--accent)' : 'var(--border)'"
-                    :stroke-width="i === 0 ? 2 : 1"
-                  />
-                  <text
-                    :x="p.x" :y="p.y + 4"
-                    text-anchor="middle"
-                    :fill="i === 0 ? 'var(--text)' : 'var(--text-secondary)'"
-                    font-size="12"
-                  >{{ p.name.length > 5 ? p.name.substring(0, 4) + '…' : p.name }}</text>
-                </g>
-              </svg>
+              <FactionGraph v-if="factions.length > 0" :factions="factions" @edit-faction="openEditFaction" />
               <div v-else class="pane-empty" style="padding:40px;">暂无势力数据，请在下方添加</div>
             </div>
             <div class="faction-list-card">
@@ -564,7 +520,9 @@ watch(() => currentProject.value?.id, async (newId) => {
                     <b>{{ f.name }}</b>
                     <p>{{ f.desc }}</p>
                   </div>
-                  <span class="faction-edit-icon">✏</span>
+                  <span class="faction-edit-icon">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                  </span>
                 </div>
               </div>
             </div>
@@ -606,7 +564,7 @@ watch(() => currentProject.value?.id, async (newId) => {
 </template>
 
 <style scoped>
-.design-page { padding: 0 24px 16px; height: 100%; overflow-y: auto; }
+.design-page { padding: 16px 24px; height: 100%; overflow-y: auto; background: radial-gradient(circle at 50% 0%, rgba(var(--accent-rgb), 0.05), transparent 35%), var(--bg); }
 
 /* 拆书联动提示 */
 .dis-hint-bar { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; margin-bottom: 12px; background: rgba(56, 189, 248, 0.08); border: 1px solid var(--accent); border-radius: 8px; font-size: 13px; color: var(--text); }
@@ -620,18 +578,12 @@ watch(() => currentProject.value?.id, async (newId) => {
 .empty-features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; max-width: 700px; }
 .empty-feature { display: flex; align-items: flex-start; gap: 10px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; transition: all 0.15s; }
 .empty-feature:hover { border-color: var(--accent); background: rgba(56, 189, 248, 0.04); }
-.feat-icon { font-size: 20px; }
+.feat-icon { width: 20px; height: 20px; flex-shrink: 0; color: var(--accent); }
 .empty-feature b { font-size: 13px; display: block; }
 .empty-feature span { font-size: 11px; color: var(--text-secondary); }
 
-/* 子导航 */
-.design-subnav { display: flex; justify-content: space-between; align-items: center; padding: 8px 0 12px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
-.subnav-left { display: flex; gap: 4px; }
-.subnav-item { display: flex; align-items: center; gap: 4px; padding: 6px 12px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-secondary); font-size: 13px; cursor: pointer; transition: all 0.15s; }
-.subnav-item:hover { background: var(--surface-hover); }
-.subnav-item.active { background: rgba(56, 189, 248, 0.08); color: var(--accent); border-color: var(--accent); }
-.subnav-icon { font-size: 14px; }
-.subnav-right { display: flex; gap: 6px; }
+.design-subnav { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--surface-solid); border: 1px solid var(--border-hover); border-radius: 12px; margin: 12px 0 18px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06); }
+.subnav-right { display: flex; gap: 8px; }
 
 /* 主体布局 */
 .design-body { display: flex; gap: 16px; }
@@ -657,8 +609,8 @@ watch(() => currentProject.value?.id, async (newId) => {
 
 /* 粗纲卷卡片 */
 .volume-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
-.volume-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; cursor: pointer; transition: all 0.15s; }
-.volume-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+.volume-card { background: var(--surface-solid); border: 1px solid var(--border-hover); border-radius: 10px; padding: 14px; cursor: pointer; transition: all 0.15s; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); }
+.volume-card:hover { border-color: var(--accent); transform: translateY(-1px); box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08); }
 .vol-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
 .vol-title { font-size: 15px; font-weight: 600; }
 .vol-range { font-size: 11px; color: var(--text-secondary); }
@@ -669,8 +621,8 @@ watch(() => currentProject.value?.id, async (newId) => {
 
 /* 细纲段卡片 */
 .segment-grid { display: flex; flex-direction: column; gap: 12px; }
-.segment-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; cursor: pointer; transition: all 0.15s; }
-.segment-card:hover { border-color: var(--accent); }
+.segment-card { background: var(--surface-solid); border: 1px solid var(--border-hover); border-radius: 10px; padding: 14px; cursor: pointer; transition: all 0.15s; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); }
+.segment-card:hover { border-color: var(--accent); box-shadow: 0 3px 8px rgba(0, 0, 0, 0.07); }
 .seg-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .seg-title { font-size: 14px; font-weight: 600; }
 .seg-status { font-size: 10px; padding: 2px 8px; border-radius: 3px; }
@@ -702,9 +654,8 @@ watch(() => currentProject.value?.id, async (newId) => {
 .char-card p { font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin: 0; }
 
 /* 势力 */
-.faction-svg-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
-.faction-svg-card h4 { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
-.relation-svg { width: 100%; height: 300px; }
+.faction-graph-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
+.faction-graph-card h4 { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
 .faction-list-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
 .faction-list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .faction-list-header h4 { font-size: 14px; font-weight: 600; }

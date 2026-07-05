@@ -11,7 +11,6 @@
  * - 报告详情抽屉 + 导出
  */
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import { useProjectStore } from '@/stores/project'
 import { useUiStore } from '@/stores/ui'
 import { DashboardAPI, type ReportOverview } from '@/api/dashboard'
@@ -19,8 +18,11 @@ import ReportDetailDrawer from '@/components/reports/ReportDetailDrawer.vue'
 import ReportCard, { type ReportCardData } from '@/components/reports/ReportCard.vue'
 import { type AdviceItem } from '@/components/reports/AdviceList.vue'
 import { ReportsAPI, type GuidanceItem, type TechniqueItem, type DiagnosisResult } from '@/api/reports'
+import TabBar from '@/components/common/TabBar.vue'
+import KpiCard from '@/components/common/KpiCard.vue'
+import AppSelect from '@/components/common/AppSelect.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 
-const router = useRouter()
 const projectStore = useProjectStore()
 const uiStore = useUiStore()
 
@@ -32,6 +34,11 @@ const overview = ref<ReportOverview | null>(null)
 const genres = ref<string[]>([])
 const selectedGenre = ref('全部')
 const loading = ref(true)
+
+const genreOptions = computed(() => [
+  { value: '全部', label: '全部题材' },
+  ...genres.value.map((g) => ({ value: g, label: g })),
+])
 const activeFilter = ref('all')
 const detailOpen = ref(false)
 const detailCard = ref<ReportCardData | null>(null)
@@ -42,7 +49,7 @@ const guidanceItems = ref<GuidanceItem[]>([])
 const techniqueItems = ref<TechniqueItem[]>([])
 const diagnosisResult = ref<DiagnosisResult | null>(null)
 const diagnosisLoading = ref(false)
-const activeReportTab = ref<'overview' | 'guidance' | 'techniques' | 'diagnosis'>('overview')
+const activeReportTab = ref<'guidance' | 'techniques' | 'diagnosis'>('guidance')
 
 async function loadGuidance() {
   if (guidanceItems.value.length) return
@@ -73,15 +80,6 @@ const barColors: Record<string, string> = {
   fast: '#22C55E', medium: '#F59E0B', slow: '#EF4444',
   major: '#F97316', minor: '#FBBF24', none: '#6B7280', climax: '#DC2626',
 }
-
-const filterTabs = [
-  { key: 'all', label: '全部' },
-  { key: 'overview', label: '总览' },
-  { key: 'quality', label: '质量' },
-  { key: 'rhythm', label: '节奏' },
-  { key: 'pleasure', label: '爽点' },
-  { key: 'tech', label: '技法' },
-]
 
 // ── 方法 ──
 function fmtNumber(n: number): string {
@@ -308,6 +306,30 @@ const filteredCards = computed(() => {
   return reportCards.value.filter((c) => c.type === activeFilter.value)
 })
 
+const headerStats = computed(() => {
+  if (!overview.value) return []
+  const ov = overview.value
+  const stats = ov.stats ?? { books: 0, chapters: 0, words: 0 }
+  const ra = ov.rhythm_audit ?? { total_books: 0, passed: 0 }
+  const passRate = ra.total_books > 0 ? Math.round((ra.passed / ra.total_books) * 100) : 0
+  return [
+    { label: '已拆书', value: stats.books || 0, suffix: '本' },
+    { label: '总章节', value: fmtNumber(stats.chapters || 0), suffix: '' },
+    { label: '总字数', value: fmtNumber(stats.words || 0), suffix: '' },
+    { label: '节奏审计', value: passRate, suffix: '%' },
+  ]
+})
+
+const filterChips = [
+  { key: 'all', label: '全部' },
+  { key: 'overview', label: '总览' },
+  { key: 'quality', label: '质量' },
+  { key: 'score', label: '评分' },
+  { key: 'rhythm', label: '节奏' },
+  { key: 'pleasure', label: '爽点' },
+  { key: 'tech', label: '技法' },
+]
+
 function buildOverviewDetail(ov: ReportOverview): string {
   const stats = ov.stats ?? { books: 0, chapters: 0, words: 0 }
   const ra = ov.rhythm_audit ?? { total_books: 0, passed: 0, warnings: 0, failed: 0 }
@@ -365,120 +387,146 @@ function buildScoreDetail(ov: ReportOverview): string {
 
 function buildDistributionDetail(ov: ReportOverview): string {
   const dist = ov.distributions || {}
-  const lines: string[] = []
-  const pace = dist.pace || {}
-  const paceTotal = Object.values(pace).reduce((a, b) => a + b, 0)
-  lines.push(`【节奏分布】 (总计 ${paceTotal} 章)`)
-  Object.entries(pace).sort((a, b) => b[1] - a[1]).forEach(([k, v]) => {
-    lines.push(`  ${k}: ${v} (${paceTotal > 0 ? ((v / paceTotal) * 100).toFixed(1) : '0.0'}%)`)
-  })
-  lines.push('')
-  const emotion = dist.emotion || {}
-  const emoTotal = Object.values(emotion).reduce((a, b) => a + b, 0)
-  lines.push(`【情绪分布】 (总计 ${emoTotal} 章)`)
-  Object.entries(emotion).sort((a, b) => b[1] - a[1]).slice(0, 10).forEach(([k, v]) => {
-    lines.push(`  ${k}: ${v} (${emoTotal > 0 ? ((v / emoTotal) * 100).toFixed(1) : '0.0'}%)`)
-  })
+  const paceDist = dist.pace || {}
+  const total = Object.values(paceDist).reduce((a, b) => a + b, 0)
+  if (total === 0) return '暂无节奏分布数据'
+  const lines = ['【节奏分布】']
+  Object.entries(paceDist)
+    .sort((a, b) => b[1] - a[1])
+    .forEach(([k, v]) => {
+      lines.push(`  ${paceLabels[k] || k}: ${v} 章 (${Math.round((v / total) * 100)}%)`)
+    })
   return lines.join('\n')
 }
 
 function buildPleasureDetail(ov: ReportOverview): string {
   const dist = ov.distributions || {}
-  const pleasure = dist.pleasure || {}
-  const total = Object.values(pleasure).reduce((a, b) => a + b, 0)
-  const lines = [`【爽点分布】 (总计 ${total} 章)`]
-  Object.entries(pleasure).sort((a, b) => b[1] - a[1]).forEach(([k, v]) => {
-    lines.push(`  ${k}: ${v} (${total > 0 ? ((v / total) * 100).toFixed(1) : '0.0'}%)`)
-  })
-  lines.push('', '说明: "none" 表示本章无明确爽点，"minor" 为小爽点，', '"major" 为大爽点，"climax" 为高潮章。')
-  return lines.join('\n')
-}
-
-function buildTechniqueDetail(cards: Array<{ title: string; content: string; category?: string; id?: string }>): string {
-  if (!cards || cards.length === 0) return '暂无技法卡片数据'
-  const byCat: Record<string, typeof cards> = {}
-  cards.forEach((c) => {
-    const cat = c.category || 'other'
-    if (!byCat[cat]) byCat[cat] = []
-    byCat[cat].push(c)
-  })
-  const lines: string[] = []
-  Object.entries(byCat).forEach(([cat, items]) => {
-    lines.push(`【${cat}】(${items.length} 张)`)
-    items.forEach((c) => {
-      lines.push(`  ${c.title || c.id || '?'}`)
-      lines.push(`    ${c.content || ''}`)
+  const pleasureDist = dist.pleasure || {}
+  const total = Object.values(pleasureDist).reduce((a, b) => a + b, 0)
+  if (total === 0) return '暂无爽点分布数据'
+  const lines = ['【爽点分布】']
+  Object.entries(pleasureDist)
+    .sort((a, b) => b[1] - a[1])
+    .forEach(([k, v]) => {
+      lines.push(`  ${pleasureLabels[k] || k}: ${v} 章 (${Math.round((v / total) * 100)}%)`)
     })
-    lines.push('')
-  })
   return lines.join('\n')
 }
 
-// ── 交互 ──
+function buildTechniqueDetail(tc: Array<{ title?: string; category?: string }>): string {
+  if (tc.length === 0) return '暂无技法卡片数据'
+  const byCat: Record<string, number> = {}
+  tc.forEach((c) => { const cat = c.category || '其他'; byCat[cat] = (byCat[cat] || 0) + 1 })
+  const lines = ['【技法卡片分类统计】']
+  Object.entries(byCat)
+    .sort((a, b) => b[1] - a[1])
+    .forEach(([cat, count]) => {
+      lines.push(`  ${cat}: ${count} 张`)
+    })
+  lines.push('', `共计 ${tc.length} 张技法卡片`)
+  return lines.join('\n')
+}
+
 function openDetail(card: ReportCardData) {
   detailCard.value = card
   detailOpen.value = true
 }
 
-function closeDetail() {
-  detailOpen.value = false
-}
-
-function applyTechniqueToOutline(title: string) {
-  try {
-    sessionStorage.setItem('pending_technique', JSON.stringify({ title, ts: Date.now() }))
-  } catch (e) { /* ignore */ }
-  uiStore.showToast(`技法「${title}」已准备，正在跳转到设计页...`, 'info')
-  router.push({ name: 'design' })
+function applyTechnique(name: string) {
+  uiStore.showToast(`已将「${name}」加入大纲素材`, 'success')
 }
 
 function exportReport() {
-  if (!detailCard.value) return
-  const r = detailCard.value
-  const text = `${r.title}\n\n核心洞察：\n${r.insight || ''}` +
-    (r.advice.length > 0 ? '\n\n创作建议：\n' + r.advice.map((a) => `- ${a.text}`).join('\n') : '') +
-    `\n\n详细分析：\n${r.detail || ''}`
-  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+  if (!overview.value) {
+    uiStore.showToast('暂无报告数据可导出', 'error')
+    return
+  }
+  const ov = overview.value
+  const projectName = projectStore.currentProject?.meta?.title || '项目'
+  const now = new Date().toLocaleString('zh-CN')
+
+  let md = `# ${projectName} 数据分析报告\n\n`
+  md += `> 导出时间：${now}  \n`
+  md += `> 样本：${ov.stats?.books ?? 0} 本书 / ${ov.stats?.chapters ?? 0} 章 / ${ov.stats?.words?.toLocaleString() ?? 0} 字\n\n`
+
+  md += `## 核心指标\n\n`
+  headerStats.value.forEach((s: { label: string; value: string | number }) => {
+    md += `- **${s.label}**：${s.value}\n`
+  })
+  md += '\n'
+
+  md += `## 详细报告\n\n`
+  reportCards.value.forEach((card) => {
+    md += `### ${card.title}\n\n`
+    md += `${card.insight}\n\n`
+    if (card.tags?.length) {
+      md += `**标签**：${card.tags.join(' / ')}\n\n`
+    }
+    if (card.advice?.length) {
+      md += `**建议**：\n\n`
+      card.advice.forEach((a) => {
+        md += `- ${typeof a === 'string' ? a : a.text}\n`
+      })
+      md += '\n'
+    }
+    if (card.detail) {
+      md += `**详情**：\n\n${card.detail}\n\n`
+    }
+  })
+
+  const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = `报告_${r.title}.txt`
+  a.href = url
+  a.download = `${projectName}_报告_${new Date().toISOString().slice(0, 10)}.md`
+  document.body.appendChild(a)
   a.click()
-  URL.revokeObjectURL(a.href)
-  uiStore.showToast('报告已导出', 'success')
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+  uiStore.showToast('报告已导出为 Markdown', 'success')
 }
 
-async function loadOverview() {
+async function refreshReports() {
   loading.value = true
-  const apiGenre = selectedGenre.value === '全部' ? '' : selectedGenre.value
-  const res = await DashboardAPI.getReportOverview(apiGenre || undefined)
-  if (res.ok && res.data) {
-    overview.value = res.data
-  } else {
-    overview.value = null
-    uiStore.showToast('报告数据加载失败', 'error')
-  }
+  await loadOverview()
   loading.value = false
 }
 
-async function switchGenre() {
-  uiStore.showToast(`正在加载 ${selectedGenre.value} 报告数据...`, 'info')
-  await loadOverview()
+async function loadOverview() {
+  const [overviewRes, booksRes] = await Promise.all([
+    DashboardAPI.getReportOverview(selectedGenre.value),
+    DashboardAPI.getBooks(),
+  ])
+  if (overviewRes.ok && overviewRes.data) {
+    overview.value = overviewRes.data
+  }
+  if (booksRes.ok && booksRes.data) {
+    genres.value = booksRes.data.genres || []
+  }
 }
 
-async function refresh() {
-  uiStore.showToast('正在刷新报告数据...', 'info')
-  await loadOverview()
+function onGenreChange() {
+  guidanceItems.value = []
+  techniqueItems.value = []
+  diagnosisResult.value = null
+  loadOverview()
+  if (activeReportTab.value === 'guidance') loadGuidance()
+  else if (activeReportTab.value === 'techniques') loadTechniques()
+  else if (activeReportTab.value === 'diagnosis') loadDiagnosis()
 }
 
-// ── 生命周期 ──
+function onTabChange(tab: 'guidance' | 'techniques' | 'diagnosis') {
+  activeReportTab.value = tab
+  if (tab === 'guidance') loadGuidance()
+  else if (tab === 'techniques') loadTechniques()
+  else if (tab === 'diagnosis') loadDiagnosis()
+}
+
 onMounted(async () => {
   selectedGenre.value = resolveGenre()
-  // 加载题材列表
-  const booksRes = await DashboardAPI.getBooks()
-if (booksRes.ok && booksRes.data?.genres) {
-    genres.value = booksRes.data.genres
-  }
   await loadOverview()
+  loading.value = false
+  await loadGuidance()
 })
 </script>
 
@@ -486,211 +534,487 @@ if (booksRes.ok && booksRes.data?.genres) {
   <div class="reports-page">
     <!-- 页头 -->
     <div class="page-header">
-      <h2>报告</h2>
+      <div class="page-header-main">
+        <div class="title-group">
+          <h2>数据分析</h2>
+          <p class="page-subtitle">基于拆书数据的创作洞察</p>
+        </div>
+      </div>
       <div class="header-actions">
-        <select v-model="selectedGenre" class="genre-select" @change="switchGenre">
-          <option value="全部">全部题材</option>
-          <option v-for="g in genres" :key="g" :value="g">{{ g }}</option>
-        </select>
-        <button class="btn btn-secondary btn-sm" @click="refresh">刷新</button>
+        <AppSelect v-model="selectedGenre" :options="genreOptions" @change="onGenreChange" />
+        <button class="btn btn-secondary" :disabled="loading" @click="refreshReports">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" :class="{ spinning: loading }">
+            <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+          刷新
+        </button>
       </div>
     </div>
 
-    <!-- 筛选标签 -->
-    <div class="report-filters">
-      <button
-        v-for="tab in filterTabs"
-        :key="tab.key"
-        class="report-filter"
-        :class="{ active: activeFilter === tab.key }"
-        @click="activeFilter = tab.key"
-      >{{ tab.label }}</button>
-      <span class="report-count">共 {{ filteredCards.length }} 份报告</span>
-    </div>
-
-    <!-- 报告卡片网格 -->
-    <div v-if="loading" class="empty-state">加载中...</div>
-    <div v-else-if="!overview" class="empty-state">报告数据加载失败，请确认后端服务已启动</div>
-    <div v-else class="report-grid">
-      <ReportCard
-        v-for="r in filteredCards"
-        :key="r.type"
-        :card="r"
-        @open-detail="openDetail"
-        @apply-technique="applyTechniqueToOutline"
+    <!-- 统计条 -->
+    <div class="report-stats-strip">
+      <KpiCard
+        v-for="(s, i) in headerStats"
+        :key="i"
+        icon="M22 12h-4l-3 9L9 3l-3 9H2"
+        color="accent"
+        :value="s.value"
+        :suffix="s.suffix"
+        :label="s.label"
       />
     </div>
 
-    <!-- 报告子页签 -->
-    <div class="report-tabs">
-      <button class="tab-btn" :class="{ active: activeReportTab === 'overview' }" @click="activeReportTab = 'overview'">概览</button>
-      <button class="tab-btn" :class="{ active: activeReportTab === 'guidance' }" @click="activeReportTab = 'guidance'; loadGuidance()">创作指导</button>
-      <button class="tab-btn" :class="{ active: activeReportTab === 'techniques' }" @click="activeReportTab = 'techniques'; loadTechniques()">技法库</button>
-      <button class="tab-btn" :class="{ active: activeReportTab === 'diagnosis' }" @click="activeReportTab = 'diagnosis'; loadDiagnosis()">深度诊断</button>
+    <!-- 无数据状态 -->
+    <EmptyState
+      v-if="!loading && !overview"
+      icon="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5a8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"
+      title="暂无报告数据"
+      description="先导入书籍并运行拆书分析，报告页将展示创作洞察。"
+      action-text="去拆书"
+      compact
+      @action="$router.push('/disassembly')"
+    />
+
+    <!-- 加载状态 -->
+    <div v-if="loading" class="report-loading">
+      <div class="spinner-ring"></div>
+      <span>正在生成报告...</span>
     </div>
 
-    <!-- 创作指导 -->
-    <div v-if="activeReportTab === 'guidance'" class="guidance-panel">
-      <div v-if="guidanceLoading" class="text-muted">加载中...</div>
-      <div v-else-if="guidanceItems.length === 0" class="text-muted">暂无创作指导</div>
-      <div v-else class="guidance-list">
-        <div v-for="g in guidanceItems" :key="g.title" class="guidance-card">
-          <div class="guidance-header">
-            <span class="guidance-category">{{ g.category }}</span>
-            <span class="guidance-priority" :class="g.priority">{{ g.priority }}</span>
+    <template v-else-if="overview">
+      <!-- 工具栏 -->
+      <div class="report-toolbar">
+        <div class="filter-chips">
+          <button
+            v-for="chip in filterChips"
+            :key="chip.key"
+            class="filter-chip"
+            :class="{ active: activeFilter === chip.key }"
+            @click="activeFilter = chip.key"
+          >
+            {{ chip.label }}
+          </button>
+        </div>
+        <div class="report-count">{{ filteredCards.length }} 份报告</div>
+      </div>
+
+      <!-- 报告卡片网格 -->
+      <div class="report-grid">
+        <ReportCard
+          v-for="card in filteredCards"
+          :key="card.type"
+          :card="card"
+          @open-detail="openDetail"
+          @apply-technique="applyTechnique"
+        />
+      </div>
+
+      <!-- 深度洞察 -->
+      <div class="insights-section">
+        <div class="insights-header">
+          <div class="insights-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/><path d="M12 12 2.1 9.9"/><path d="M12 12V2"/></svg>
+            深度洞察
           </div>
-          <div class="guidance-title">{{ g.title }}</div>
-          <div class="guidance-content">{{ g.content }}</div>
+          <TabBar
+            v-model="activeReportTab"
+            :options="[
+              { label: '创作指导', value: 'guidance' },
+              { label: '技法库', value: 'techniques' },
+              { label: '章节诊断', value: 'diagnosis' },
+            ]"
+            @update:model-value="onTabChange"
+          />
         </div>
-      </div>
-    </div>
 
-    <!-- 技法库 -->
-    <div v-if="activeReportTab === 'techniques'" class="technique-panel">
-      <div v-if="techniqueItems.length === 0" class="text-muted">暂无技法数据</div>
-      <div v-else class="technique-grid">
-        <div v-for="t in techniqueItems" :key="t.name" class="technique-card">
-          <div class="technique-name">{{ t.name }}</div>
-          <div class="technique-cat">{{ t.category }}</div>
-          <div class="technique-desc">{{ t.description }}</div>
-          <div v-if="t.example" class="technique-example">示例: {{ t.example }}</div>
-        </div>
-      </div>
-    </div>
+        <div class="insights-body">
+          <!-- 创作指导 -->
+          <div v-if="activeReportTab === 'guidance'" class="tab-panel">
+            <div v-if="guidanceLoading" class="tab-loading">正在加载创作指导...</div>
+            <div v-else-if="guidanceItems.length === 0" class="tab-empty">
+              暂无创作指导数据，请先拆书并生成报告。
+            </div>
+            <div v-else class="guidance-list">
+              <div v-for="(item, idx) in guidanceItems" :key="idx" class="guidance-item">
+                <div class="guidance-index">{{ idx + 1 }}</div>
+                <div class="guidance-content">
+                  <div class="guidance-title">{{ item.title }}</div>
+                  <div class="guidance-text">{{ item.content }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
 
-    <!-- 深度诊断 -->
-    <div v-if="activeReportTab === 'diagnosis'" class="diagnosis-panel">
-      <div v-if="diagnosisLoading" class="text-muted">诊断中...</div>
-      <div v-else-if="!diagnosisResult" class="text-muted">暂无诊断结果</div>
-      <div v-else-if="diagnosisResult.error" class="diagnosis-notice">
-        <span class="notice-icon">&#9888;</span>
-        <span>诊断功能开发中，敬请期待</span>
-      </div>
-      <div v-else-if="!diagnosisResult.diagnosis.length" class="text-muted">暂无诊断结果</div>
-      <div v-else class="diagnosis-list">
-        <div v-for="(d, i) in diagnosisResult.diagnosis" :key="i" class="diagnosis-item" :class="d.severity">
-          <span class="diagnosis-cat">{{ d.category }}</span>
-          <span class="diagnosis-severity">{{ d.severity }}</span>
-          <span class="diagnosis-desc">{{ d.description }}</span>
+          <!-- 技法库 -->
+          <div v-else-if="activeReportTab === 'techniques'" class="tab-panel">
+            <div v-if="techniqueItems.length === 0" class="tab-empty">
+              暂无技法数据，请先拆书并生成报告。
+            </div>
+            <div v-else class="technique-list">
+              <div v-for="(item, idx) in techniqueItems.slice(0, 8)" :key="idx" class="technique-chip">
+                <span class="technique-name">{{ item.name }}</span>
+                <span class="technique-category">{{ item.category }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 章节诊断 -->
+          <div v-else-if="activeReportTab === 'diagnosis'" class="tab-panel">
+            <div v-if="diagnosisLoading" class="tab-loading">正在分析章节问题...</div>
+            <div v-else-if="!diagnosisResult" class="tab-empty">
+              暂无诊断数据。后端模型离线时无法生成诊断，仅展示占位结果。
+            </div>
+            <div v-else class="diagnosis-result">
+              <div class="diagnosis-meta">
+                <div class="diagnosis-meta-item">
+                  <span class="meta-label">书目</span>
+                  <span class="meta-value">{{ diagnosisResult.book }}</span>
+                </div>
+                <div class="diagnosis-meta-item">
+                  <span class="meta-label">章节</span>
+                  <span class="meta-value">{{ diagnosisResult.chapter }}</span>
+                </div>
+              </div>
+              <div class="diagnosis-issues">
+                <div class="diagnosis-subtitle">诊断建议</div>
+                <ul>
+                  <li v-for="(d, idx) in diagnosisResult.diagnosis || []" :key="idx">
+                    <b>{{ d.category }}</b> · {{ d.description }}
+                    <span v-if="d.suggestion">({{ d.suggestion }})</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+    </template>
 
     <!-- 详情抽屉 -->
-    <ReportDetailDrawer
-      :card="detailCard"
-      :open="detailOpen"
-      @close="closeDetail"
-      @export="exportReport"
-    />
+    <ReportDetailDrawer :open="detailOpen" :card="detailCard" @close="detailOpen = false" @export="exportReport" />
   </div>
 </template>
 
 <style scoped>
 .reports-page {
-  padding: 16px 24px;
+  padding: 20px 28px;
   height: 100%;
   overflow-y: auto;
 }
+
+/* ── 页头 ── */
 .page-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
 }
-.page-header h2 { font-size: 18px; font-weight: 600; }
+.page-header-main { min-width: 0; }
+.title-group { display: flex; flex-direction: column; gap: 2px; }
 .header-actions {
   display: flex;
-  gap: 8px;
   align-items: center;
-}
-.genre-select {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 10px;
-  color: var(--text);
-  font-size: 13px;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
-.report-filters {
+/* ── 统计条 ── */
+.report-stats-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+/* ── 工具栏 ── */
+.report-toolbar {
   display: flex;
-  gap: 4px;
   align-items: center;
-  margin-bottom: 16px;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.filter-chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex-wrap: wrap;
 }
-.report-filter {
-  padding: 4px 12px;
+.filter-chip {
+  padding: 5px 12px;
+  border-radius: 999px;
   border: 1px solid var(--border);
-  border-radius: 16px;
-  background: transparent;
+  background: var(--surface);
   color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
   transition: all 0.15s;
 }
-.report-filter:hover { border-color: var(--border-hover); }
-.report-filter.active {
+.filter-chip:hover {
+  border-color: var(--border-hover);
+  color: var(--text);
+}
+.filter-chip.active {
   background: var(--accent);
-  color: #0a0a0a;
   border-color: var(--accent);
-  font-weight: 600;
+  color: var(--bg);
+  font-weight: 500;
 }
 .report-count {
-  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* ── 报告网格 ── */
+.report-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+/* ── 加载状态 ── */
+.report-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 60px 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+.spinner-ring {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── 深度洞察 ── */
+.insights-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  margin-bottom: 28px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+.insights-section::after {
+  content: '';
+  display: block;
+  height: 6px;
+  background: linear-gradient(90deg, var(--accent) 0%, transparent 100%);
+  opacity: 0.35;
+}
+.insights-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-faint);
+}
+.insights-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.insights-title svg { color: var(--accent); }
+
+.insights-body {
+  padding: 18px;
+  min-height: 220px;
+}
+.tab-panel {
+  animation: fadeIn 0.2s ease;
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+}
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+.tab-loading,
+.tab-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex: 1;
+  min-height: 220px;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+.tab-empty svg {
+  width: 32px;
+  height: 32px;
+  opacity: 0.45;
+}
+.tab-empty small {
+  display: block;
+  margin-top: 4px;
   font-size: 12px;
   color: var(--text-secondary);
 }
 
-.empty-state {
-  padding: 40px;
-  text-align: center;
+.guidance-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.guidance-item {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-solid);
+  border: 1px solid var(--border);
+  transition: all 0.15s;
+}
+.guidance-item:hover {
+  border-color: var(--border-hover);
+  background: var(--surface-hover);
+}
+.guidance-index {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.guidance-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 2px;
+  color: var(--text);
+}
+.guidance-text {
+  font-size: 12px;
   color: var(--text-secondary);
+  line-height: 1.45;
 }
 
-.report-grid {
+.technique-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.technique-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--surface-solid);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  transition: all 0.15s;
+}
+.technique-chip:hover {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+}
+.technique-category {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-faint);
+}
+
+.diagnosis-result {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  grid-template-columns: auto 1fr;
   gap: 16px;
+  align-items: flex-start;
+}
+.diagnosis-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--surface-solid);
+  border: 1px solid var(--border);
+  min-width: 120px;
+}
+.diagnosis-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.meta-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.meta-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.diagnosis-subtitle {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+.diagnosis-issues ul {
+  margin: 0;
+  padding-left: 16px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.diagnosis-issues li { margin-bottom: 4px; }
+.diagnosis-issues li b { color: var(--text); }
+
+/* ── 刷新按钮动画 ── */
+.spinning { animation: spin 1s linear infinite; }
+
+/* ── 响应式 ── */
+@media (max-width: 1200px) {
+  .report-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
-/* ── 卡片/条形图/技法/建议/元信息样式已移至 ReportCard/MiniBarChart/TechniqueMiniList/AdviceList 组件 ── */
-
-/* ── 报告子页签 ── */
-.report-tabs { display: flex; gap: 4px; margin-bottom: 16px; }
-.guidance-panel, .technique-panel, .diagnosis-panel { margin-bottom: 20px; }
-.diagnosis-notice { display: flex; align-items: center; gap: 8px; padding: 16px; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25); border-radius: 8px; font-size: 13px; color: var(--text-secondary); }
-.diagnosis-notice .notice-icon { font-size: 16px; color: var(--warning); flex-shrink: 0; }
-.guidance-list { display: flex; flex-direction: column; gap: 12px; }
-.guidance-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
-.guidance-header { display: flex; justify-content: space-between; margin-bottom: 4px; }
-.guidance-category { font-size: 11px; color: var(--accent); font-weight: 600; }
-.guidance-priority { font-size: 10px; padding: 1px 6px; border-radius: 8px; }
-.guidance-priority.high { background: rgba(239,68,68,0.15); color: var(--danger); }
-.guidance-priority.medium { background: rgba(245,158,11,0.15); color: var(--warning); }
-.guidance-priority.low { background: rgba(34,197,94,0.15); color: var(--success); }
-.guidance-title { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
-.guidance-content { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
-.technique-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
-.technique-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
-.technique-name { font-size: 13px; font-weight: 600; }
-.technique-cat { font-size: 10px; color: var(--accent); margin-bottom: 4px; }
-.technique-desc { font-size: 12px; color: var(--text-secondary); }
-.technique-example { font-size: 11px; color: var(--text-muted); margin-top: 4px; font-style: italic; }
-.diagnosis-list { display: flex; flex-direction: column; gap: 8px; }
-.diagnosis-item { display: flex; gap: 10px; padding: 8px 12px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); font-size: 12px; align-items: center; }
-.diagnosis-item.critical { border-color: var(--danger); }
-.diagnosis-item.warning { border-color: var(--warning); }
-.diagnosis-cat { font-weight: 600; color: var(--accent); flex-shrink: 0; }
-.diagnosis-severity { font-size: 10px; padding: 1px 6px; border-radius: 6px; flex-shrink: 0; }
-.diagnosis-item.critical .diagnosis-severity { background: rgba(239,68,68,0.15); color: var(--danger); }
-.diagnosis-item.warning .diagnosis-severity { background: rgba(245,158,11,0.15); color: var(--warning); }
-.diagnosis-desc { color: var(--text-secondary); }
-
-/* ── 按钮 — 全局 style.css 接管 ── */
+@media (max-width: 900px) {
+  .report-stats-strip { grid-template-columns: repeat(2, 1fr); }
+  .report-grid { grid-template-columns: 1fr; }
+  .insights-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .diagnosis-result { grid-template-columns: 1fr; }
+}
 
 @media (max-width: 768px) {
-  .report-grid { grid-template-columns: 1fr; }
+  .reports-page { padding: 14px 16px; }
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .header-actions { width: 100%; }
+  .report-stats-strip { grid-template-columns: repeat(2, 1fr); }
+  .report-toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 </style>

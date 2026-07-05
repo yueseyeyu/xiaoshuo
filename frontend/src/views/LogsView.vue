@@ -11,6 +11,8 @@
  */
 import { ref, computed, onMounted } from 'vue'
 import { LogsAPI } from '@/api/logs'
+import KpiCard from '@/components/common/KpiCard.vue'
+import MiniBarChart from '@/components/common/MiniBarChart.vue'
 
 interface LogEntry {
   timestamp?: string
@@ -45,6 +47,33 @@ const detailEntry = ref<LogEntry | null>(null)
 
 // ── 计算属性 ──
 const totalPages = computed(() => Math.ceil(totalCount.value / PAGE_SIZE))
+
+const logStats = computed(() => {
+  const list = entries.value
+  const total = list.length
+  const errCount = list.filter((e) => (e.status ?? 0) >= 400).length
+  const errRate = total > 0 ? Math.round((errCount / total) * 100) : 0
+  const durations = list.map((e) => e.duration_ms ?? 0).filter((d) => d >= 0)
+  const avgMs = durations.length ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : 0
+  const maxMs = durations.length ? Math.max(...durations) : 0
+  return { total, errRate, avgMs, maxMs }
+})
+
+const durationHistogram = computed(() => {
+  const durations = entries.value.map((e) => e.duration_ms ?? 0).filter((d) => d >= 0)
+  const buckets = [
+    { label: '0-50ms', min: 0, max: 50 },
+    { label: '50-100', min: 50, max: 100 },
+    { label: '100-300', min: 100, max: 300 },
+    { label: '300-500', min: 300, max: 500 },
+    { label: '500-1s', min: 500, max: 1000 },
+    { label: '>1s', min: 1000, max: Infinity },
+  ]
+  return buckets.map((b) => ({
+    label: b.label,
+    value: durations.filter((d) => d >= b.min && d < b.max).length,
+  }))
+})
 
 // ── 方法 ──
 async function loadDates() {
@@ -121,6 +150,23 @@ function methodClass(method?: string) {
   return method === 'POST' ? 'method-post' : 'method-get'
 }
 
+function operationLabel(e: LogEntry): string {
+  const path = (e.path || e.action || '').toLowerCase()
+  const method = (e.method || 'GET').toUpperCase()
+  if (path.includes('/disassembly')) return '拆书分析'
+  if (path.includes('/simulation')) return '世界推演'
+  if (path.includes('/projects') && method === 'POST') return '创建项目'
+  if (path.includes('/projects') && method !== 'POST') return '查询项目'
+  if (path.includes('/chapters')) return '章节写作'
+  if (path.includes('/books')) return '查询书库'
+  if (path.includes('/reports')) return '生成报告'
+  if (path.includes('/health')) return '健康检查'
+  if (path.includes('/hardware')) return '硬件监控'
+  if (path.includes('/logs')) return '日志查询'
+  if (category.value === 'operation') return e.action || '用户操作'
+  return '接口调用'
+}
+
 function formatJson(obj: unknown): string {
   try { return JSON.stringify(obj, null, 2) } catch { return String(obj) }
 }
@@ -169,10 +215,19 @@ onMounted(() => {
     </div>
 
     <!-- 统计 -->
-    <div class="logs-stats">
-      <span>共<b>{{ totalCount }}</b> 条记录</span>
-      <span class="divider">|</span>
-      <span>耗时: <b>{{ queryTime }}</b>ms</span>
+    <div class="logs-kpi-row">
+      <KpiCard icon="M22 12h-4l-3 9L9 3l-3 9H2" color="accent" :value="logStats.total" label="本页记录" />
+      <KpiCard icon="M10.29 3.86L1.82 18a2 2 0 0 0 .03 2.74L6.27 17a2 2 0 0 0 2.74.03L19 8M17 4l4 4m-4-4 4 4" color="danger" :value="logStats.errRate" suffix="%" label="错误率" />
+      <KpiCard icon="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" color="indigo" :value="logStats.avgMs" suffix="ms" label="平均耗时" />
+      <KpiCard icon="M13 2 4.09 12.11a2 2 0 0 0 .03 2.74L6.27 17a2 2 0 0 0 2.74.03L19 8M17 4l4 4m-4-4 4 4" color="amber" :value="logStats.maxMs" suffix="ms" label="最慢请求" />
+    </div>
+
+    <!-- 耗时分布 -->
+    <div v-if="entries.length" class="logs-chart-section">
+      <div class="logs-chart-title">耗时分布（本页）</div>
+      <div class="logs-chart">
+        <MiniBarChart :data="durationHistogram" color="var(--accent)" />
+      </div>
     </div>
 
     <!-- 表格 -->
@@ -182,6 +237,7 @@ onMounted(() => {
           <tr>
             <th class="th-time">时间</th>
             <th class="th-method">方法</th>
+            <th class="th-operation">操作</th>
             <th class="th-path">路径</th>
             <th class="th-status">状态</th>
             <th class="th-duration">耗时</th>
@@ -189,8 +245,8 @@ onMounted(() => {
           </tr>
         </thead>
         <tbody>
-          <tr v-if="loading"><td colspan="6" class="logs-empty">加载中...</td></tr>
-          <tr v-else-if="entries.length === 0"><td colspan="6" class="logs-empty">暂无日志记录</td></tr>
+          <tr v-if="loading"><td colspan="7" class="logs-empty">加载中...</td></tr>
+          <tr v-else-if="entries.length === 0"><td colspan="7" class="logs-empty">暂无日志记录</td></tr>
           <tr v-for="(e, i) in entries" :key="i">
             <td>{{ e.timestamp || '' }}</td>
             <td>
@@ -198,6 +254,7 @@ onMounted(() => {
                 {{ category === 'access' ? (e.method || '') : 'OP' }}
               </span>
             </td>
+            <td><span class="operation-badge">{{ operationLabel(e) }}</span></td>
             <td class="td-path">{{ e.path || e.action || '' }}</td>
             <td :class="statusClass(e.status)">{{ e.status || (category === 'operation' ? '-' : 200) }}</td>
             <td>{{ e.duration_ms != null ? e.duration_ms + 'ms' : '-' }}</td>
@@ -254,7 +311,6 @@ onMounted(() => {
 <style scoped>
 .logs-page { padding: 16px 24px; height: 100%; overflow-y: auto; }
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.page-header h2 { font-size: 18px; font-weight: 600; }
 
 .logs-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
 .filter-group { display: flex; gap: 8px; }
@@ -262,9 +318,28 @@ onMounted(() => {
 .logs-select { padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font-size: 13px; }
 .logs-search { padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font-size: 13px; width: 200px; }
 
-.logs-stats { font-size: 12px; color: var(--text-secondary); margin-bottom: 12px; }
-.logs-stats b { color: var(--text); font-weight: 600; }
-.divider { margin: 0 8px; opacity: 0.5; }
+.logs-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.logs-chart-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.logs-chart-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+.logs-chart {
+  height: 72px;
+}
 
 .logs-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
 .logs-table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -277,6 +352,8 @@ onMounted(() => {
 .method-badge { font-size: 10px; padding: 1px 6px; border-radius: 3px; font-weight: 600; }
 .method-get { background: rgba(56, 189, 248, 0.1); color: var(--accent); }
 .method-post { background: rgba(34, 197, 94, 0.1); color: var(--success); }
+.operation-badge { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--surface-hover); color: var(--text); font-weight: 500; white-space: nowrap; }
+.th-operation { width: 90px; }
 
 .status-ok { color: var(--success); }
 .status-warn { color: var(--warning); }

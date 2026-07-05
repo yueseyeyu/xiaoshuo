@@ -85,7 +85,7 @@ const uiStore = useUiStore()
 
 .toast.success {
   background: var(--success);
-  color: #0a0a0a;
+  color: var(--bg);
 }
 
 .toast.error {

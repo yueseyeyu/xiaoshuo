@@ -4,7 +4,6 @@
  *
  * 功能：
  * - 题材标签筛选 + 搜索
- * - 题材热度排行条
  * - 书籍列表（列表视图）+ 排序
  * - 批量选择 + 批量拆书
  * - 书籍详情面板
@@ -15,6 +14,8 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUiStore } from '@/stores/ui'
 import { LibraryAPI, type Book, type LibraryData } from '@/api/library'
+import { DisassemblyAPI } from '@/api/disassembly'
+import KpiCard from '@/components/common/KpiCard.vue'
 import LibraryBookDetail from '@/components/library/LibraryBookDetail.vue'
 import BookListTable, { type SortKey } from '@/components/library/BookListTable.vue'
 
@@ -71,29 +72,6 @@ const filteredBooks = computed(() => {
   })
 
   return result
-})
-
-// 题材热度统计（基于搜索/筛选后的书）
-const genreRank = computed(() => {
-  const q = searchQuery.value.trim().toLowerCase()
-  const base = q
-    ? allBooks.value.filter((b) =>
-        (b.title && b.title.toLowerCase().includes(q)) ||
-        (b.author && b.author.toLowerCase().includes(q)) ||
-        (b.genre && b.genre.toLowerCase().includes(q))
-      )
-    : allBooks.value
-
-  const map: Record<string, number> = {}
-  base.forEach((b) => {
-    map[b.genre] = (map[b.genre] || 0) + 1
-  })
-  const total = base.length
-  return Object.entries(map)
-    .filter(([, count]) => count > 0)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
-    .map(([genre, count]) => ({ genre, count, pct: total > 0 ? (count / total) * 100 : 0 }))
 })
 
 // 题材标签计数
@@ -207,71 +185,133 @@ async function startAnalysisFromDetail() {
   }
 }
 
-function batchDisassemble() {
+async function batchDisassemble() {
   if (selectedBookIds.value.size === 0) {
     uiStore.showToast('请先选择要拆书的书籍')
     return
   }
-  uiStore.showToast(`已创建 ${selectedBookIds.value.size} 个拆书任务`, 'success')
-  clearSelection()
-  router.push({ name: 'disassembly' })
+  uiStore.showToast('正在创建拆书任务...', 'info')
+  const books = Array.from(selectedBookIds.value).map(String)
+  const res = await DisassemblyAPI.createTask({
+    type: 'disassembly',
+    name: `批量拆书 ${books.length} 本`,
+    books,
+  })
+  if (res.ok && res.data?.task) {
+    uiStore.showToast(`已创建 ${selectedBookIds.value.size} 个拆书任务`, 'success')
+    clearSelection()
+    router.push('/disassembly')
+  } else {
+    uiStore.showToast(res.error || '创建拆书任务失败', 'error')
+  }
 }
 
 // 导入书籍
 const fileInput = ref<HTMLInputElement | null>(null)
+const dragOver = ref(false)
+const dragCounter = ref(0)
 
 function importBook() {
   fileInput.value?.click()
 }
 
+function parseBookMeta(fileName: string) {
+  const rawName = fileName.replace(/\.txt$/i, '')
+  let title = rawName
+  let author = '本地导入'
+  const authorMatch = rawName.match(/作者[：:]\s*(.+)$/)
+  if (authorMatch) {
+    title = rawName.split(/作者[：:]/)[0].trim()
+    author = authorMatch[1].trim()
+  } else if (rawName.includes('_')) {
+    const parts = rawName.split('_')
+    title = parts[0].trim()
+    author = parts.slice(1).join('_').trim() || '本地导入'
+  }
+
+  const genreHints: Record<string, string> = {
+    '末世': '末世', '末日': '末世', '丧尸': '末世',
+    '无限': '无限流', '恐怖': '悬疑', '惊悚': '悬疑',
+    '仙侠': '仙侠', '洪荒': '洪荒', '科幻': '科幻',
+    '都市': '都市', '历史': '历史',
+  }
+  let genre = '都市'
+  for (const [hint, g] of Object.entries(genreHints)) {
+    if (title.includes(hint)) { genre = g; break }
+  }
+  return { title, author, genre }
+}
+
+function importSingleFile(file: File): Promise<{ ok: boolean; title: string; error?: string }> {
+  return new Promise((resolve) => {
+    if (!file.name.toLowerCase().endsWith('.txt')) {
+      resolve({ ok: false, title: file.name, error: '仅支持 .txt 文件' })
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      const sizeKb = Math.round(file.size / 1024)
+      const estimatedWords = Math.max(1, Math.round(file.size / 1.8))
+      const { title, author, genre } = parseBookMeta(file.name)
+      if (data.value) {
+        data.value.books.unshift({
+          title, author, wordCount: estimatedWords, size_kb: sizeKb,
+          genre, file: file.name, status: 'imported',
+        })
+      }
+      resolve({ ok: true, title })
+    }
+    reader.onerror = () => resolve({ ok: false, title: file.name, error: '文件读取失败' })
+    reader.readAsText(file, 'utf-8')
+  })
+}
+
+async function processFiles(files: FileList | null) {
+  if (!files || files.length === 0) return
+  const txtFiles = Array.from(files).filter((f) => f.name.toLowerCase().endsWith('.txt'))
+  if (txtFiles.length === 0) {
+    uiStore.showToast('未检测到 .txt 文件', 'error')
+    return
+  }
+  const results = await Promise.all(txtFiles.map(importSingleFile))
+  const okCount = results.filter((r) => r.ok).length
+  const failCount = results.length - okCount
+  currentGenre.value = '全部'
+  searchQuery.value = ''
+  if (failCount === 0) {
+    uiStore.showToast(`成功导入 ${okCount} 本书`, 'success')
+  } else {
+    uiStore.showToast(`导入 ${okCount} 本成功，${failCount} 本失败`, 'info')
+  }
+}
+
 function handleFileSelect(e: Event) {
   const input = e.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-
-  const reader = new FileReader()
-  reader.onload = (_evt) => {
-    const sizeKb = Math.round(file.size / 1024)
-    const estimatedWords = Math.max(1, Math.round(file.size / 1.8))
-    const rawName = file.name.replace(/\.txt$/i, '')
-
-    let title = rawName
-    let author = '本地导入'
-    const authorMatch = rawName.match(/作者[：:]\s*(.+)$/)
-    if (authorMatch) {
-      title = rawName.split(/作者[：:]/)[0].trim()
-      author = authorMatch[1].trim()
-    } else if (rawName.includes('_')) {
-      const parts = rawName.split('_')
-      title = parts[0].trim()
-      author = parts.slice(1).join('_').trim() || '本地导入'
-    }
-
-    const genreHints: Record<string, string> = {
-      '末世': '末世', '末日': '末世', '丧尸': '末世',
-      '无限': '无限流', '恐怖': '悬疑', '惊悚': '悬疑',
-      '仙侠': '仙侠', '洪荒': '洪荒', '科幻': '科幻',
-      '都市': '都市', '历史': '历史',
-    }
-    let genre = '都市'
-    for (const [hint, g] of Object.entries(genreHints)) {
-      if (title.includes(hint)) { genre = g; break }
-    }
-
-    // 添加到本地数据
-    if (data.value) {
-      data.value.books.unshift({
-        title, author, wordCount: estimatedWords, size_kb: sizeKb,
-        genre, file: file.name, status: 'imported',
-      })
-    }
-    currentGenre.value = '全部'
-    searchQuery.value = ''
-    uiStore.showToast(`已导入《${title}》(${fmtNumber(estimatedWords)} 字)`, 'success')
-  }
-  reader.onerror = () => uiStore.showToast('文件读取失败', 'error')
-  reader.readAsText(file, 'utf-8')
+  processFiles(input.files)
   input.value = ''
+}
+
+function onDragEnter(e: DragEvent) {
+  e.preventDefault()
+  dragCounter.value++
+  if (e.dataTransfer?.types.includes('Files')) dragOver.value = true
+}
+
+function onDragLeave(e: DragEvent) {
+  e.preventDefault()
+  dragCounter.value--
+  if (dragCounter.value === 0) dragOver.value = false
+}
+
+function onDragOver(e: DragEvent) {
+  e.preventDefault()
+}
+
+function onDrop(e: DragEvent) {
+  e.preventDefault()
+  dragCounter.value = 0
+  dragOver.value = false
+  processFiles(e.dataTransfer?.files ?? null)
 }
 
 // ── 生命周期 ──
@@ -288,7 +328,27 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="library-page" :class="{ 'detail-open': detailOpen }">
+  <div
+    class="library-page"
+    :class="{ 'detail-open': detailOpen, 'drag-over': dragOver }"
+    @dragenter="onDragEnter"
+    @dragleave="onDragLeave"
+    @dragover="onDragOver"
+    @drop="onDrop"
+  >
+    <!-- 拖拽上传遮罩 -->
+    <div v-if="dragOver" class="drop-overlay">
+      <div class="drop-card">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        <div class="drop-title">释放以上传 .txt 书籍</div>
+        <div class="drop-hint">支持多文件同时导入</div>
+      </div>
+    </div>
+
     <!-- 页头 -->
     <div class="page-header">
       <h2>书库</h2>
@@ -319,65 +379,54 @@ onMounted(async () => {
 
     <!-- KPI 行 -->
     <div class="kpi-row">
-      <div class="kpi-card kpi-indigo">
-        <div class="kpi-value">{{ kpiTotal }}</div>
-        <div class="kpi-label">总书籍</div>
-      </div>
-      <div class="kpi-card kpi-amber">
-        <div class="kpi-value">{{ fmtNumber(kpiChapters) }}</div>
-        <div class="kpi-label">已拆章节</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-value">{{ kpiPending }}</div>
-        <div class="kpi-label">待处理</div>
-      </div>
-      <div class="kpi-card kpi-violet">
-        <div class="kpi-value">{{ kpiGenres }}</div>
-        <div class="kpi-label">题材数</div>
-      </div>
+      <KpiCard
+        icon="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"
+        color="indigo"
+        :value="kpiTotal"
+        label="总书籍"
+      />
+      <KpiCard
+        icon="M4 6h16 M4 10h16 M4 14h16"
+        color="amber"
+        :value="fmtNumber(kpiChapters)"
+        label="已拆章节"
+      />
+      <KpiCard
+        icon="M21 8v13H3V8 M12 13l9-5H3l9 5z"
+        color="emerald"
+        :value="kpiPending"
+        label="待处理"
+      />
+      <KpiCard
+        icon="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"
+        color="violet"
+        :value="kpiGenres"
+        label="题材数"
+      />
     </div>
 
     <!-- 主体布局 -->
     <div class="library-layout">
       <div class="library-main">
-        <!-- 题材热度排行 -->
-        <div class="genre-rank-bar" v-if="genreRank.length">
-          <div class="genre-rank-title">题材热度</div>
-          <div class="genre-rank-list">
-            <button
-              v-for="item in genreRank"
-              :key="item.genre"
-              class="genre-rank-item"
-              :class="{ active: currentGenre === item.genre }"
-              :title="`${item.genre} 占 ${item.pct.toFixed(1)}% · 点击筛选`"
-              @click="filterGenre(item.genre)"
-            >
-              <span class="genre-rank-name">{{ item.genre }}</span>
-              <div class="genre-rank-bar-track">
-                <div class="genre-rank-fill" :style="{ width: Math.max(2, item.pct) + '%' }" />
-              </div>
-              <span class="genre-rank-count">{{ item.count }}</span>
-            </button>
-          </div>
-        </div>
-
         <!-- 书籍列表 -->
-        <BookListTable
-          :books="filteredBooks"
-          :all-books="allBooks"
-          :selected-ids="selectedBookIds"
-          :sort-key="sortKey"
-          :sort-dir="sortDir"
-          :all-selected="allSelected"
-          :loading="loading"
-          :search-query="searchQuery"
-          @select-book="onSelectBook"
-          @toggle-selection="onToggleSelection"
-          @toggle-select-all="toggleSelectAll"
-          @sort-change="toggleSort"
-          @clear-selection="clearSelection"
-          @batch-disassemble="batchDisassemble"
-        />
+        <div class="library-table-wrap">
+          <BookListTable
+            :books="filteredBooks"
+            :all-books="allBooks"
+            :selected-ids="selectedBookIds"
+            :sort-key="sortKey"
+            :sort-dir="sortDir"
+            :all-selected="allSelected"
+            :loading="loading"
+            :search-query="searchQuery"
+            @select-book="onSelectBook"
+            @toggle-selection="onToggleSelection"
+            @toggle-select-all="toggleSelectAll"
+            @sort-change="toggleSort"
+            @clear-selection="clearSelection"
+            @batch-disassemble="batchDisassemble"
+          />
+        </div>
       </div>
 
       <!-- 详情面板 -->
@@ -395,10 +444,37 @@ onMounted(async () => {
 
 <style scoped>
 .library-page {
+  position: relative;
   padding: 16px 24px;
   height: 100%;
   overflow-y: auto;
 }
+.library-page.drag-over { overflow: hidden; }
+
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  background: var(--overlay-bg);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.drop-card {
+  background: var(--surface-solid);
+  border: 2px dashed var(--accent);
+  border-radius: 16px;
+  padding: 48px 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: var(--accent);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+.drop-title { font-size: 18px; font-weight: 700; color: var(--text); }
+.drop-hint { font-size: 13px; color: var(--text-secondary); }
 
 .page-header {
   display: flex;
@@ -406,10 +482,7 @@ onMounted(async () => {
   align-items: center;
   margin-bottom: 16px;
 }
-.page-header h2 {
-  font-size: 18px;
-  font-weight: 600;
-}
+
 
 /* ── 工具栏 ── */
 .library-toolbar {
@@ -425,24 +498,26 @@ onMounted(async () => {
   flex-wrap: wrap;
 }
 .genre-tab {
-  padding: 4px 12px;
-  border: 1px solid var(--border);
+  padding: 5px 14px;
+  border: 1px solid var(--border-hover);
   border-radius: 16px;
-  background: transparent;
+  background: var(--surface);
   color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
   transition: all 0.15s;
 }
 .genre-tab:hover {
-  border-color: var(--border-hover);
+  border-color: var(--accent);
   color: var(--text);
+  background: var(--surface-hover);
 }
 .genre-tab.active {
   background: var(--accent);
-  color: #0a0a0a;
+  color: var(--bg);
   border-color: var(--accent);
-  font-weight: 600;
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgba(var(--accent-rgb), 0.25);
 }
 .library-search {
   width: 240px;
@@ -465,17 +540,6 @@ onMounted(async () => {
   gap: 12px;
   margin-bottom: 16px;
 }
-.kpi-card {
-  /* padding/background/border/radius 由全局 style.css 接管 */
-}
-.kpi-card:hover {
-  /* hover 由全局 style.css 接管 */
-}
-.kpi-value { font-size: 22px; font-weight: 700; }
-.kpi-label { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
-.kpi-indigo .kpi-value { color: var(--indigo); }
-.kpi-violet .kpi-value { color: var(--violet); }
-.kpi-amber .kpi-value { color: var(--amber); }
 
 /* ── 布局 ── */
 .library-layout {
@@ -487,60 +551,14 @@ onMounted(async () => {
   min-width: 0;
 }
 
-/* ── 题材热度 ── */
-.genre-rank-bar {
-  margin-bottom: 16px;
-}
-.genre-rank-title {
-  font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-.genre-rank-list {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.genre-rank-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.genre-rank-item:hover {
-  border-color: var(--border-hover);
-}
-.genre-rank-item.active {
-  border-color: var(--accent);
-  background: rgba(56, 189, 248, 0.08);
-}
-.genre-rank-name {
-  font-size: 12px;
-  color: var(--text);
-}
-.genre-rank-bar-track {
-  width: 60px;
-  height: 4px;
-  background: var(--surface-solid);
-  border-radius: 2px;
-  overflow: hidden;
-}
-.genre-rank-fill {
-  height: 100%;
-  background: var(--accent);
-  border-radius: 2px;
-}
-.genre-rank-count {
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
 /* ── 书籍列表 ── */
+.library-table-wrap {
+  background: var(--surface-solid);
+  border: 1px solid var(--border-hover);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
 .library-content.list-view {
   background: var(--surface);
   border: 1px solid var(--border);

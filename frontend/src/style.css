@@ -9,9 +9,9 @@
   /* Backgrounds */
   --bg: #0B1120;
   --bg-elevated: #0f172a;
-  --surface: rgba(255,255,255,0.03);
+  --surface: rgba(255,255,255,0.05);
   --surface-solid: #111827;
-  --surface-hover: rgba(255,255,255,0.06);
+  --surface-hover: rgba(255,255,255,0.08);
   --surface-highlight: rgba(255,255,255,0.06);
   --surface-highlight-strong: rgba(255,255,255,0.08);
   --surface-subtle: rgba(255,255,255,0.03);
@@ -19,14 +19,15 @@
   --surface-faint: rgba(255,255,255,0.02);
 
   /* Borders */
-  --border: rgba(255,255,255,0.08);
-  --border-hover: rgba(255,255,255,0.14);
-  --border-highlight: rgba(255,255,255,0.12);
+  --border: rgba(255,255,255,0.10);
+  --border-hover: rgba(255,255,255,0.16);
+  --border-highlight: rgba(255,255,255,0.14);
   --border-highlight-strong: rgba(255,255,255,0.15);
   --border-strong: rgba(255,255,255,0.2);
 
   /* Text */
   --text: #f8fafc;
+  --text-rgb: 248,250,252;
   --text-secondary: #94a3b8;
   --text-secondary-rgb: 148,163,184;
   --text-disabled: rgba(148,163,184,0.5);
@@ -77,11 +78,9 @@
   --hero-stat-bg-hover: rgba(0,0,0,0.28);
 
   /* Design Tokens */
-  --radius: 10px;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
   --radius-pill: 999px;
   --shadow-lg: 0 10px 30px rgba(0,0,0,0.35);
   --space-1: 4px;
@@ -285,31 +284,33 @@ a {
    亮色主题 — 从 prototype/styles.css 恢复
    ================================================================ */
 [data-theme="light"] {
-  --bg: #f8fafc;
+  --bg: #f5f4f0;
   --bg-elevated: #ffffff;
-  --surface: rgba(0,0,0,0.03);
-  --surface-solid: #f1f5f9;
-  --surface-hover: rgba(0,0,0,0.05);
-  --surface-highlight: rgba(0,0,0,0.04);
-  --surface-highlight-strong: rgba(0,0,0,0.06);
-  --surface-subtle: rgba(0,0,0,0.02);
-  --surface-highlight-hover: rgba(0,0,0,0.04);
-  --surface-faint: rgba(0,0,0,0.02);
-  --border: rgba(0,0,0,0.08);
-  --border-hover: rgba(0,0,0,0.14);
+  --surface: #ffffff;
+  --surface-solid: #f7f6f3;
+  --surface-hover: #f0eeea;
+  --surface-highlight: #f7f6f3;
+  --surface-highlight-strong: #edebe6;
+  --surface-subtle: #faf9f7;
+  --surface-highlight-hover: #f0eeea;
+  --surface-faint: #faf9f7;
+  --border: rgba(0,0,0,0.06);
+  --border-hover: rgba(0,0,0,0.12);
   --border-highlight: rgba(0,0,0,0.10);
-  --border-highlight-strong: rgba(0,0,0,0.12);
-  --border-strong: rgba(0,0,0,0.2);
-  --shadow-lg: 0 10px 30px rgba(0,0,0,0.10);
-  --text: #0f172a;
-  --text-secondary: #64748b;
-  --text-secondary-rgb: 100,116,139;
-  --text-disabled: rgba(100,116,139,0.55);
-  --topbar-glass: rgba(248,250,252,0.72);
-  --overlay-bg: rgba(0,0,0,0.35);
-  --overlay-bg-soft: rgba(0,0,0,0.18);
-  --hero-stat-bg: rgba(0,0,0,0.06);
-  --hero-stat-bg-hover: rgba(0,0,0,0.10);
+  --border-highlight-strong: rgba(0,0,0,0.14);
+  --border-strong: rgba(0,0,0,0.22);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.08);
+  --text: #1c1917;
+  --text-rgb: 28,25,23;
+  --text-secondary: #6b6560;
+  --text-secondary-rgb: 107,101,96;
+  --text-disabled: rgba(107,101,96,0.55);
+  --topbar-glass: rgba(245,244,240,0.78);
+  --overlay-bg: rgba(0,0,0,0.32);
+  --overlay-bg-soft: rgba(0,0,0,0.16);
+  --hero-stat-bg: rgba(0,0,0,0.04);
+  --hero-stat-bg-hover: rgba(0,0,0,0.08);
 
   --modal-glass: rgba(255,255,255,0.88);
 
@@ -324,6 +325,11 @@ a {
   --logs-status-ok-color: #15803d;
   --logs-status-err-color: #dc2626;
   --logs-status-warn-color: #b45309;
+
+  /* Scrollbar */
+  --scrollbar-track: rgba(0,0,0,0.04);
+  --scrollbar-thumb: rgba(0,0,0,0.12);
+  --scrollbar-thumb-hover: rgba(0,0,0,0.2);
 }
 
 /* Light 下品牌色使用稍深 hex 保证对比度 */
@@ -492,6 +498,26 @@ body,
   background: linear-gradient(90deg, transparent, rgba(129,140,248,0.3), transparent);
 }
 
+/* ── 亮色主题下卡片更有质感 ── */
+[data-theme="light"] .kpi-card,
+[data-theme="light"] .side-card,
+[data-theme="light"] .hero-station,
+[data-theme="light"] .report-section,
+[data-theme="light"] .empty-state,
+[data-theme="light"] .workflow-step-card,
+[data-theme="light"] .modal-overlay .modal {
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04);
+}
+[data-theme="light"] .kpi-card:hover,
+[data-theme="light"] .side-card:hover,
+[data-theme="light"] .report-section:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.06);
+}
+[data-theme="light"] .kpi-card {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+}
+
 /* ================================================================
    通用按钮系统 — 全局统一样式
    ================================================================ */
@@ -588,6 +614,46 @@ body,
   pointer-events: none;
 }
 
+/* ===== Form Select ===== */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 6px 28px 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background-color: var(--surface);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+  min-width: 120px;
+}
+
+select:hover {
+  border-color: var(--border-hover);
+  background-color: var(--surface-hover);
+}
+
+select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.2);
+}
+
+select option {
+  background: var(--surface-solid);
+  color: var(--text);
+  padding: 6px 12px;
+}
+
+select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ================================================================
    通用页头样式 — 统一所有 View 的 page-header 视觉标准
    各 View 可通过 scoped 样式覆盖布局（如 flex-direction）
@@ -601,8 +667,28 @@ body,
 }
 
 .page-header h2 {
-  font-size: 18px;
-  font-weight: 600;
+  font-size: 20px;
+  font-weight: 700;
   color: var(--text);
   margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.page-header .page-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 2px 0 0;
+}
+
+.page-header-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.page-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }

@@ -1,0 +1,22 @@
+{
+  "author_id": "default",
+  "core_goals": [],
+  "preferred_tropes": [],
+  "avoided_tropes": [],
+  "writing_habits": {
+    "chapter_length": 2500,
+    "hook_style": "悬念式结尾",
+    "revision_pattern": "先写后改"
+  },
+  "feedback_history": [],
+  "style_fingerprint": {
+    "avg_sentence_length": 0,
+    "dialogue_ratio": 0.0,
+    "mental_prefix_density": 0.0
+  },
+  "metadata": {
+    "created_at": "2026-07-05T23:15:37",
+    "last_updated": "2026-07-05T23:15:37",
+    "version": "v8.8"
+  }
+}

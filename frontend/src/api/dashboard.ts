@@ -62,6 +62,7 @@ export interface HardwareData {
     vram_used_mb: number
     vram_total_mb: number
     fan_speed: number
+    vram_processes?: Array<{ pid: number; name: string; used_mb: number }>
   }
   cpu: { pct: number }
   ram: { pct: number; used_gb: number; total_gb: number }

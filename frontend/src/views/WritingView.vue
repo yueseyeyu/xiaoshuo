@@ -8,22 +8,43 @@
  */
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useProjectStore } from '@/stores/project'
+import EmptyState from '@/components/common/EmptyState.vue'
 import { useUiStore } from '@/stores/ui'
+import { useSystemStore } from '@/stores/system'
 import { ProjectAPI } from '@/api/project'
 import { DashboardAPI, type SceneResult } from '@/api/dashboard'
 import { CreativeAPI } from '@/api/creative'
 import type { Character, SkeletonChapter, Volume } from '@/types'
 import ChapterToc from '@/components/writing/ChapterToc.vue'
 import WritingSidebar from '@/components/writing/WritingSidebar.vue'
+import CodeEditor from '@/components/writing/CodeEditor.vue'
 
 const projectStore = useProjectStore()
 const uiStore = useUiStore()
+const systemStore = useSystemStore()
 
 // ── 状态 ──
 const currentChapter = ref(1)
 const chapterTitle = ref('')
 const chapterContent = ref('')
 const saveStatus = ref<'saved' | 'unsaved'>('saved')
+let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
+
+function loadSetting(key: string, fallback: string): string {
+  try {
+    return localStorage.getItem('setting_' + key) ?? fallback
+  } catch { return fallback }
+}
+
+const targetWords = computed(() => {
+  const v = parseInt(loadSetting('targetWords', '2000'), 10)
+  return Number.isFinite(v) && v > 0 ? v : 2000
+})
+
+const autoSaveInterval = computed(() => {
+  const v = parseInt(loadSetting('autoSaveInterval', '60'), 10)
+  return Number.isFinite(v) && v > 0 ? v * 1000 : 60000
+})
 
 // ── 场景搜索 ──
 const searchQuery = ref('')
@@ -42,12 +63,30 @@ async function doSearch() {
   searchLoading.value = false
 }
 
+// 场景搜索英文标签 → 中文
+const emotionLabels: Record<string, string> = {
+  tense: '紧张', relaxed: '舒缓', rising: '上升', falling: '下降', calm: '平静',
+  excited: '兴奋', sad: '悲伤', angry: '愤怒', fearful: '恐惧', happy: '愉悦',
+  neutral: '中性', mixed: '复杂', unknown: '未知',
+}
+const paceLabels: Record<string, string> = {
+  fast: '快节奏', medium: '中节奏', slow: '慢节奏', unknown: '未知',
+}
+const conflictLabels: Record<string, string> = {
+  high: '高', medium: '中', low: '低', none: '无', unknown: '未知',
+}
+function fmtEmotion(v?: string): string { return emotionLabels[v || ''] || v || '未知' }
+function fmtPace(v?: string): string { return paceLabels[v || ''] || v || '未知' }
+function fmtConflict(v?: string): string { return conflictLabels[v || ''] || v || '未知' }
+
 // ── 合规扫描 ──
 const complianceResult = ref<{ ok: boolean; risk_level: string; total_count: number; ai_rate: number; ai_rate_level: string } | null>(null)
 const complianceLoading = ref(false)
 
 async function doComplianceScan() {
   if (!chapterContent.value.trim()) return
+  const ok = await systemStore.ensureModelRunning('合规扫描')
+  if (!ok) return
   complianceLoading.value = true
   const res = await CreativeAPI.complianceScan(chapterContent.value)
   if (res.ok && res.data) {
@@ -56,11 +95,34 @@ async function doComplianceScan() {
   complianceLoading.value = false
 }
 const loading = ref(false)
+const focusMode = ref(false)
 
 const projectChapters = ref<Array<{ num: number; title: string; word_count?: number }>>([])
 const skeletonVolumes = ref<Volume[]>([])
 const skeletonChapters = ref<SkeletonChapter[]>([])
 const projectCharacters = ref<Character[]>([])
+
+async function toggleFocusMode() {
+  focusMode.value = !focusMode.value
+  try {
+    if (focusMode.value) {
+      await document.documentElement.requestFullscreen()
+    } else if (document.fullscreenElement) {
+      await document.exitFullscreen()
+    }
+  } catch {
+    // 浏览器不支持全屏时静默降级，仍保留 CSS 专注模式
+  }
+  uiStore.showToast(focusMode.value ? '已进入专注模式（Ctrl+B 退出）' : '已退出专注模式', 'info')
+}
+
+function onFullscreenChange() {
+  // 用户按 Esc 退出全屏时，同步关闭专注模式
+  if (!document.fullscreenElement && focusMode.value) {
+    focusMode.value = false
+    uiStore.showToast('已退出专注模式', 'info')
+  }
+}
 
 // ── 计算属性 ──
 const hasProject = computed(() => projectStore.hasProject)
@@ -68,8 +130,7 @@ const currentProject = computed(() => projectStore.currentProject)
 const totalChapters = computed(() => currentProject.value?.meta.total_chapters ?? 300)
 
 const wordCount = computed(() => (chapterContent.value || '').replace(/\s/g, '').length)
-const targetWords = 2000
-const wordPct = computed(() => Math.min(100, Math.round((wordCount.value / targetWords) * 100)))
+const wordPct = computed(() => Math.min(100, Math.round((wordCount.value / targetWords.value) * 100)))
 
 const paraCount = computed(() => {
   const paras = (chapterContent.value || '').split(/\n\s*\n/).filter(Boolean)
@@ -78,7 +139,7 @@ const paraCount = computed(() => {
 })
 
 const eta = computed(() => {
-  const remain = Math.max(0, targetWords - wordCount.value)
+  const remain = Math.max(0, targetWords.value - wordCount.value)
   const minutes = Math.ceil(remain / 30)
   return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`
 })
@@ -151,6 +212,10 @@ function nextChapter() { if (currentChapter.value < totalChapters.value) loadCha
 function jumpToChapter(num: number) { loadChapter(num) }
 
 async function saveChapter() {
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer)
+    autoSaveTimer = null
+  }
   if (!currentProject.value?.id) return
   const title = chapterTitle.value || getChapterTitle(currentChapter.value)
   const content = chapterContent.value || ''
@@ -179,13 +244,29 @@ async function saveDraft() {
   uiStore.showToast('已保存到项目')
 }
 
-function onContentInput() { saveStatus.value = 'unsaved' }
+function scheduleAutoSave() {
+  if (autoSaveTimer) clearTimeout(autoSaveTimer)
+  autoSaveTimer = null
+  if (autoSaveInterval.value <= 0) return
+  autoSaveTimer = setTimeout(async () => {
+    if (saveStatus.value === 'unsaved') {
+      await saveChapter()
+    }
+    autoSaveTimer = null
+  }, autoSaveInterval.value)
+}
+
+function onContentInput() {
+  saveStatus.value = 'unsaved'
+  scheduleAutoSave()
+}
 
 // ── 键盘快捷键 ──
 function onKeydown(e: KeyboardEvent) {
   if (e.ctrlKey && e.key.toLowerCase() === 's') { e.preventDefault(); saveDraft() }
   if (e.ctrlKey && e.key === '[') { e.preventDefault(); prevChapter() }
   if (e.ctrlKey && e.key === ']') { e.preventDefault(); nextChapter() }
+  if (e.ctrlKey && e.key.toLowerCase() === 'b') { e.preventDefault(); toggleFocusMode() }
 }
 
 // ── 生命周期 ──
@@ -213,10 +294,25 @@ async function loadAllData() {
 
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
-  if (hasProject.value && currentProject.value?.id) await loadAllData()
+  document.addEventListener('fullscreenchange', onFullscreenChange)
+  if (!currentProject.value?.id) {
+    await projectStore.restoreCurrentProject()
+  }
+  if (currentProject.value?.id) await loadAllData()
 })
 
-onUnmounted(() => { window.removeEventListener('keydown', onKeydown) })
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
+  document.removeEventListener('fullscreenchange', onFullscreenChange)
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer)
+    autoSaveTimer = null
+  }
+})
+
+watch(focusMode, (val) => {
+  document.body.classList.toggle('focus-mode-active', val)
+})
 
 watch(() => currentProject.value?.id, async (newId) => {
   if (newId) {
@@ -233,16 +329,16 @@ watch(() => currentProject.value?.id, async (newId) => {
 </script>
 
 <template>
-  <div class="writing-page">
+  <div class="writing-page" :class="{ 'focus-mode': focusMode }">
     <!-- 无项目空状态 -->
-    <div v-if="!hasProject" class="writing-empty">
-      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:.3;margin-bottom:16px;">
-        <path d="M12 19l7-7 3 3-7 7-3-3z" /><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" /><path d="M2 2l7.586 7.586" />
-      </svg>
-      <h3>尚未选择创作作品</h3>
-      <p>写作页与你正在创作的作品绑定。<br>先去工作台创建一个项目，或查看示例项目体验。</p>
-      <button class="btn btn-primary" @click="$router.push('/dashboard')">去工作台</button>
-    </div>
+    <EmptyState
+      v-if="!hasProject"
+      icon="M12 19l7-7 3 3-7 7-3-3z M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z M2 2l7.586 7.586"
+      title="尚未选择创作作品"
+      description="写作页与你正在创作的作品绑定。先去工作台创建一个项目，或查看示例项目体验。"
+      action-text="去工作台"
+      @action="$router.push('/dashboard')"
+    />
 
     <template v-else>
       <!-- 工具栏 -->
@@ -283,6 +379,14 @@ watch(() => currentProject.value?.id, async (newId) => {
           <button class="btn btn-secondary btn-sm" :disabled="complianceLoading" @click="doComplianceScan">
             {{ complianceLoading ? '扫描中...' : '合规扫描' }}
           </button>
+          <button
+            class="btn btn-ghost btn-sm"
+            :class="{ active: focusMode }"
+            title="Ctrl+B 切换"
+            @click="toggleFocusMode"
+          >
+            专注模式
+          </button>
           <button class="btn btn-primary btn-sm" @click="saveDraft">保存草稿</button>
         </div>
       </div>
@@ -301,37 +405,53 @@ watch(() => currentProject.value?.id, async (newId) => {
 
         <!-- 中间：编辑器 -->
         <div class="editor-pane">
-          <div class="editor-header">
-            <div class="editor-breadcrumbs">
-              <span>第{{ currentVolIndex + 1 }}卷</span>
-              <span class="breadcrumb-sep">/</span>
-              <span>第{{ currentChapter }} 章</span>
+          <!-- 专注模式悬浮工具条 -->
+          <div v-if="focusMode" class="focus-toolbar">
+            <div class="focus-toolbar-left">
+              <span class="focus-label">专注模式</span>
+              <span class="focus-toolbar-sep">·</span>
+              <span class="focus-chapter">{{ chapterTitle || getChapterTitle(currentChapter) }}</span>
             </div>
-            <input v-model="chapterTitle" class="editor-title" placeholder="章节标题" @input="onContentInput" />
+            <div class="focus-toolbar-right">
+              <span class="focus-wc">{{ wordCount }} 字</span>
+              <button class="btn btn-secondary btn-sm" @click="toggleFocusMode">退出专注模式</button>
+            </div>
           </div>
-          <textarea
-            v-model="chapterContent"
-            class="editor-textarea"
-            placeholder="开始写作..."
-            @input="onContentInput"
-          />
-          <div class="editor-footer">
-            <div class="footer-left">
-              <span>本段 {{ paraCount }} 字</span>
+
+          <div class="editor-main">
+            <div class="editor-header">
+              <div class="editor-breadcrumbs">
+                <span>第{{ currentVolIndex + 1 }}卷</span>
+                <span class="breadcrumb-sep">/</span>
+                <span>第{{ currentChapter }} 章</span>
+              </div>
+              <input v-model="chapterTitle" class="editor-title" placeholder="章节标题" @input="onContentInput" />
             </div>
-            <div class="footer-center">
-              <span>预计 {{ eta }}</span>
-              <span class="footer-sep">·</span>
-              <span>今日 {{ todayCount.toLocaleString() }} 字</span>
-            </div>
-            <div class="footer-right">
-              <span>目标 {{ targetWords }} 字</span>
+            <CodeEditor
+              v-model="chapterContent"
+              placeholder="开始写作..."
+              :class="{ 'focus-editor': focusMode }"
+              @input="onContentInput"
+            />
+            <div class="editor-footer">
+              <div class="footer-left">
+                <span>本段 {{ paraCount }} 字</span>
+              </div>
+              <div class="footer-center">
+                <span>预计 {{ eta }}</span>
+                <span class="footer-sep">·</span>
+                <span>今日 {{ todayCount.toLocaleString() }} 字</span>
+              </div>
+              <div class="footer-right">
+                <span>目标 {{ targetWords }} 字</span>
+              </div>
             </div>
           </div>
         </div>
 
         <!-- 右侧：参考面板 -->
         <WritingSidebar
+          class="writing-sidebar"
           :chapter-content="chapterContent"
           :current-chapter="currentChapter"
           :total-chapters="totalChapters"
@@ -366,7 +486,7 @@ watch(() => currentProject.value?.id, async (newId) => {
         <div v-for="r in searchResults" :key="r.rank" class="search-result-item">
           <div class="search-result-header">
             <span class="search-result-book">{{ r.book_name }} 第{{ r.chapter }}章</span>
-            <span class="search-result-meta">{{ r.emotion }} · {{ r.pace }} · 冲突{{ r.conflict_level }}</span>
+            <span class="search-result-meta">{{ fmtEmotion(r.emotion) }} · {{ fmtPace(r.pace) }} · 冲突{{ fmtConflict(r.conflict_level) }}</span>
           </div>
           <div class="search-result-preview">{{ r.text_preview }}</div>
           <div class="search-result-technique">{{ r.technique_summary }}</div>
@@ -379,43 +499,42 @@ watch(() => currentProject.value?.id, async (newId) => {
 <style scoped>
 .writing-page { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
 
-/* 空状态 */
-.writing-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }
-.writing-empty h3 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
-.writing-empty p { font-size: 14px; color: var(--text-secondary); margin-bottom: 20px; line-height: 1.6; }
-
 /* 工具栏 */
-.writing-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.writing-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; background: var(--surface-solid); border-bottom: 1px solid var(--border-hover); flex-shrink: 0; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); }
 .toolbar-left { display: flex; align-items: center; gap: 16px; }
 .toolbar-right { display: flex; align-items: center; gap: 10px; }
 .chapter-context { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-secondary); }
-.ctx-book { font-weight: 600; color: var(--text); }
+.ctx-book { font-weight: 700; color: var(--text); }
+.ctx-vol { color: var(--text); }
+.ctx-chap { color: var(--text-secondary); font-weight: 500; }
 .ctx-sep { opacity: 0.5; }
 .chapter-nav { display: flex; align-items: center; gap: 6px; }
 .chap-progress-group { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 160px; }
-.chap-progress-text { font-size: 11px; color: var(--text-secondary); }
-.progress-mini { width: 100px; height: 3px; background: var(--surface-solid); border-radius: 2px; overflow: hidden; }
+.chap-progress-text { font-size: 11px; color: var(--text-secondary); font-weight: 500; }
+.progress-mini { width: 100px; height: 4px; background: var(--surface-faint); border-radius: 2px; overflow: hidden; }
 .progress-mini-bar { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.2s; }
-.word-count { font-size: 12px; color: var(--text-secondary); }
-.save-status { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-secondary); }
+.word-count { font-size: 12px; color: var(--text); font-weight: 600; }
+.save-status { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-secondary); font-weight: 500; }
 .save-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
 .save-status.unsaved .save-dot { background: var(--warning); }
 
 /* 三栏布局 */
-.writing-layout { display: flex; flex: 1; overflow: hidden; }
+.writing-layout { display: flex; flex: 1; overflow: hidden; background: var(--bg); }
 
 /* 编辑器 */
-.editor-pane { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.editor-header { padding: 10px 16px; border-bottom: 1px solid var(--border); }
+.editor-pane { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--surface); margin: 12px; border: 1px solid var(--border-hover); border-radius: 10px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06); }
+.editor-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.editor-header { padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--surface-solid); }
 .editor-breadcrumbs { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-secondary); margin-bottom: 6px; }
 .breadcrumb-sep { opacity: 0.5; }
 .editor-title { width: 100%; border: none; background: transparent; color: var(--text); font-size: 18px; font-weight: 600; outline: none; }
 .editor-title::placeholder { color: var(--text-muted); }
-.editor-textarea { flex: 1; border: none; background: transparent; color: var(--text); font-size: 15px; line-height: 1.8; padding: 16px; resize: none; outline: none; font-family: inherit; }
-.editor-textarea::placeholder { color: var(--text-muted); }
-.editor-footer { display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-secondary); }
+.editor-footer { display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-secondary); background: var(--surface-solid); }
 .footer-center { display: flex; align-items: center; gap: 4px; }
 .footer-sep { opacity: 0.5; }
+
+/* 右侧面板 */
+.writing-sidebar { background: var(--surface-solid); border-left: 1px solid var(--border-hover); box-shadow: -1px 0 3px rgba(0, 0, 0, 0.04); }
 
 /* ── 合规扫描面板 ── */
 .compliance-panel { padding: 10px 16px; border-top: 1px solid var(--border); font-size: 12px; }
@@ -439,8 +558,106 @@ watch(() => currentProject.value?.id, async (newId) => {
 .search-result-preview { font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 4px; }
 .search-result-technique { font-size: 10px; color: var(--text-muted); }
 
+/* ── 专注模式 ── */
+.writing-page.focus-mode .writing-toolbar,
+.writing-page.focus-mode .writing-toc,
+.writing-page.focus-mode .writing-sidebar {
+  display: none;
+}
+.writing-page.focus-mode .writing-layout {
+  justify-content: center;
+  background: var(--surface-faint);
+}
+.writing-page.focus-mode .editor-pane {
+  flex: 1 1 100%;
+  width: 100%;
+  max-width: 100%;
+  height: 100vh;
+  min-height: 100vh;
+  margin: 0;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  background: var(--surface);
+}
+.writing-page.focus-mode .editor-main {
+  max-width: 100%;
+  width: 100%;
+  margin: 0 auto;
+}
+.writing-page.focus-mode .editor-header,
+.writing-page.focus-mode .editor-footer {
+  background: var(--surface);
+}
+.writing-page.focus-mode .editor-breadcrumbs {
+  display: none;
+}
+.writing-page.focus-mode .editor-title {
+  text-align: center;
+}
+
+.focus-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  background: var(--surface-solid);
+  border-bottom: 1px solid var(--border);
+  opacity: 0.55;
+  transition: opacity 0.2s ease;
+}
+.focus-toolbar:hover {
+  opacity: 1;
+}
+.focus-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.focus-label {
+  font-weight: 700;
+  color: var(--accent);
+}
+.focus-toolbar-sep {
+  opacity: 0.4;
+}
+.focus-chapter {
+  color: var(--text);
+  font-weight: 500;
+}
+.focus-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.focus-wc {
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── 按钮 — 全局 style.css 接管 ── */
 
 @media (max-width: 1024px) { .editor-pane { font-size: 14px; } }
 @media (max-width: 768px) { .editor-pane { flex: 1; } }
+</style>
+
+<style>
+/* 专注模式：隐藏全局导航，让编辑器占满整个视口（Fullscreen API 降级方案） */
+body.focus-mode-active .app-shell .topbar,
+body.focus-mode-active .app-shell .sidebar {
+  display: none;
+}
+body.focus-mode-active .app-shell {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+  grid-template-areas: "main";
+}
+body.focus-mode-active .app-shell .main-content {
+  grid-area: main;
+}
 </style>

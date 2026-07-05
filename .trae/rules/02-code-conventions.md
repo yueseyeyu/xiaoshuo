@@ -22,7 +22,6 @@ description: "代码规范和 SSOT 单一事实源原则"
 - 模式切换函数中，先保存 old_value 再打印（防 print bug）
 
 ## 模型相关
-- 主模型端口 8000（Qwen3.5-9B）
-- WebNovel 专家端口 8001（当前未启用）
-- 逻辑警察端口 8002（DeepSeek-R1-Distill，当前未启用）
+- 主模型端口 8000（Qwen3.5-9B Q4_K_M）
+- 交叉模型端口 8002（DeepSeek-R1-0528-Qwen3-8B Q4_K_M，通过 swap_to() 顺序切换）
 - 通信方式：llama-server HTTP API（OpenAI 兼容），非 Python in-process

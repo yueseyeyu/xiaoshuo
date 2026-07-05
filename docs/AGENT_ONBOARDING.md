@@ -1,4 +1,4 @@
-# 番茄小说 AI 创作辅助系统 v7.5 — Agent 速览
+# 番茄小说 AI 创作辅助系统 v8.5 — Agent 速览
 
 > 任何 AI Agent 打开项目后，先读此文件。5 分钟秒懂全局，省 80% 上下文 Token。
 
@@ -6,7 +6,7 @@
 
 ## 一句话定位
 
-**网文作者的工具箱**：AI 拆解爆款小说（节奏/爽点/冲突），给出创作建议。正文 100% 手写，AI 只做分析，不代笔。
+**网文作者的工具箱**：AI 拆解爆款小说（节奏/爽点/冲突），给出创作建议。AI可生成正文参考/草稿/对比版，须过S3质量门禁，作者有最终采用权。
 
 ---
 
@@ -19,7 +19,7 @@
 | 云端模型 | DeepSeek V4-Flash / V4-Pro |
 | GPU | RTX 5060 8GB |
 | OS | Windows 11 |
-| 前端 | 原生 JS + CSS（无框架），端口 8090 |
+| 前端 | Vue 3 + Vite + TypeScript + Pinia，后端API端口 8089 |
 
 ---
 
@@ -129,7 +129,7 @@ Group 3 (顺序):  └─────┴────────────┘
 ## 核心约束
 
 1. **禁止修改 `.codebuddy/` 目录** — 那是 CodeBuddy IDE 的专属配置
-2. **禁止生成 >30 字连续小说正文** — 100% 手写，AI 仅分析/建议
+2. **AI生成正文须过S3质量门禁** — 见 AI_PROTOCOL.md v1.2，未过门禁不直接采用，作者有最终采用权
 3. **所有阈值/端口/路径 → `config.yaml`** — SSOT 单一事实源，代码动态读取
 4. **print() 禁止 Unicode** — Windows GBK 崩溃，用 `[OK]` `[FAIL]`
 5. **所有路径用 `pathlib.Path()`** — 禁止字符串拼接
@@ -143,7 +143,8 @@ Group 3 (顺序):  └─────┴────────────┘
 ```bash
 scripts\start_model.bat              # 启动 Qwen3.5-9B
 scripts\lint.bat                      # 代码检查（py_compile + import test + self-test）
-python scripts/progress_server.py     # 启动前端仪表盘（端口 8090）
+python scripts/progress_server.py     # 启动拆书监控面板（端口 8090）
+D:\miniconda3\envs\llm-shared\python.exe -m xiaoshuo.api.server --port 8089  # 启动后端API（端口 8089）
 python -m src.xiaoshuo.pipeline.analyze_all --genre 末世  # 末世题材全量拆书
 python novel.py analyze --genre 末世  # 末世题材分析报告
 ```

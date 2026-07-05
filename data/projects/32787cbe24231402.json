@@ -10,7 +10,7 @@
     "written_chapters": 127,
     "summary": "主角在高考考场遭遇末日降临，觉醒模拟器能力，在72小时轮回中带领团队生存。",
     "created_at": "2026-06-29 17:10:31",
-    "updated_at": "2026-06-29 17:10:31"
+    "updated_at": "2026-07-05 16:19:31"
   },
   "skeleton": {
     "volumes": [
@@ -150,7 +150,8 @@
       "num": 1,
       "title": "考场异变",
       "status": "written",
-      "word_count": 2100
+      "word_count": 0,
+      "content": ""
     },
     {
       "num": 2,
@@ -171,5 +172,74 @@
       "word_count": 1240
     }
   ],
-  "id": "32787cbe24231402"
+  "id": "32787cbe24231402",
+  "world_state": {
+    "chapter": 0,
+    "regions": [],
+    "factions_state": [
+      {
+        "id": "黑塔",
+        "name": "黑塔",
+        "stability": 0.5,
+        "morale": 0.5,
+        "treasury": 0.5,
+        "threat_level": 0.3,
+        "power_level": 5
+      },
+      {
+        "id": "避难所",
+        "name": "避难所",
+        "stability": 0.5,
+        "morale": 0.5,
+        "treasury": 0.5,
+        "threat_level": 0.3,
+        "power_level": 5
+      },
+      {
+        "id": "拾荒者",
+        "name": "拾荒者",
+        "stability": 0.5,
+        "morale": 0.5,
+        "treasury": 0.5,
+        "threat_level": 0.3,
+        "power_level": 5
+      },
+      {
+        "id": "清理人",
+        "name": "清理人",
+        "stability": 0.5,
+        "morale": 0.5,
+        "treasury": 0.5,
+        "threat_level": 0.3,
+        "power_level": 5
+      }
+    ],
+    "characters_state": [
+      {
+        "name": "林默",
+        "faction_id": "",
+        "health": 1.0,
+        "mood": "normal",
+        "location": "未知",
+        "recent_actions": []
+      },
+      {
+        "name": "苏婉",
+        "faction_id": "",
+        "health": 1.0,
+        "mood": "normal",
+        "location": "未知",
+        "recent_actions": []
+      },
+      {
+        "name": "老K",
+        "faction_id": "",
+        "health": 1.0,
+        "mood": "normal",
+        "location": "未知",
+        "recent_actions": []
+      }
+    ],
+    "snapshots": []
+  }
 }

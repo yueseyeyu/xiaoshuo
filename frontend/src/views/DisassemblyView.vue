@@ -15,6 +15,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useUiStore } from '@/stores/ui'
 import { useProjectStore } from '@/stores/project'
+import { useVisibilityPause } from '@/composables/useVisibilityPause'
 import {
   DisassemblyAPI,
   type DisassemblyBook,
@@ -22,6 +23,8 @@ import {
 } from '@/api/disassembly'
 import { CreativeAPI } from '@/api/creative'
 import { LibraryAPI, type Book } from '@/api/library'
+import TabBar from '@/components/common/TabBar.vue'
+import KpiCard from '@/components/common/KpiCard.vue'
 import BookDetailPanel from '@/components/disassembly/BookDetailPanel.vue'
 import TaskCreateModal from '@/components/disassembly/TaskCreateModal.vue'
 import DeconstructModal from '@/components/disassembly/DeconstructModal.vue'
@@ -51,7 +54,19 @@ const tasks = ref<AnalysisTask[]>([])
 const taskFilter = ref('all')
 const showTaskModal = ref(false)
 const taskPolling = ref(false)
-let taskPollTimer: ReturnType<typeof setInterval> | null = null
+
+async function pollTasksOnce() {
+  const hasActive = tasks.value.some(
+    (t) => t.status === 'pending' || t.status === 'queued' || t.status === 'running'
+  )
+  if (!hasActive) {
+    stopTaskPolling()
+    return
+  }
+  await loadTasks()
+}
+
+const { start: startTaskPollingInner, stop: stopTaskPollingInner } = useVisibilityPause(pollTasksOnce, 2000)
 
 // ── 解构查看器状态 ──
 const deconstructBooks = ref<Array<{ title: string; file_path: string; size_kb: number; genre: string }>>([])
@@ -161,23 +176,11 @@ async function onTaskCreated() {
 function startTaskPolling() {
   if (taskPolling.value) return
   taskPolling.value = true
-  taskPollTimer = setInterval(async () => {
-    const hasActive = tasks.value.some(
-      (t) => t.status === 'pending' || t.status === 'queued' || t.status === 'running'
-    )
-    if (!hasActive) {
-      stopTaskPolling()
-      return
-    }
-    await loadTasks()
-  }, 2000)
+  startTaskPollingInner()
 }
 
 function stopTaskPolling() {
-  if (taskPollTimer) {
-    clearInterval(taskPollTimer)
-    taskPollTimer = null
-  }
+  stopTaskPollingInner()
   taskPolling.value = false
 }
 
@@ -299,22 +302,14 @@ onUnmounted(() => {
     </div>
 
     <!-- 标签页切换 -->
-    <div class="tab-switcher">
-      <button
-        class="tab-btn"
-        :class="{ active: activeTab === 'disassembly' }"
-        @click="activeTab = 'disassembly'"
-      >
-        拆书分析
-      </button>
-      <button
-        class="tab-btn"
-        :class="{ active: activeTab === 'deconstruction' }"
-        @click="activeTab = 'deconstruction'; deconstructBooks.length === 0 && loadDeconstructBooks()"
-      >
-        小说解构
-      </button>
-    </div>
+    <TabBar
+      v-model="activeTab"
+      :options="[
+        { label: '拆书分析', value: 'disassembly' },
+        { label: '小说解构', value: 'deconstruction' },
+      ]"
+      @update:model-value="(v) => v === 'deconstruction' && deconstructBooks.length === 0 && loadDeconstructBooks()"
+    />
 
     <!-- ═══════════════ 拆书分析 Tab ═══════════════ -->
     <template v-if="activeTab === 'disassembly'">
@@ -347,10 +342,30 @@ onUnmounted(() => {
 
       <!-- KPI -->
       <div class="kpi-row">
-        <div class="kpi-card"><div class="kpi-value">{{ kpiBooks }}</div><div class="kpi-label">已拆书籍</div></div>
-        <div class="kpi-card kpi-dynamic"><div class="kpi-value">{{ fmtNumber(kpiChapters) }}</div><div class="kpi-label">总章数</div></div>
-        <div class="kpi-card kpi-dynamic"><div class="kpi-value">{{ fmtNumber(kpiWords) }}</div><div class="kpi-label">总字数</div></div>
-        <div class="kpi-card kpi-dynamic"><div class="kpi-value">{{ fmtNumber(kpiAvg) }}</div><div class="kpi-label">平均章字数</div></div>
+        <KpiCard
+          icon="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"
+          color="indigo"
+          :value="kpiBooks"
+          label="已拆书籍"
+        />
+        <KpiCard
+          icon="M4 6h16 M4 10h16 M4 14h16"
+          color="accent"
+          :value="fmtNumber(kpiChapters)"
+          label="总章数"
+        />
+        <KpiCard
+          icon="M12 20h9 M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"
+          color="amber"
+          :value="fmtNumber(kpiWords)"
+          label="总字数"
+        />
+        <KpiCard
+          icon="M9 7h6 M9 11h6 M9 15h6 M3 5v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5"
+          color="violet"
+          :value="fmtNumber(kpiAvg)"
+          label="平均章字数"
+        />
       </div>
 
       <div class="disassembly-layout">
@@ -394,7 +409,9 @@ onUnmounted(() => {
                     <span v-else>{{ fmtNumber(item.words) }} 字</span>
                   </span>
                 </div>
-                <button v-if="item.status === 'analyzed'" class="dis-list-compare-btn" title="加入对比" @click.stop="toggleCompare(item)">⚖</button>
+                <button v-if="item.status === 'analyzed'" class="dis-list-compare-btn" title="加入对比" @click.stop="toggleCompare(item)">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22a8 8 0 0 0 8-8c0-3.866-4-10-8-18-4 8-8 14.134-8 18a8 8 0 0 0 8 8z"/></svg>
+                </button>
                 <span class="dis-list-badge" :class="item.status">{{ item.status === 'analyzed' ? '已拆' : '待拆' }}</span>
               </div>
             </div>
@@ -470,43 +487,21 @@ onUnmounted(() => {
 
 <style scoped>
 .disassembly-page {
-  padding: 16px 24px;
+  padding: 20px 24px;
   height: 100%;
   overflow-y: auto;
+  background: radial-gradient(circle at 50% 0%, rgba(var(--accent-rgb), 0.04), transparent 30%), var(--bg);
 }
-.page-header { margin-bottom: 16px; }
-.page-header h2 { font-size: 18px; font-weight: 600; }
-
-/* ── 标签页切换 ── */
-.tab-switcher {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 16px;
-  border-bottom: 1px solid var(--border);
-}
-.tab-btn {
-  padding: 8px 16px;
-  border: none;
-  background: none;
-  color: var(--text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: all 0.15s;
-}
-.tab-btn:hover { color: var(--text); }
-.tab-btn.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
+.page-header { margin-bottom: 20px; }
 
 /* ── 任务管理面板 ── */
 .task-panel {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px 14px;
-  margin-bottom: 16px;
+  background: var(--surface-solid);
+  border: 1px solid var(--border-hover);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 .task-panel-header {
   display: flex;
@@ -528,7 +523,7 @@ onUnmounted(() => {
 .filter-tab:hover { border-color: var(--border-hover); }
 .filter-tab.active {
   background: var(--accent);
-  color: #0a0a0a;
+  color: var(--bg);
   border-color: var(--accent);
 }
 .task-grid {
@@ -556,38 +551,35 @@ onUnmounted(() => {
 .task-empty { padding: 12px; text-align: center; }
 .task-empty-text { font-size: 12px; color: var(--text-muted); }
 
-/* ── KPI — 全局 style.css 接管 .kpi-card 光带动画，scoped 仅保留布局 ── */
-.kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
-.kpi-value { font-size: 22px; font-weight: 700; }
-.kpi-label { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
-.kpi-dynamic .kpi-value { color: var(--accent); }
+/* ── KPI — 布局 ── */
+.kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
 
 .disassembly-layout { display: flex; gap: 16px; min-height: 500px; }
 .dis-sidebar { width: 280px; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; }
 .dis-main { flex: 1; min-width: 0; }
 
-.side-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+.side-card { background: var(--surface-solid); border: 1px solid var(--border-hover); border-radius: 12px; padding: 14px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06); }
 .side-card-title { font-size: 13px; font-weight: 600; margin-bottom: 10px; }
 
-.dis-filters { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.dis-filters { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
 .dis-filter-group { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.dis-filter-label { font-size: 11px; color: var(--text-secondary); margin-right: 4px; }
-.dis-filter-btn { padding: 2px 8px; border: 1px solid var(--border); border-radius: 12px; background: transparent; color: var(--text-secondary); font-size: 11px; cursor: pointer; transition: all 0.15s; }
-.dis-filter-btn:hover { border-color: var(--border-hover); }
-.dis-filter-btn.active { background: var(--accent); color: #0a0a0a; border-color: var(--accent); }
+.dis-filter-label { font-size: 11px; color: var(--text-secondary); margin-right: 4px; font-weight: 500; }
+.dis-filter-btn { padding: 3px 10px; border: 1px solid var(--border-hover); border-radius: 12px; background: var(--surface); color: var(--text-secondary); font-size: 11px; cursor: pointer; transition: all 0.15s; }
+.dis-filter-btn:hover { border-color: var(--accent); color: var(--text); background: var(--surface-hover); }
+.dis-filter-btn.active { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
 
-.dis-list { display: flex; flex-direction: column; gap: 2px; }
-.dis-list-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px; cursor: pointer; transition: all 0.15s; }
-.dis-list-item:hover { background: var(--surface-hover); }
-.dis-list-item.active { background: rgba(56, 189, 248, 0.08); border: 1px solid var(--accent); }
-.dis-list-item-left { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.dis-list-name { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dis-list-info { display: flex; gap: 6px; font-size: 11px; color: var(--text-secondary); }
-.dis-list-genre { color: var(--accent); }
-.dis-list-compare-btn { background: none; border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; cursor: pointer; font-size: 12px; color: var(--text-secondary); }
+.dis-list { display: flex; flex-direction: column; gap: 6px; }
+.dis-list-item { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 8px; cursor: pointer; transition: all 0.15s; background: var(--surface); border: 1px solid var(--border-hover); }
+.dis-list-item:hover { background: var(--surface-hover); border-color: var(--accent); }
+.dis-list-item.active { background: rgba(var(--accent-rgb), 0.1); border: 1px solid var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.dis-list-item-left { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.dis-list-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.dis-list-info { display: flex; gap: 8px; font-size: 11px; color: var(--text-secondary); }
+.dis-list-genre { color: var(--accent); font-weight: 500; }
+.dis-list-compare-btn { background: none; border: 1px solid var(--border-hover); border-radius: 4px; padding: 2px 6px; cursor: pointer; font-size: 12px; color: var(--text-secondary); }
 .dis-list-compare-btn:hover { border-color: var(--accent); color: var(--accent); }
-.dis-list-badge { font-size: 10px; padding: 1px 6px; border-radius: 3px; flex-shrink: 0; }
-.dis-list-badge.analyzed { color: var(--success); background: rgba(34, 197, 94, 0.1); }
+.dis-list-badge { font-size: 10px; padding: 2px 7px; border-radius: 10px; flex-shrink: 0; font-weight: 600; }
+.dis-list-badge.analyzed { color: var(--success); background: rgba(34, 197, 94, 0.12); }
 .dis-list-badge.pending { color: var(--text-secondary); background: var(--surface-hover); }
 
 /* 对比栏 */

@@ -9,6 +9,7 @@ import { onMounted, onUnmounted, computed, ref } from 'vue'
 import { useProjectStore } from '@/stores/project'
 import { useSystemStore } from '@/stores/system'
 import { useUiStore } from '@/stores/ui'
+import { useVisibilityPause } from '@/composables/useVisibilityPause'
 import { DashboardAPI, type HardwareData } from '@/api/dashboard'
 
 const projectStore = useProjectStore()
@@ -19,7 +20,7 @@ const uiStore = useUiStore()
 const hw = ref<HardwareData | null>(null)
 const hwOpen = ref(false)
 const hwRef = ref<HTMLElement | null>(null)
-let hwTimer: ReturnType<typeof setInterval> | null = null
+const { start: startHwPolling, stop: stopHwPolling } = useVisibilityPause(fetchHw, 5000)
 
 async function fetchHw() {
   const { ok, data } = await DashboardAPI.getHardware()
@@ -39,18 +40,30 @@ function hwLabel(): string {
   return `${hw.value.gpu.temp}°C / ${hw.value.gpu.vram_pct}%`
 }
 
-// ── 品牌色切换 ──
+// ── 主题色切换（暗色品牌色 + 白天通用）──
 const presets = [
   { key: 'serene', label: '静谧蓝', color: '#38BDF8', rgb: '56,189,248' },
   { key: 'arctic', label: '极光青', color: '#22D3EE', rgb: '34,211,238' },
   { key: 'lavender', label: '薰衣草', color: '#A78BFA', rgb: '167,139,250' },
   { key: 'aurora', label: '极光靛', color: '#818CF8', rgb: '129,140,248' },
+  { key: 'light', label: '白天通用', color: '#f8fafc', rgb: '248,250,252' },
 ]
 const activePreset = ref('serene')
 
 function setPreset(key: string) {
   activePreset.value = key
+
+  if (key === 'light') {
+    // 白天通用：切换为亮色主题，保留当前暗色品牌色偏好（仅存 theme，不覆写 accent_preset）
+    localStorage.setItem('theme', 'light')
+    document.documentElement.setAttribute('data-theme', 'light')
+    return
+  }
+
+  // 暗色品牌色：同时持久化 accent_preset 和 theme
   localStorage.setItem('accent_preset', key)
+  localStorage.setItem('theme', 'midnight')
+  document.documentElement.setAttribute('data-theme', 'midnight')
   const p = presets.find(p => p.key === key)
   if (p) {
     document.documentElement.style.setProperty('--accent', p.color)
@@ -60,31 +73,22 @@ function setPreset(key: string) {
 }
 
 function restorePreset() {
-  const saved = localStorage.getItem('accent_preset')
-  if (saved) {
-    activePreset.value = saved
-    const p = presets.find(p => p.key === saved)
-    if (p) {
-      document.documentElement.style.setProperty('--accent', p.color)
-      document.documentElement.style.setProperty('--accent-rgb', p.rgb)
-      document.documentElement.setAttribute('data-accent', saved)
-    }
+  const savedAccent = localStorage.getItem('accent_preset') || 'serene'
+  const savedTheme = localStorage.getItem('theme') || 'midnight'
+
+  // activePreset 显示为当前生效的预设（亮色模式时显示 'light'）
+  activePreset.value = savedTheme === 'light' ? 'light' : savedAccent
+
+  // 先恢复主题模式
+  document.documentElement.setAttribute('data-theme', savedTheme)
+
+  // 再恢复暗色品牌色（亮色模式下 data-accent 仍由 CSS 组合选择器生效）
+  const p = presets.find(p => p.key === savedAccent)
+  if (p) {
+    document.documentElement.style.setProperty('--accent', p.color)
+    document.documentElement.style.setProperty('--accent-rgb', p.rgb)
+    document.documentElement.setAttribute('data-accent', savedAccent)
   }
-}
-
-// ── 主题切换（亮色/暗色）──
-const currentTheme = ref('midnight')
-
-function toggleTheme(theme: string) {
-  currentTheme.value = theme
-  localStorage.setItem('theme', theme)
-  document.documentElement.setAttribute('data-theme', theme)
-}
-
-function restoreTheme() {
-  const saved = localStorage.getItem('theme') || 'midnight'
-  currentTheme.value = saved
-  document.documentElement.setAttribute('data-theme', saved)
 }
 
 // ── 项目切换 ──
@@ -128,7 +132,6 @@ function onDocClick(e: MouseEvent) {
 // ── 生命周期 ──
 onMounted(async () => {
   restorePreset()
-  restoreTheme()
   document.addEventListener('click', onDocClick)
   await Promise.all([
     systemStore.fetchConfig(),
@@ -137,13 +140,13 @@ onMounted(async () => {
     fetchHw(),
   ])
   systemStore.startPolling(10000)
-  hwTimer = setInterval(fetchHw, 5000)
+  startHwPolling()
 })
 
 onUnmounted(() => {
   document.removeEventListener('click', onDocClick)
   systemStore.stopPolling()
-  if (hwTimer) { clearInterval(hwTimer); hwTimer = null }
+  stopHwPolling()
 })
 </script>
 
@@ -172,32 +175,16 @@ onUnmounted(() => {
     </div>
 
     <div class="topbar-right">
-      <!-- 品牌色切换器 -->
-      <div class="preset-switcher">
+      <!-- 主题色切换器：暗色品牌色 + 白天通用 -->
+      <div class="preset-switcher" title="切换主题色">
         <button
           v-for="p in presets"
           :key="p.key"
           class="preset-dot"
-          :class="{ active: activePreset === p.key }"
+          :class="{ active: activePreset === p.key, 'daylight': p.key === 'light' }"
           :style="{ background: p.color }"
           :title="p.label"
           @click="setPreset(p.key)"
-        ></button>
-      </div>
-
-      <!-- 主题切换（亮色/暗色） -->
-      <div class="theme-switcher" title="切换亮色/暗色主题">
-        <button
-          class="theme-dot"
-          :class="{ active: currentTheme === 'midnight' }"
-          data-theme="midnight"
-          @click="toggleTheme('midnight')"
-        ></button>
-        <button
-          class="theme-dot"
-          :class="{ active: currentTheme === 'light' }"
-          data-theme="light"
-          @click="toggleTheme('light')"
         ></button>
       </div>
 
@@ -408,36 +395,9 @@ onUnmounted(() => {
   transform: scale(1.15);
 }
 
-/* 主题切换 */
-.theme-switcher {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-}
-
-.theme-dot {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  border: 2px solid var(--border);
-  cursor: pointer;
-  padding: 0;
-  transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
-}
-
-.theme-dot[data-theme="midnight"] { background: var(--brand-serene); }
-.theme-dot[data-theme="light"]    { background: #f8fafc; }
-
-.theme-dot:hover { transform: scale(1.12); }
-
-.theme-dot.active {
-  border-color: var(--text);
-  box-shadow: 0 0 0 1px var(--bg);
-  transform: scale(1.15);
+.preset-dot.daylight {
+  border-color: var(--border);
+  background: #f8fafc;
 }
 
 /* 硬件监控 */

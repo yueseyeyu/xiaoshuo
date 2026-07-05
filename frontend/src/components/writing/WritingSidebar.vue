@@ -553,7 +553,7 @@ defineExpose({ sidebarTab })
 .amind-author-card { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 6px; cursor: pointer; transition: all 0.15s; }
 .amind-author-card:hover { background: var(--surface-hover); }
 .amind-author-card.active { background: rgba(56, 189, 248, 0.08); border: 1px solid var(--accent); }
-.amind-author-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--accent); color: #0a0a0a; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink: 0; }
+.amind-author-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--accent); color: var(--bg); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink: 0; }
 .amind-author-name { font-size: 13px; font-weight: 600; }
 .amind-author-style { font-size: 11px; color: var(--text-secondary); }
 .amind-detail-works { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }

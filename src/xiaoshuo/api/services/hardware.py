@@ -11,6 +11,8 @@ from xiaoshuo.infra.hardware_guardian import (
     _read_gpu_temp_pynvml,
     _read_vram_used_pynvml,
     _read_fan_speed_pynvml,
+    _read_vram_processes_pynvml,
+    _read_gpu_util_pynvml,
     _read_gpu_temp_smi,
     _read_vram_used_smi,
     _read_vram_total_smi,
@@ -24,6 +26,7 @@ hardware_state = {
     "gpu_temp": None, "vram_used_mb": None, "vram_total_mb": None,
     "fan_speed": None, "sys_memory_used_gb": None, "sys_memory_total_gb": None,
     "cpu_percent": 0.0,  # CPU 利用率缓存（由监控线程持续采样）
+    "vram_processes": [],  # 占用显存的进程列表
     "gpu_available": False, "updated_at": None,
 }
 hardware_lock = threading.Lock()
@@ -64,7 +67,7 @@ def _read_hardware_once() -> dict:
     result = {
         "gpu_temp": None, "vram_used_mb": None, "vram_total_mb": None,
         "fan_speed": None, "sys_memory_used_gb": None, "sys_memory_total_gb": None,
-        "gpu_available": False,
+        "vram_processes": [], "gpu_available": False,
     }
     pynvml, handle = _get_cached_nvml()
     if pynvml is not None and handle is not None:
@@ -72,6 +75,8 @@ def _read_hardware_once() -> dict:
         result["gpu_temp"] = _read_gpu_temp_pynvml(pynvml, handle)
         result["vram_used_mb"] = _read_vram_used_pynvml(pynvml, handle)
         result["fan_speed"] = _read_fan_speed_pynvml(pynvml, handle)
+        result["gpu_util"] = _read_gpu_util_pynvml(pynvml, handle)
+        result["vram_processes"] = _read_vram_processes_pynvml(pynvml, handle)
         try:
             mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
             result["vram_total_mb"] = mem.total // (1024 * 1024)

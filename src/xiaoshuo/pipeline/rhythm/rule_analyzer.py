@@ -22,6 +22,8 @@ from xiaoshuo.pipeline.rhythm.patterns import (
     CONFLICT_KW_ALL,
     DIALOGUE_PAT, EXCLAM_PAT, NEGATIVE, CLIFFHANGER,
     ANTI_TROPE, EMOTION_HIGH, EMOTION_LOW, EMOTION_BURNOUT,
+    OBSTACLE_KW_ALL, OBSTACLE_TYPE_NAMES,
+    FATE_SIGNALS,
 )
 from xiaoshuo.pipeline.text_utils import split_paragraphs as _split_paragraphs
 
@@ -239,6 +241,42 @@ def rule_analyze(ch):
             (low_emotion_count * 2 + burnout_count * 4)
         )), 1)
 
+    # ── v2: 6类阻碍检测 (与18爽点对偶) ──
+    obstacle_counts = {}
+    for i, (cn_name, en_key) in enumerate(OBSTACLE_TYPE_NAMES):
+        obstacle_counts[en_key] = len(OBSTACLE_KW_ALL[i].findall(body))
+    total_obstacles = sum(obstacle_counts.values())
+    obstacle_density = total_obstacles / max(wc, 1) * 100
+    # 主导阻碍类型
+    if total_obstacles > 0:
+        dominant_obstacle = max(obstacle_counts.items(), key=lambda x: x[1])
+        dominant_obstacle_name = next(
+            (cn for cn, en in OBSTACLE_TYPE_NAMES if en == dominant_obstacle[0]),
+            "无"
+        )
+    else:
+        dominant_obstacle_name = "无"
+
+    # ── v2: 命运变化评分 (量化"每章是否推动主角命运轨迹") ──
+    fate_signals_found = {}
+    for signal_name, signal_pat in FATE_SIGNALS:
+        fate_signals_found[signal_name] = len(signal_pat.findall(body))
+    total_fate_signals = sum(fate_signals_found.values())
+    # 评分: 0-100, >70=强推动, <30=日常水文
+    if wc > 0:
+        fate_raw = total_fate_signals / (wc / 1000) * 15
+    else:
+        fate_raw = 0
+    fate_change_score = round(min(100, max(0, fate_raw)), 1)
+    if fate_change_score >= 70:
+        fate_change_level = "strong"   # 强推动
+    elif fate_change_score >= 40:
+        fate_change_level = "moderate"  # 中等推动
+    elif fate_change_score >= 20:
+        fate_change_level = "weak"      # 弱推动
+    else:
+        fate_change_level = "stagnant"  # 剧情停滞 (水文风险)
+
     return {
         "ch_num": ch["num"],
         "ch_hash": ch_hash,
@@ -289,4 +327,21 @@ def rule_analyze(ch):
         "emotion_burnout": emotion_burnout,
         "high_emotion_count": high_emotion_count,
         "burnout_count": burnout_count,
+        # v2: 阻碍检测
+        "obstacle_enemy": obstacle_counts.get("enemy", 0),
+        "obstacle_rule": obstacle_counts.get("rule", 0),
+        "obstacle_resource": obstacle_counts.get("resource", 0),
+        "obstacle_identity": obstacle_counts.get("identity", 0),
+        "obstacle_time": obstacle_counts.get("time", 0),
+        "obstacle_inner": obstacle_counts.get("inner", 0),
+        "obstacle_total": total_obstacles,
+        "obstacle_density": round(obstacle_density, 2),
+        "dominant_obstacle": dominant_obstacle_name,
+        # v2: 命运变化
+        "fate_change_score": fate_change_score,
+        "fate_change_level": fate_change_level,
+        "fate_goal_progress": fate_signals_found.get("goal_progress", 0),
+        "fate_setback": fate_signals_found.get("setback", 0),
+        "fate_revelation": fate_signals_found.get("revelation", 0),
+        "fate_relationship_shift": fate_signals_found.get("relationship_shift", 0),
     }

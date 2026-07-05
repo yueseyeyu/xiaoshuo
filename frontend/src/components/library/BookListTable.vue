@@ -3,9 +3,14 @@
  * BookListTable — 书库书籍列表表格
  * 接收书籍数据，管理排序/多选/批量操作
  */
+import { ref, computed } from 'vue'
 import type { Book } from '@/api/library'
 
 export type SortKey = 'title' | 'author' | 'genre' | 'wordCount' | 'chapters' | 'status'
+
+const ITEM_HEIGHT = 48
+const VISIBLE_COUNT = 12
+const BUFFER = 4
 
 const props = defineProps<{
   books: Book[]
@@ -26,6 +31,29 @@ const emit = defineEmits<{
   (e: 'clear-selection'): void
   (e: 'batch-disassemble'): void
 }>()
+
+// ── 虚拟滚动 ──
+const bodyRef = ref<HTMLDivElement | null>(null)
+const scrollTop = ref(0)
+
+const virtualState = computed(() => {
+  const total = props.books.length
+  const start = Math.max(0, Math.floor(scrollTop.value / ITEM_HEIGHT) - BUFFER)
+  const end = Math.min(total, start + VISIBLE_COUNT + BUFFER * 2)
+  const offsetY = start * ITEM_HEIGHT
+  const totalHeight = total * ITEM_HEIGHT
+  const visible = props.books.slice(start, end)
+  return { start, end, offsetY, totalHeight, visible }
+})
+
+function onScroll() {
+  scrollTop.value = bodyRef.value?.scrollTop ?? 0
+}
+
+function bookKey(b: Book): string {
+  const idx = props.allBooks.indexOf(b)
+  return idx >= 0 ? `book-${idx}` : `${b.title}-${b.author}-${b.genre}`
+}
 
 // ── 工具函数 ──
 function fmtNumber(n: number): string {
@@ -112,11 +140,12 @@ const sortColumns = [
         >状态{{ sortArrow('status') }}</button>
       </div>
 
-      <!-- 书籍行 -->
-      <div class="book-list-body">
+      <!-- 书籍行（虚拟滚动） -->
+      <div ref="bodyRef" class="book-list-body" @scroll="onScroll">
+        <div class="virtual-spacer" :style="{ height: virtualState.offsetY + 'px' }" />
         <div
-          v-for="b in books"
-          :key="b.title"
+          v-for="b in virtualState.visible"
+          :key="bookKey(b)"
           class="book-list-row"
           :class="{ selected: selectedIds.has(allBooks.indexOf(b)) }"
           @click="emit('select-book', b)"
@@ -154,6 +183,10 @@ const sortColumns = [
             <span class="book-list-status" :class="getBookStatus(b).cls">{{ getBookStatus(b).label }}</span>
           </div>
         </div>
+        <div
+          class="virtual-spacer"
+          :style="{ height: Math.max(0, virtualState.totalHeight - virtualState.offsetY - virtualState.visible.length * ITEM_HEIGHT) + 'px' }"
+        />
       </div>
 
       <!-- 批量操作栏 -->
@@ -201,8 +234,10 @@ const sortColumns = [
 }
 .book-list-body {
   border: 1px solid var(--border); border-top: none; border-radius: 0 0 8px 8px;
-  overflow: hidden;
+  overflow-y: auto;
+  height: 576px;
 }
+.virtual-spacer { flex-shrink: 0; }
 .book-list-row {
   display: grid;
   grid-template-columns: 36px 1.5fr 0.8fr 0.8fr 1fr 0.6fr 0.5fr 0.6fr;
@@ -212,6 +247,8 @@ const sortColumns = [
   font-size: 13px;
   cursor: pointer;
   transition: background 0.1s;
+  height: 48px;
+  box-sizing: border-box;
 }
 .book-list-row:last-child { border-bottom: none; }
 .book-list-row:hover { background: var(--surface-hover); }

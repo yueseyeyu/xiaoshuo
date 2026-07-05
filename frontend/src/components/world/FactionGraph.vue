@@ -34,6 +34,12 @@ function getTypeColor(type?: string): string {
   return typeColors[type || ''] || '#94a3b8'
 }
 
+function getThemeColor(alpha?: number): string {
+  const rgb = getComputedStyle(document.documentElement).getPropertyValue('--text-rgb').trim() || '248,250,252'
+  if (alpha === undefined) return `rgb(${rgb})`
+  return `rgba(${rgb},${alpha})`
+}
+
 function buildGraph(factions: Faction[]) {
   if (!cy) return
 
@@ -131,12 +137,12 @@ function initCytoscape() {
           'width': (ele: cytoscape.NodeSingular) => 30 + (ele.data('power') ?? 5) * 6,
           'height': (ele: cytoscape.NodeSingular) => 30 + (ele.data('power') ?? 5) * 6,
           'label': 'data(name)',
-          'color': '#f8fafc',
+          'color': getThemeColor(),
           'font-size': '12px',
           'text-valign': 'bottom',
           'text-margin-y': 4,
           'border-width': 2,
-          'border-color': 'rgba(255,255,255,0.2)',
+          'border-color': getThemeColor(0.2),
         },
       },
       {

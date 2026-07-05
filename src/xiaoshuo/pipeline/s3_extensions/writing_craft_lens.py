@@ -8,6 +8,7 @@ writing_craft_lens.py — S3 评审写作技法审查
   1. 开头技巧 (首章/首段) — 3秒法则/黄金三章/信息密度
   2. 十三种结尾钩子 — 悬念/期待/情绪/反转/共情等
   3. 人物塑造技法 — 动机行为匹配/弧光一致性/对话即人物/缺陷即魅力
+  4. 设定密度量化 — 检测开篇设定堆砌程度 (建议文件"开篇三大原则"落地)
 
 设计原则:
   - 零 LLM 依赖: 全部规则/统计检测
@@ -32,6 +33,8 @@ class CraftReport:
     ending_hook_type: str = ""        # 检测到的钩子类型
     ending_hook_score: float = 0.0    # 结尾钩子 0-10
     character_score: float = 0.0      # 人物塑造 0-10
+    setting_density_score: float = 0.0  # 设定密度 0-10 (v3)
+    setting_density_ratio: float = 0.0  # 设定段占比 0-1 (v3)
     issues: list[str] = field(default_factory=list)
     suggestions: list[str] = field(default_factory=list)
     summary: str = ""
@@ -93,6 +96,90 @@ def check_opening_technique(text: str) -> tuple[float, list[str], list[str]]:
         suggestions.append("建议: 从动作或对话开头, 环境信息融入叙事中")
 
     return max(0, min(10, score)), issues, suggestions
+
+
+# ── v3: 设定密度量化检测 (建议文件"切忌堆设定"落地) ──
+
+_SETTING_INDICATORS = [
+    re.compile(r'(?:这是|这是一个|这里是|这里曾经|这里居住着)'),
+    re.compile(r'(?:\w+大陆|\w+纪元|\w+历|\w+时代|\w+世界)'),
+    re.compile(r'(?:灵气复苏|末日降临|规则怪谈|诡异复苏|超凡觉醒)'),
+    re.compile(r'(?:修炼体系|境界划分|功法等级|异能分类|灵力等级)'),
+    re.compile(r'(?:世界观|背景介绍|设定说明|世界背景)'),
+    re.compile(r'(?:在\w+年前|在\w+世纪|相传|据说很久以前|自古以来)'),
+    re.compile(r'(?:分为\w+个|共有\w+种|包含\w+类|存在\w+大)'),
+    re.compile(r'(?:这个世界|在这片|在这个|该世界|此大陆)'),
+]
+
+_SCENE_INDICATORS = [
+    re.compile(r'(?:推|拉|走|跑|跳|打|骂|笑|哭|抓|扔|踢|砸)'),
+    re.compile(r'(?:看|听|闻|摸|尝|感觉|注意到|盯着|凝视)'),
+    re.compile(r'(?:说|喊|叫|骂|问|答|吼|嘟囔|低声)'),
+    re.compile(r'(?:天|地|风|雨|雪|阳光|黑暗|月光|云|雾)'),
+    re.compile(r'(?:门|窗|墙|桌|椅|床|路|街|楼|桥)'),
+]
+
+
+def check_setting_density(text: str) -> tuple[float, float, list[str], list[str]]:
+    """v3: 量化设定堆砌程度。
+
+    检测前3章(或全文前3000字)中"设定说明段落" vs "场景/动作段落"的比例。
+    阈值来源: 建议文件"开篇三大原则" + 精品书经验值校准。
+
+    Returns:
+        (score 0-10, density_ratio 0-1, issues, suggestions)
+    """
+    issues: list[str] = []
+    suggestions: list[str] = []
+
+    sample = text[:3000]
+    chinese = _count_chinese(sample)
+    if chinese < 200:
+        return 5.0, 0.0, [], []
+
+    paragraphs = [p.strip() for p in re.split(r'\n+', sample) if len(p.strip()) >= 20]
+    if not paragraphs:
+        return 5.0, 0.0, [], []
+
+    setting_count = 0
+    scene_count = 0
+    pure_setting_streak = 0
+    max_pure_streak = 0
+
+    for para in paragraphs:
+        is_setting = any(pat.search(para) for pat in _SETTING_INDICATORS)
+        is_scene = any(pat.search(para) for pat in _SCENE_INDICATORS)
+
+        if is_setting and not is_scene:
+            setting_count += 1
+            pure_setting_streak += 1
+            max_pure_streak = max(max_pure_streak, pure_setting_streak)
+        else:
+            scene_count += 1
+            pure_setting_streak = 0
+
+    total = setting_count + scene_count
+    density_ratio = setting_count / total if total > 0 else 0.0
+
+    if density_ratio < 0.15:
+        score = 9.0
+    elif density_ratio < 0.30:
+        score = 7.0
+    elif density_ratio < 0.45:
+        score = 5.0
+        issues.append(f"设定说明段落占比 {density_ratio:.0%} (建议 < 30%)")
+        suggestions.append("建议: 将设定融入场景和动作中, 如'他推开窗, 发现楼下的流浪狗正在发光'替代'这是一个灵气复苏的世界'")
+    else:
+        score = 2.0
+        issues.append(f"设定堆砌严重: 占比 {density_ratio:.0%}, 连续纯设定段落 {max_pure_streak}段")
+        suggestions.append("建议: 读者对主角产生兴趣前不要塞设定, 把世界观拆散到前5章用场景呈现")
+
+    if max_pure_streak >= 3:
+        score = min(score, 2.0)
+        issues.append(f"连续 {max_pure_streak} 段纯设定 (读者3秒流失风险)")
+        suggestions.append("建议: 连续设定段落之间插入角色动作或对话")
+
+    return max(0, min(10, score)), round(density_ratio, 3), issues, suggestions
 
 
 def check_ending_hook(text: str) -> tuple[str, float, list[str], list[str]]:
@@ -180,15 +267,17 @@ def run_writing_craft_lens(text: str, canon: dict | None = None) -> CraftReport:
     report.opening_score, open_issues, open_sugg = check_opening_technique(text)
     report.ending_hook_type, report.ending_hook_score, end_issues, end_sugg = check_ending_hook(text)
     report.character_score, char_issues, char_sugg = check_character_craft(text, canon)
+    report.setting_density_score, report.setting_density_ratio, sd_issues, sd_sugg = check_setting_density(text)
 
-    report.issues = open_issues + end_issues + char_issues
-    report.suggestions = open_sugg + end_sugg + char_sugg
+    report.issues = open_issues + end_issues + char_issues + sd_issues
+    report.suggestions = open_sugg + end_sugg + char_sugg + sd_sugg
 
     # 汇总
     lines = [f"\n{'=' * 50}", "  写作技法审查报告 (Writing Craft Lens)", f"{'=' * 50}"]
     lines.append(f"  开头技巧:     {report.opening_score:.1f}/10")
     lines.append(f"  结尾钩子:     {report.ending_hook_score:.1f}/10 (类型: {report.ending_hook_type})")
     lines.append(f"  人物塑造:     {report.character_score:.1f}/10")
+    lines.append(f"  设定密度:     {report.setting_density_score:.1f}/10 (占比: {report.setting_density_ratio:.0%})")
     if report.issues:
         lines.append("\n  [问题清单]")
         for issue in report.issues:
