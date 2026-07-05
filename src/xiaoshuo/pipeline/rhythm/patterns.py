@@ -248,6 +248,49 @@ CLIFFHANGER = re.compile(
 )
 
 # ============================================================
+# v9.0: 信息炸弹4类子分类 (来源: "4个追读技巧" — 章节开头信息炸弹)
+# 用于检测每章开头50字内的"注意力抓取"机制类型
+# ============================================================
+INFO_BOMB_CRISIS = re.compile(
+    r"再不.{0,6}就|来不及|只剩|最后.{0,4}(?:机会|时间|期限)|"
+    r"命悬一线|危在旦夕|生死存亡|倒计时|"
+    r"中毒|剧毒|毒性|发作|解药|"
+    r"即将.*(?:死亡|毁灭|崩溃|爆炸)"
+)
+INFO_BOMB_JOY = re.compile(
+    r"中了|获得.*(?:大奖|宝物|传承|秘籍)|意外之喜|天降|"
+    r"一夜暴富|突然.*发财|捡到|"
+    r"突破|晋级|升阶|觉醒.*血脉"
+)
+INFO_BOMB_TEMPTATION = re.compile(
+    r"只要.{0,10}就能|巨大的(?:利益|好处|收获|宝藏)|"
+    r"无法拒绝|难以拒绝|诱人|"
+    r"若是.*能得到|一旦.*(?:成功|获得|掌握)|"
+    r"前途无量|钱途无量|一本万利"
+)
+INFO_BOMB_GOSSIP = re.compile(
+    r"你听说了吗|据说|听说|传言|"
+    r"秘密|隐秘|不可告人|"
+    r"你知道吗|告诉你一个|想不到|"
+    r"背后.*(?:势力|靠山|真相)|水很深"
+)
+
+# 信息炸弹类型索引 (供 rhythm_analyzer / comparison_engine 使用)
+INFO_BOMB_PATTERNS = {
+    "crisis": INFO_BOMB_CRISIS,
+    "joy": INFO_BOMB_JOY,
+    "temptation": INFO_BOMB_TEMPTATION,
+    "gossip": INFO_BOMB_GOSSIP,
+}
+
+INFO_BOMB_TYPE_NAMES = [
+    ("危机信息", "crisis"),
+    ("大喜信息", "joy"),
+    ("诱惑信息", "temptation"),
+    ("八卦信息", "gossip"),
+]
+
+# ============================================================
 # 反套路信号 + 情绪价值检测
 # ============================================================
 ANTI_TROPE = re.compile(
@@ -307,3 +350,300 @@ RICH_PLEASURE_PATTERNS = {
 RICH_POS_KW = re.compile(r'好|强|厉害|痛快|爽|舒服|赞|惊|震|叹|佩|牛|棒|绝|妙|胜')
 RICH_NEG_KW = re.compile(r'恐惧|愤怒|绝望|挣扎|崩溃|怀疑|内疚|悲|痛|苦|恨|忧|愁|惨|伤|死|亡|危|难')
 RICH_PHYSIO_KW = re.compile(r'心跳|呼吸|血[液压]|肌肉|骨骼|瞳孔|冷汗|颤抖|颤栗|寒毛|鸡皮|毛孔')
+
+# ============================================================
+# v2: 6类阻碍检测 — 与18爽点形成对偶结构
+# 爽点是"突破阻碍后的奖励"，阻碍是"爽点的前置张力"
+# ============================================================
+
+OBSTACLE_ENEMY = re.compile(
+    r"被\w*追杀|遭到\w*伏击|\w*挡在前面|拦住|阻拦|截住|包围|封锁|"
+    r"强敌|劲敌|大敌|宿敌|追兵|敌人|敌军|敌对|敌视"
+)
+OBSTACLE_RULE = re.compile(
+    r"规定|禁止|律法|宗门规矩|不能违反|条令|法则|铁律|禁令|"
+    r"门槛|准入|资格|条件|限制|约束|不得|严禁|不准"
+)
+OBSTACLE_RESOURCE = re.compile(
+    r"缺少|不足|耗尽|匮乏|短缺|没有.*灵石|没有.*丹药|没有.*钱|"
+    r"买不起|付不起|供不起|消耗.*殆尽|入不敷出|囊中羞涩"
+)
+OBSTACLE_IDENTITY = re.compile(
+    r"身份暴露|伪装被识破|不能暴露|隐瞒不住|被发现|被认出|"
+    r"庶出|私生|低等|下等|卑贱|不配|没资格|身份.*限制"
+)
+OBSTACLE_TIME = re.compile(
+    r"只剩|来不及|最后一刻|倒计时|即将|马上|很快|"
+    r"时间不多了|迫在眉睫|争分夺秒|刻不容缓|紧要关头"
+)
+OBSTACLE_INNER = re.compile(
+    r"犹豫|恐惧|心魔|动摇|无法下定决心|徘徊|挣扎|"
+    r"不敢|害怕|畏惧|退缩|踌躇|彷徨|内心.*矛盾|天人交战"
+)
+
+OBSTACLE_KW_ALL = [
+    OBSTACLE_ENEMY,
+    OBSTACLE_RULE,
+    OBSTACLE_RESOURCE,
+    OBSTACLE_IDENTITY,
+    OBSTACLE_TIME,
+    OBSTACLE_INNER,
+]
+
+OBSTACLE_TYPE_NAMES = [
+    ("敌人阻碍", "enemy"),
+    ("规则阻碍", "rule"),
+    ("资源阻碍", "resource"),
+    ("身份阻碍", "identity"),
+    ("时间阻碍", "time"),
+    ("内心阻碍", "inner"),
+]
+
+# ============================================================
+# v2: 命运变化检测 — 量化"每章是否推动主角命运轨迹"
+# 避免堆砌无关日常 → "水文"核心指标
+# 注意: "成功/完成/达成" 单独使用太常见，需要上下文限定
+# ============================================================
+
+FATE_PROGRESS = re.compile(
+    r"离\w*更近一步|终于\w*|终于能|迈出.*一步|迈进|跨入|"
+    r"取得.*进展|达成.*目标|完成.*任务|成功.*突破|实现.*愿望|破局|打开.*局面"
+)
+FATE_SETBACK = re.compile(
+    r"失去|被夺|失败|重伤|死亡|陨落|跌落|坠落|"
+    r"惨败|溃败|一败涂地|全军覆没|功亏一篑|前功尽弃"
+)
+FATE_REVELATION = re.compile(
+    r"原来是|真相.*大白|没想到.*竟然|竟然是|实则|揭开.*真相|揭晓|"
+    r"浮出水面|水落石出|豁然开朗"
+)
+FATE_RELATIONSHIP = re.compile(
+    r"背叛|结盟|决裂|和解|反目|倒戈|投靠|归顺|"
+    r"分道扬镳|冰释前嫌|化敌为友"
+)
+
+FATE_SIGNALS = [
+    ("goal_progress", FATE_PROGRESS),
+    ("setback", FATE_SETBACK),
+    ("revelation", FATE_REVELATION),
+    ("relationship_shift", FATE_RELATIONSHIP),
+]
+
+
+# ============================================================
+# 7种叙事元模式 (Plot DNA Meta-Patterns)
+# 来源: 建议文件 "180种高能情节 → 7种叙事元模式"
+# 价值: 题材specific情节库, 与通用爽点/反转正则互补
+# 用法: from xiaoshuo.pipeline.rhythm.patterns import META_PATTERNS, PLOT_DNA_PATTERNS
+# ============================================================
+
+# ── 元模式正则检测器 ──
+# 每种元模式对应一组正则, 用于在章节文本中检测该模式是否出现
+
+# 模式1: 阈值突破 (Threshold Break)
+THRESHOLD_BREAK = re.compile(
+    r'理智值.*(?:崩溃|临界|瓶颈|极限)|SAN值.*(?:跌|降|临界)|'
+    r'生态适应.*(?:极限|濒临)|精神力.*(?:瓶颈|极限|超限)|'
+    r'修为.*(?:瓶颈|极限|壁障)|境界.*(?:瓶颈|无法突破)|'
+    r'濒临.*(?:崩溃|极限|临界)|突破.*(?:瓶颈|极限|壁障)|'
+    r'顿悟|觉醒.*(?:血脉|天赋|能力)|超限.*爆发|'
+    r'看透.*(?:规则|本质)|抵御.*(?:心智|精神).*侵蚀'
+)
+
+# 模式2: 身份伪装 (Identity Masquerade)
+IDENTITY_MASQUERADE = re.compile(
+    r'伪装成.*(?:NPC|信徒|土著|海盗|护卫|侍从|下人)|'
+    r'混进.*(?:诡异|邪教|敌方|敌营|部落)|'
+    r'混入.*(?:阵营|据点|组织|内部)|'
+    r'假扮.*(?:身份|角色|信徒|仆从)|'
+    r'伪装身份|隐藏身份.*潜入|冒充.*(?:成员|信徒|手下)|'
+    r'深入.*(?:敌营|虎穴|老巢|腹地)'
+)
+
+# 模式3: 遗物觉醒 (Artifact Awakening)
+ARTIFACT_AWAKENING = re.compile(
+    r'随身.*(?:物品|护符|玉佩|法器).*(?:觉醒|激活|异变)|'
+    r'(?:遗物|圣物|古物).*(?:觉醒|激活|异变|共鸣)|'
+    r'偶然.*(?:得到|捡到|获得).*(?:遗物|宝物|传承|秘宝)|'
+    r'(?:护符|玉佩|项链|戒指|法器).*(?:发光|震动|发烫|共鸣)|'
+    r'觉醒.*(?:特殊能力|隐藏能力|血脉之力)|'
+    r'获得.*(?:传承|记忆|力量|能力)'
+)
+
+# 模式4: 信息差博弈 (Information Asymmetry)
+INFORMATION_ASYMMETRY = re.compile(
+    r'设局.*(?:反杀|反抢|清剿|端掉)|'
+    r'(?:揪出|识破|揭露).*(?:内鬼|叛徒|卧底)|'
+    r'用.*(?:低级|普通|简单).*(?:道具|武器).*(?:反杀|击败|击杀).*(?:高端|高阶|强大)|'
+    r'信息差|信息优势|掌握.*情报|'
+    r'早已.*(?:看穿|知道|算到|布局)|故意.*(?:引诱|暴露|示弱)|'
+    r'(?:引蛇出洞|请君入瓮|将计就计|关门打狗)'
+)
+
+# 模式5: 阵营重构 (Faction Restructuring)
+FACTION_RESTRUCTURING = re.compile(
+    r'(?:新人|调查员|土著|玩家|成员).*(?:建立|树立).*(?:威信|威望|声望)|'
+    r'立威|收编.*(?:小队|成员|势力|部下)|'
+    r'(?:成为|被推举为|被认可为).*(?:领袖|首领|队长|核心)|'
+    r'(?:追随|效忠|臣服|归顺)|'
+    r'(?:分配|瓜分|掌控).*(?:资源|领地|利益)|'
+    r'整合.*(?:势力|资源|人手)|重组.*(?:团队|势力|阵营)'
+)
+
+# 模式6: 真相揭露 (Truth Revelation)
+TRUTH_REVELATION = re.compile(
+    r'(?:破解|破译|解读).*(?:规则|密码|符文|石板|典籍|古籍)|'
+    r'揭开.*(?:真相|秘密|身世|血脉|诅咒|阴谋)|'
+    r'发现.*(?:表世界|里世界|隐藏|未知|真相)|'
+    r'(?:家族|身世|血脉).*(?:诅咒|秘密|真相|封印)|'
+    r'(?:认知|世界观).*(?:颠覆|崩塌|重构)|'
+    r'原来.*(?:一直|竟然|其实)|真相.*(?:大白|浮出水面|揭晓)'
+)
+
+# 模式7: 外部危机 (External Crisis)
+EXTERNAL_CRISIS = re.compile(
+    r'全服.*(?:灭团|危机|灾难)|全球.*(?:危机|苏醒|爆发)|'
+    r'多.*(?:地区|星球|区域).*(?:异象|冲突|爆发)|'
+    r'诡异.*(?:入侵|攻击|席卷)|安全区.*(?:沦陷|入侵|告急)|'
+    r'古神.*(?:苏醒|降临|复苏)|末日.*(?:降临|逼近|爆发)|'
+    r'(?:大规模|全面|全服).*(?:战争|入侵|灾难|危机)|'
+    r'所有人.*(?:面临|陷入|卷入).*(?:危机|危险|灾难)'
+)
+
+# ── 元模式索引 ──
+META_PATTERNS = {
+    "threshold_break": {
+        "name": "阈值突破",
+        "description": "主角某数值濒临极限, 突破后获得成长",
+        "pattern": THRESHOLD_BREAK,
+        "tension_curve": "上升→平台→断崖→跃升",
+        "applicable_genres": ["规则怪谈", "克苏鲁", "星际拓荒", "修仙", "玄幻"],
+    },
+    "identity_masquerade": {
+        "name": "身份伪装",
+        "description": "主角伪装成敌方/内部人员获取情报",
+        "pattern": IDENTITY_MASQUERADE,
+        "tension_curve": "潜入→试探→危机→暴露/成功",
+        "applicable_genres": ["规则怪谈", "克苏鲁", "星际拓荒", "古代悬疑", "都市"],
+    },
+    "artifact_awakening": {
+        "name": "遗物觉醒",
+        "description": "随身物品/遗物觉醒特殊能力",
+        "pattern": ARTIFACT_AWAKENING,
+        "tension_curve": "获得→试探→依赖→反噬/掌控",
+        "applicable_genres": ["全部"],
+    },
+    "information_asymmetry": {
+        "name": "信息差博弈",
+        "description": "主角掌握他人不知道的信息, 设局反杀",
+        "pattern": INFORMATION_ASYMMETRY,
+        "tension_curve": "隐忍→布局→引爆→清算",
+        "applicable_genres": ["全部"],
+    },
+    "faction_restructuring": {
+        "name": "阵营重构",
+        "description": "主角在群体中建立威信/收编/重组势力",
+        "pattern": FACTION_RESTRUCTURING,
+        "tension_curve": "局外人→被接纳→核心→领袖",
+        "applicable_genres": ["规则怪谈", "克苏鲁", "星际拓荒", "古代悬疑", "玄幻"],
+    },
+    "truth_revelation": {
+        "name": "真相揭露",
+        "description": "逐步揭开隐藏真相, 颠覆认知",
+        "pattern": TRUTH_REVELATION,
+        "tension_curve": "疑点→探索→碎片→拼图→颠覆",
+        "applicable_genres": ["克苏鲁", "规则怪谈", "星际拓荒", "古代悬疑", "悬疑"],
+    },
+    "external_crisis": {
+        "name": "外部危机",
+        "description": "大规模外部威胁降临, 考验主角",
+        "pattern": EXTERNAL_CRISIS,
+        "tension_curve": "平静→预兆→爆发→混乱→新秩序",
+        "applicable_genres": ["全部"],
+    },
+}
+
+# ── 题材specific情节模式 (供 PlotDNAMatcher 使用) ──
+PLOT_DNA_PATTERNS = {
+    "规则怪谈无限流": {
+        "副本降临": re.compile(r'副本.*降临|强制.*(?:拉入|进入).*副本|突然.*传送'),
+        "隐藏区域": re.compile(r'隐藏.*(?:区域|关卡|房间|通道)|误入.*(?:隐藏|禁区)'),
+        "规则畸变": re.compile(r'规则.*(?:畸变|改变|变化|修改|崩坏)|异常.*规则'),
+        "理智值": re.compile(r'理智值|SAN值|精神值|理智.*(?:下降|降低|消耗)'),
+        "副本BOSS": re.compile(r'副本.*BOSS|BOSS.*(?:递出|提议|合作|招揽)'),
+        "通关方案": re.compile(r'(?:推演|制定|完美).*通关|(?:通关|清关).*方案'),
+    },
+    "克苏鲁诡秘调查": {
+        "诡异委托": re.compile(r'诡异.*委托|奇怪.*委托|神秘.*委托|雨夜.*委托'),
+        "旧日遗物": re.compile(r'旧日.*遗物|远古.*(?:雕像|遗物|法器)|禁忌.*典籍'),
+        "邪教": re.compile(r'邪教|邪教徒|召唤.*古神|阻止.*召唤'),
+        "SAN值": re.compile(r'SAN值|san值|理智.*(?:下降|降低|检定)|精神.*污染'),
+        "眷族": re.compile(r'眷族|眷属|外神|古神.*(?:降临|苏醒|意志)'),
+        "调查员": re.compile(r'调查员|神秘学|占卜|炼金术|咒文'),
+    },
+    "星际拓荒种田流": {
+        "星舰失事": re.compile(r'星舰.*(?:失事|坠落|迫降)|飞船.*(?:坠毁|故障|残骸)'),
+        "异星土著": re.compile(r'异星.*土著|土著.*(?:部落|族人)|原住民'),
+        "生态适应": re.compile(r'生态.*(?:适应|极限|濒临)|环境.*(?:适应|极限|恶化)'),
+        "星际海盗": re.compile(r'星际.*海盗|海盗.*(?:袭击|劫掠|抢夺)'),
+        "能源矿": re.compile(r'能源.*矿|稀有.*矿|能源.*(?:发现|开采|触发)'),
+        "基地": re.compile(r'基地.*(?:护盾|建设|升级|扩建|防御)'),
+    },
+    "古代市井悬疑流": {
+        "仵作": re.compile(r'仵作|验尸|勘验|尸检'),
+        "镖局": re.compile(r'镖局|押镖|走镖|劫镖'),
+        "漕帮": re.compile(r'漕帮|漕运|码头|帮派'),
+        "市井": re.compile(r'市井|街市|茶馆|酒楼|勾栏|瓦肆'),
+        "案件": re.compile(r'案件|命案|凶杀|悬案|疑案|冤案'),
+        "推理": re.compile(r'推理|线索|证据|真相|破案|结案'),
+    },
+}
+
+
+def detect_meta_patterns(text: str) -> list[dict]:
+    """检测文本中出现的叙事元模式。
+
+    Args:
+        text: 章节文本
+
+    Returns:
+        [{"pattern": "threshold_break", "name": "阈值突破", "matches": [...], "count": 3}, ...]
+    """
+    results = []
+    for key, meta in META_PATTERNS.items():
+        matches = meta["pattern"].findall(text)
+        if matches:
+            results.append({
+                "pattern": key,
+                "name": meta["name"],
+                "description": meta["description"],
+                "count": len(matches),
+                "examples": matches[:3],  # 前3个匹配示例
+            })
+    return results
+
+
+def detect_genre_plots(text: str, genre: str = "") -> list[dict]:
+    """检测文本中出现的题材specific情节模式。
+
+    Args:
+        text: 章节文本
+        genre: 题材标签 (如 "规则怪谈无限流"), 空字符串则检测所有题材
+
+    Returns:
+        [{"genre": "克苏鲁诡秘调查", "plot": "邪教", "count": 2, "examples": [...]}, ...]
+    """
+    results = []
+    genres_to_check = [genre] if genre else list(PLOT_DNA_PATTERNS.keys())
+    for g in genres_to_check:
+        plots = PLOT_DNA_PATTERNS.get(g, {})
+        for plot_name, pattern in plots.items():
+            matches = pattern.findall(text)
+            if matches:
+                results.append({
+                    "genre": g,
+                    "plot": plot_name,
+                    "count": len(matches),
+                    "examples": matches[:2],
+                })
+    return results

@@ -35,11 +35,52 @@ from pathlib import Path
 from xiaoshuo import PROJECT_ROOT
 from typing import Optional
 import re
+import json
 
 # ============================================================
 # 常量
 # ============================================================
 AI_PROTOCOL_PATH = PROJECT_ROOT / "AI_PROTOCOL.md"
+
+# ============================================================
+# v8.8: 动态技能提示（注入动态后缀，不破坏 Prefix Cache）
+# ============================================================
+# 这些提示块注入到动态后缀中（缓存边界之后），
+# 不影响 AI_PROTOCOL.md 的静态前缀缓存命中率。
+# 按 task_type + genre 选择性加载，实现“技能组合”效果。
+
+SKILL_HINTS: dict[str, str] = {
+    "dehydration": """## 文笔脱水提醒
+- 删除心理前缀（“他心里想”→直接写内心独白或动作）
+- 删除冗余修饰（“极为”“异常”→用具体细节替代）
+- 动作替代情绪（“愤怒”→“攒紧拳头，指甲掐进掌心”）""",
+
+    "subtext": """## 冰山法则提醒
+- 对话要有潜台词：角色说的≠角色想的
+- 避免直白摊牌，用旁敲侧击代替
+- 动作/环境暗示情绪，而非直接陈述""",
+
+    "action_scene": """## 动作戏提醒
+- 短句加速节奏，长句减速
+- 感官细节：视觉+触觉+听觉，不只写“打了”
+- 有攻有守，不能一边倒（除非是碾压爽点）""",
+
+    "market_survival": """## 番茄首秀提醒
+- 前3章每章必须有冲突/悬念（首章弃书率>70%）
+- 金手指可视化：读者能“看到”爽感
+- 章末必须有钩子（悬念/反转/危机）""",
+}
+
+# task_type → 需要加载的技能提示列表
+TASK_SKILL_MAP: dict[str, list[str]] = {
+    "S1_creative": ["dehydration", "subtext", "market_survival"],
+    "S1_creativity": ["market_survival"],
+    "S2b_reference": ["dehydration", "subtext", "action_scene", "market_survival"],
+    "S3_logic_cop": [],  # 审查任务不需要写作提示
+    "S3_editor": [],
+    "S3_qc": [],
+    "S4_detection": [],
+}
 
 
 # ============================================================
@@ -58,6 +99,10 @@ TASK_TEMPLATES: dict[str, str] = {
 {characters_section}
 {previous_svos_section}
 {technique_section}
+{style_anchor}
+{author_constraints}
+{skill_hints}
+{acceptance_criteria}
 
 ## 你的任务
 生成 3 个互不相同的剧情发展方向（温度参数由系统控制）。
@@ -72,6 +117,10 @@ TASK_TEMPLATES: dict[str, str] = {
 {characters_section}
 {outline_section}
 {technique_section}
+{style_anchor}
+{author_constraints}
+{skill_hints}
+{acceptance_criteria}
 
 ## 你的任务
 作者卡文，需要方向性启发。给出 3 个模糊的叙事方向（不是完整段落），
@@ -656,7 +705,7 @@ class SkillLoader:
             return static
 
         # 填充模板变量
-        ctx = self._default_context(context)
+        ctx = self._default_context(context, task_type)
         try:
             dynamic = template.format(**ctx)
         except KeyError as e:
@@ -671,7 +720,233 @@ class SkillLoader:
     # ── 辅助: 填充默认值 ──
 
     @staticmethod
-    def _default_context(context: dict) -> dict:
+    def _compose_skill_hints(task_type: str) -> str:
+        """v8.8: 按 task_type 组合动态技能提示。
+
+        技能提示注入到动态后缀中（缓存边界之后），不破坏 Prefix Cache。
+        静态前缀（AI_PROTOCOL.md）保持不变。
+        """
+        hint_keys = TASK_SKILL_MAP.get(task_type, [])
+        if not hint_keys:
+            return ""
+        parts = []
+        for key in hint_keys:
+            hint = SKILL_HINTS.get(key)
+            if hint:
+                parts.append(hint)
+        return "\n\n".join(parts) if parts else ""
+
+    @staticmethod
+    def _derive_acceptance_criteria(chapter_num: int, total_chapters: int, genre: str) -> str:
+        """v8.8: 从节拍位置自动推导本章验收标准（预写入约束）。
+
+        基于 beat_detector 的 BEAT_TEMPLATES 节拍映射，
+        将“事后检测”变为“事前约束”——在 S1/S2b 生成时就告诉 AI 本章必须满足什么。
+        不增加 LLM 调用，只是注入更多上下文。
+        """
+        try:
+            ch = int(chapter_num) if isinstance(chapter_num, (int, str)) else 1
+        except (ValueError, TypeError):
+            ch = 1
+        tc = max(int(total_chapters), 1) if total_chapters else 300
+        pct = ch / tc
+        criteria = []
+
+        # ── 开篇阶段（前3章）──
+        if ch <= 3:
+            criteria.append("首章冲突: hook_strength > 7（前3章必须有强冲突/悬念）")
+            criteria.append("金手指可视化: 读者能在3章内理解主角的核心优势")
+            if genre in ("末世", "都市", "玄幻"):
+                criteria.append(f"{genre}题材: 避免设定堆砌，每章自然揭示1个新规则")
+
+        # ── 催化剂阶段（5-15%）──
+        if 0.05 <= pct <= 0.20:
+            criteria.append("催化剂事件: 必须有打破日常的巨变或转折")
+
+        # ── 中点阶段（45-55%）──
+        if 0.45 <= pct <= 0.55:
+            criteria.append("中点转折: 必须有假胜利或假失败——故事方向转向")
+
+        # ── 低谷阶段（60-70%）──
+        if 0.60 <= pct <= 0.70:
+            criteria.append("最低谷: 冲突密度达到峰值，主角面临最大困境")
+
+        # ── 高潮阶段（90%+）──
+        if pct >= 0.90:
+            criteria.append("高潮爆发: 爽点密度 >= 0.4，主线冲突对决")
+
+        # ── 通用标准（每章适用）──
+        criteria.append("章末钩子: 必须有悬念/反转/危机")
+        criteria.append("反派智商: > 5（不能降智）")
+        # v9.0: 最小闭环强制约束（来源: 番茄网文"目标-阻碍-反击"节拍模板）
+        criteria.append("最小闭环: 本章必须包含①目标(主角缺什么)→②阻碍(被什么卡住)→③反击(怎么解决)，三要素不可缺失")
+        criteria.append("跨章闭环: 如反击留到下一章，本章结尾必须用信息炸弹或悬念制造期待")
+
+        if not criteria:
+            return ""
+        lines = "\n".join(f"- {c}" for c in criteria)
+        return f"## 本章验收标准（预写入约束）\n{lines}"
+
+    @staticmethod
+    def _trim_characters_section(characters_section: str, max_chars: int = 800) -> str:
+        """v8.8: 如果角色信息过长，截断到 max_chars，保留主角信息。
+
+        动态上下文优化: 避免 Canon 全量角色档案撑爆上下文窗口。
+        主角信息通常在开头，按行截断保留前面的行。
+        """
+        if not characters_section or len(characters_section) <= max_chars:
+            return characters_section
+
+        lines = characters_section.split("\n")
+        result = []
+        total = 0
+        for line in lines:
+            if total + len(line) + 1 > max_chars:
+                break
+            result.append(line)
+            total += len(line) + 1
+
+        trimmed = "\n".join(result)
+        if len(result) < len(lines):
+            trimmed += "\n[... 其他角色信息已省略，详见 Canon]"
+        return trimmed
+
+    # v8.9: style_anchor 缓存（genre → str），避免每次 build() 读 5 个 CSV
+    _style_anchor_cache: dict[str, str] = {}
+
+    @staticmethod
+    def _derive_style_anchor(genre: str) -> str:
+        """v8.9: 从拆书数据提取存活作品文风特征，注入 S1/S2b Prompt。
+
+        数据来源: data/processed/{genre}/rhythm/*.csv
+        通过 load_rhythm_data + get_firebook_pool 获取题材级统计。
+
+        与"模仿余华/鲁迅"的区别:
+        - 锚定对象: 番茄50万+在读存活作品（非传统作家）
+        - 数据支撑: 量化统计（非主观感受）
+        """
+        # 缓存命中
+        if genre in SkillLoader._style_anchor_cache:
+            return SkillLoader._style_anchor_cache[genre]
+
+        try:
+            from xiaoshuo.pipeline.scoring.commercial_engine import load_genre_novels, load_rhythm_data
+            novels = load_genre_novels(genre)
+            if not novels:
+                return ""
+
+            # 采样前5本存活作品的 rhythm 数据
+            stats = {"dialogue_ratio": [], "hook_density": [], "conflict_density": [], "pleasure_intensity": []}
+            for nv in novels[:5]:
+                csv_name = nv.get("rhythm_csv") or nv.get("csv_name") or nv.get("stem", "")
+                if not csv_name:
+                    continue
+                if not csv_name.endswith(".csv"):
+                    csv_name += ".csv"
+                rows = load_rhythm_data(csv_name, genre)
+                if not rows:
+                    continue
+                for r in rows:
+                    for k in stats:
+                        val = r.get(k, 0)
+                        if isinstance(val, (int, float)) and val >= 0:
+                            stats[k].append(val)
+
+            if not stats["dialogue_ratio"]:
+                return ""
+
+            import statistics as _st
+            avg_dr = round(_st.mean(stats["dialogue_ratio"]), 2)
+            avg_hd = round(_st.mean(stats["hook_density"]), 2)
+            avg_cd = round(_st.mean(stats["conflict_density"]), 2)
+            avg_pi = round(_st.mean(stats["pleasure_intensity"]), 1)
+
+            lines = [
+                f"## 文风锚定（{genre}题材存活作品统计）",
+                f"- 对话占比均值: {avg_dr:.0%}（自然区间5%-65%）",
+                f"- 钩子密度均值: {avg_hd}/章",
+                f"- 冲突密度均值: {avg_cd}/章",
+                f"- 愉悦强度均值: {avg_pi}/章",
+                "- 参照以上特征: 避免纯叙述（对话<5%）或纯对话（>65%）",
+                "- 参照以上特征: 钩子和冲突不应低于均值50%",
+            ]
+            result = "\n".join(lines)
+            SkillLoader._style_anchor_cache[genre] = result
+            return result
+        except Exception:
+            SkillLoader._style_anchor_cache[genre] = ""
+            return ""  # 拆书数据不可用时不阻塞 prompt 构建
+
+    @staticmethod
+    def _derive_author_constraints() -> str:
+        """v8.9: 从作者画像提取个性化约束，注入 S1/S2b Prompt。
+
+        数据来源: assets/author_profile.json
+        - feedback_history: 作者历史接受/拒绝的反馈
+        - style_fingerprint: 作者风格指纹（句长/对话比/心理前缀密度）
+
+        生成逻辑:
+        - 被拒绝 ≥2 次的反馈类型 → "避免重复建议"
+        - 被接受的反馈 → "继续保持"
+        - style_fingerprint 异常值 → 生成针对性约束
+        """
+        try:
+            from xiaoshuo.agents.author_profile import AuthorProfile
+            profile = AuthorProfile()
+
+            constraints = []
+
+            # 从反馈历史提取
+            fb_history = profile.feedback_history
+            if fb_history:
+                from collections import Counter
+                rejected = Counter(
+                    fb["type"] for fb in fb_history
+                    if not fb.get("accepted")
+                )
+                accepted = Counter(
+                    fb["type"] for fb in fb_history
+                    if fb.get("accepted")
+                )
+
+                for fb_type, count in rejected.most_common(3):
+                    if count >= 2:
+                        constraints.append(f"避免重复建议「{fb_type}」（作者已拒绝{count}次）")
+
+                for fb_type, count in accepted.most_common(3):
+                    if count >= 2:
+                        constraints.append(f"继续保持「{fb_type}」（作者认可的方向）")
+
+            # 从风格指纹提取
+            fp = profile.style_fingerprint
+            if fp:
+                mental_density = fp.get("mental_prefix_density", 0)
+                if mental_density > 3.0:
+                    constraints.append(
+                        "该作者心理前缀密度偏高，生成时须严格避免「他心里想/他不禁感到」等前缀"
+                    )
+                avg_sl = fp.get("avg_sentence_length", 0)
+                if avg_sl > 60:
+                    constraints.append(
+                        "该作者句长偏长，生成时须穿插短句（<15字）增加节奏感"
+                    )
+                dr = fp.get("dialogue_ratio", 0)
+                if dr < 0.1:
+                    constraints.append(
+                        "该作者对话占比偏低，生成时须增加对话推进剧情"
+                    )
+
+            if not constraints:
+                return ""
+
+            lines = ["## 个性化约束（基于作者画像）"]
+            lines.extend(f"- {c}" for c in constraints)
+            return "\n".join(lines)
+        except Exception:
+            return ""  # 作者画像不可用时不阻塞 prompt 构建
+
+    @staticmethod
+    def _default_context(context: dict, task_type: str = "") -> dict:
         """为缺失的 context key 填充安全默认值。
 
         不修改原始 context dict，返回浅拷贝后的填充版本。
@@ -689,10 +964,42 @@ class SkillLoader:
             "genre": "末世",
             "total_chapters": 300,
             "technique_section": "",
+            "skill_hints": "",          # v8.8: 动态技能提示
+            "acceptance_criteria": "",  # v8.8: 预写入约束
+            "style_anchor": "",         # v8.9: 存活作品文风特征
+            "author_constraints": "",   # v8.9: 个性化约束
         }
         for key, default in defaults.items():
             if key not in result:
                 result[key] = default
+
+        # v8.8: 动态技能提示组合（注入动态后缀，不破坏 Prefix Cache）
+        if not result.get("skill_hints"):
+            result["skill_hints"] = SkillLoader._compose_skill_hints(task_type)
+
+        # v8.8: 预写入约束——从节拍位置自动推导验收标准
+        if not result.get("acceptance_criteria"):
+            result["acceptance_criteria"] = SkillLoader._derive_acceptance_criteria(
+                result.get("chapter_num", 1),
+                result.get("total_chapters", 300),
+                result.get("genre", "末世"),
+            )
+
+        # v8.8: 角色信息截断——避免全量 Canon 撑爆上下文
+        if result["characters_section"]:
+            result["characters_section"] = SkillLoader._trim_characters_section(
+                result["characters_section"]
+            )
+
+        # v8.9: 存活作品文风特征注入——仅 S1/S2b 需要读 CSV，S3/S4 跳过
+        if not result.get("style_anchor") and task_type in ("S1_creative", "S1_creativity", "S2b_reference"):
+            result["style_anchor"] = SkillLoader._derive_style_anchor(
+                result.get("genre", "末世")
+            )
+
+        # v8.9: 个性化约束注入——仅 S1/S2b 需要，S3/S4 跳过
+        if not result.get("author_constraints") and task_type in ("S1_creative", "S1_creativity", "S2b_reference"):
+            result["author_constraints"] = SkillLoader._derive_author_constraints()
 
         # 格式化章节辅助信息
         if result["outline_section"]:

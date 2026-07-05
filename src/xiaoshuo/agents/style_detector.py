@@ -68,25 +68,48 @@ class DetectionResult:
             self.flags += 1
 
 
+# ── v9.0: L8 心理前缀模式 (用于作者指纹偏离度检测) ──
+_MENTAL_PREFIX_PATS = [
+    re.compile(r'[他她]心里想[：，:]?'),
+    re.compile(r'[他她]不禁感到'),
+    re.compile(r'[他她]不由得'),
+    re.compile(r'[他她]暗自'),
+    re.compile(r'[他她]默默'),
+    re.compile(r'[他她]突然意识到'),
+    re.compile(r'[他她]这才明白'),
+    re.compile(r'[他她]猛然惊觉'),
+    re.compile(r'[他她]暗想[：，:]?'),
+    re.compile(r'[他她]心想[：，:]?'),
+]
+
+# 对话引号模式 (用于作者指纹偏离度检测)
+_DIALOGUE_CHARS = re.compile(r'[「『"\u201c\u300c\u300e]([^」』"\u201d\u300d\u300f]+)')
+
+
 class StyleDetector:
-    """S4+++ 七层 AI 风格检测器。
+    """S4+++ 八层 AI 风格检测器。
 
     用法:
         detector = StyleDetector()
         result = detector.detect(chapter_text)
+        # 带作者指纹 (v9.0):
+        result = detector.detect(text, author_fingerprint={"avg_sentence_length": 35, ...})
     """
 
     def __init__(self):
         cfg = get_config().get("detection", {}).get("layers", {})
         self._cfg = cfg
 
-    def detect(self, text: str, chapter_num: int = 0, baseline: dict | None = None) -> DetectionResult:
-        """执行完整七层检测。
+    def detect(self, text: str, chapter_num: int = 0, baseline: dict | None = None,
+               author_fingerprint: dict | None = None) -> DetectionResult:
+        """执行完整八层检测。
 
         Args:
             text: 章节文本
             chapter_num: 章节号 (用于报告)
             baseline: 历史基线数据 (多章积累后传入, 用于 L4 纵向对比)
+            author_fingerprint: 作者风格指纹 (v9.0, 用于 L8 偏离度检测)
+                {"avg_sentence_length": float, "dialogue_ratio": float, "mental_prefix_density": float}
 
         Returns:
             DetectionResult 汇总结果
@@ -107,6 +130,8 @@ class StyleDetector:
         result.add(self._l6_semantic_continuity(text))
         # L7: N-gram PPL
         result.add(self._l7_ngram_ppl(text, baseline))
+        # L8: 作者指纹偏离度 (v9.0, 需要作者指纹)
+        result.add(self._l8_author_fingerprint_deviation(text, author_fingerprint))
 
         # 综合判定
         if result.flags == 0:
@@ -344,7 +369,7 @@ class StyleDetector:
         """构建汇总报告文本。"""
         lines = [
             f"\n{'=' * 60}",
-            f"  S4+++ 七层检测报告" + (f" — 第{chapter_num}章" if chapter_num else ""),
+            f"  S4+++ 八层检测报告" + (f" — 第{chapter_num}章" if chapter_num else ""),
             f"{'=' * 60}",
         ]
         for lr in result.layers:
@@ -353,9 +378,95 @@ class StyleDetector:
 
         lines.append(f"{'=' * 60}")
         verdict_icon = {"PASS": "[OK]", "WARNING": "[WARN]", "FATAL": "[FAIL]"}[result.verdict]
-        lines.append(f"  综合: {verdict_icon} {result.verdict} ({result.flags}/7 层异常)")
+        total_layers = len(result.layers)
+        lines.append(f"  综合: {verdict_icon} {result.verdict} ({result.flags}/{total_layers} 层异常)")
         lines.append(f"{'=' * 60}")
         return "\n".join(lines)
+
+    # ── L8: 作者指纹偏离度 (v9.0) ──
+
+    def _l8_author_fingerprint_deviation(self, text: str,
+                                          author_fp: dict | None = None) -> LayerResult:
+        """L8: 作者指纹偏离度 — 生成稿与作者风格指纹的量化对比。
+
+        检测维度:
+          1. 句长偏离度 (avg_sentence_length)
+          2. 对话占比偏离度 (dialogue_ratio)
+          3. 心理前缀密度偏离度 (mental_prefix_density)
+
+        无作者指纹时跳过 (返回 PASS)。
+        """
+        if not author_fp or not author_fp.get("avg_sentence_length"):
+            return LayerResult("L8", "作者指纹", 0, 0.3, True, "无作者指纹, 跳过")
+
+        # 提取生成稿指纹
+        draft_fp = self._extract_fingerprint(text)
+
+        deviations = []
+        details = []
+
+        # 1. 句长偏离度
+        author_sl = author_fp.get("avg_sentence_length", 0)
+        draft_sl = draft_fp["avg_sentence_length"]
+        if author_sl > 0:
+            sl_dev = abs(draft_sl - author_sl) / author_sl
+            deviations.append(sl_dev)
+            details.append(f"句长: 稿{draft_sl:.0f} vs 作者{author_sl:.0f} (偏离{sl_dev:.0%})")
+
+        # 2. 对话占比偏离度
+        author_dr = author_fp.get("dialogue_ratio", 0)
+        draft_dr = draft_fp["dialogue_ratio"]
+        if author_dr > 0:
+            dr_dev = abs(draft_dr - author_dr) / author_dr
+            deviations.append(dr_dev)
+            details.append(f"对话比: 稿{draft_dr:.0%} vs 作者{author_dr:.0%} (偏离{dr_dev:.0%})")
+
+        # 3. 心理前缀密度偏离度
+        author_mp = author_fp.get("mental_prefix_density", 0)
+        draft_mp = draft_fp["mental_prefix_density"]
+        if author_mp > 0:
+            mp_dev = abs(draft_mp - author_mp) / author_mp
+            deviations.append(mp_dev)
+            details.append(f"心理前缀: 稿{draft_mp:.1f}/千字 vs 作者{author_mp:.1f}/千字 (偏离{mp_dev:.0%})")
+
+        if not deviations:
+            return LayerResult("L8", "作者指纹", 0, 0.3, True, "作者指纹数据不完整")
+
+        overall = sum(deviations) / len(deviations)
+        cfg = self._cfg.get("l8_author_fingerprint", {})
+        warn_threshold = cfg.get("warning_threshold", 0.3)
+        fatal_threshold = cfg.get("fatal_threshold", 0.5)
+
+        passed = overall < fatal_threshold
+        status = "一致" if overall < warn_threshold else ("偏离" if overall < fatal_threshold else "严重偏离")
+
+        return LayerResult("L8", "作者指纹", round(overall, 4), fatal_threshold, passed,
+                          f"{status} ({'; '.join(details)})")
+
+    def _extract_fingerprint(self, text: str) -> dict:
+        """从文本提取风格指纹。"""
+        # 句长
+        sentences = re.split(r'[。！？!?\n]+', text)
+        sentences = [s.strip() for s in sentences if len(s.strip()) > 2]
+        if sentences:
+            avg_sl = sum(len(s) for s in sentences) / len(sentences)
+        else:
+            avg_sl = 0
+
+        # 对话占比
+        chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', text))
+        dialogue_chars = sum(len(m.group(1)) for m in _DIALOGUE_CHARS.finditer(text))
+        dialogue_ratio = dialogue_chars / max(chinese_chars, 1)
+
+        # 心理前缀密度 (每千字)
+        mp_count = sum(len(pat.findall(text)) for pat in _MENTAL_PREFIX_PATS)
+        mental_prefix_density = mp_count / max(chinese_chars / 1000, 1)
+
+        return {
+            "avg_sentence_length": avg_sl,
+            "dialogue_ratio": dialogue_ratio,
+            "mental_prefix_density": mental_prefix_density,
+        }
 
     def get_baseline(self, text: str) -> dict:
         """从文本提取基线数据 (用于多章积累后的纵向对比)。

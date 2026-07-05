@@ -148,6 +148,25 @@ model_orchestration:
     M5a_beat: "main_model"                # 节拍分析→Qwen3.5-9B
     M5b_drift: "main_model"              # 漂移分析→Qwen3.5-9B
 
+  # ── 按任务分配 ctx 预算 (v8.7) ──
+  # budget = prompt_tokens + max_tokens (总上下文窗口预算)
+  # 在 chat() 中自动估算 messages token 数, 超出 prompt_budget 时裁剪最早的消息
+  # 注意: budget 必须 > 该任务常用的 max_tokens, 否则 prompt_budget 会很小
+  #   例如 S3_logic_cop 用 max_tokens=2048, system prompt ~2000 token, user ~2000 token
+  #   budget 需 ≥ 6144 才能避免误触发裁剪
+  task_ctx_budget:
+    S1_creative: 7168                    # 创意引导: system+设定 ~3000 + 生成 2048 + 余量
+    S2b_reference: 7168                  # AI 参考版: 章节内容 ~3000 + 生成 2048 + 余量
+    S3_logic_cop: 6144                   # 逻辑警察: system ~2000 + 章节 ~2000 + 生成 2048
+    S3_cross_check: 6144                 # 交叉审查: system+章节+主模型报告 ~4000 + 生成 2048
+    S4_style_check: 6144                 # 风格检测: system+章节 ~4000 + 生成 2048
+    S3_editor: 6144                      # 网文编辑: system+章节 ~4000 + 生成 2048
+    S3_qc: 3072                          # 语言质检: 短文本 ~1000 + 生成 2048
+    S4_detection: 6144                   # 风格检测: system+章节 ~4000 + 生成 2048
+    M5a_beat: 6144                       # 节拍分析: system+章节 ~4000 + 生成 2048
+    M5b_drift: 7168                      # 漂移分析: 多章对比 ~5000 + 生成 2048
+    _default: 6144                       # 未列出的任务使用默认预算
+
   fallback: "single_model"               # 双模型任一崩溃→自动降级
 
 # ============================================================
@@ -322,6 +341,39 @@ detection:
     l7_ngram_ppl:
       enabled: true
       fatal_threshold_ratio: 0.6         # N-gram PPL < 基线均值×0.6 = 过于可预测
+
+    # v9.0: 作者指纹偏离度 (来源: "4个致命通病" — 过度依赖Agent导致风格丢失)
+    # 生成稿 vs 作者风格指纹的相对偏离度
+    # 无作者指纹时自动跳过
+    l8_author_fingerprint:
+      enabled: true
+      warning_threshold: 0.3              # 偏离度 > 30% = WARNING
+      fatal_threshold: 0.5                # 偏离度 > 50% = FATAL
+
+    # v8.9: 对白占比检测 (来源: 160万字AI文vs人工文对比分析)
+    # AI文特征: 对白占比极端（<5%纯叙述 或 >65%对话堆砌）
+    # 人工文特征: 自然区间 5%-65%
+    l8_dialogue_ratio:
+      enabled: true
+      min_ratio: 0.05                     # < 5% = 疑似AI纯叙述
+      max_ratio: 0.65                     # > 65% = 疑似AI对话堆砌
+
+    # v8.9: 情感曲线平滑度 (来源: 160万字对比, vad_analyzer.py v3)
+    # AI文情感波动率 < 0.3（一潭死水），人工文 > 0.5
+    # 单调段: 连续3+章同方向情绪变化
+    l9_emotion_curve:
+      enabled: true
+      volatility_warn: 0.3                # < 0.3 = WARNING (情感过于平滑)
+      volatility_block: 0.2               # < 0.2 = BLOCK (AI典型特征)
+      max_monotony_length: 5              # 单调段 > 5章 = WARNING
+      min_jump_ratio: 0.1                 # 跳跃次数 < 总章数10% = WARNING
+
+    # v8.9: 显性连接词密度 (来源: 160万字对比)
+    # AI文 > 8/千字，人工文 < 5/千字
+    l10_conjunction_density:
+      enabled: true
+      warn_density_per_1k: 5.0            # > 5/千字 = WARNING
+      block_density_per_1k: 8.0           # > 8/千字 = BLOCK
 
     # v7.6: 代码层 L5/L6 专用配置 (style_detection_loop.py)
     l5_character_consistency:
@@ -574,8 +626,9 @@ analysis:
         pass_probability_low: 40         # 通过概率<40%: 红色预警
         pass_probability_medium: 60      # 通过概率<60%: 黄色预警
 
-  # ── AI写作味检测 v8.2 (ai_flavor_detector.py) ──
+  # ── AI写作味检测 v8.3 (ai_flavor_detector.py) ──
   # 检测正文是否存在AI写作痕迹，逆向拆解"去AI味指令"为检测规则
+  # v2 新增: 心理前缀冗余 + 连词剧透 + 情绪冗余
   ai_flavor_detection:
     enabled: true
     negative_rules:                      # 负面检测（禁止项）
@@ -595,6 +648,32 @@ analysis:
         - "她的嘴角"
         - "他看起来"
         - "她显得"
+      # v2: 心理前缀冗余 ("他心里想/他不禁感到"等隔阂代词)
+      mental_prefix:
+        enabled: true
+        warn_density_per_1k: 3.0         # >3处/千字 = WARNING
+        block_density_per_1k: 8.0        # >8处/千字 = BLOCK
+      # v2: 连词剧透 (反转/冲突时刻的"却/但是/然而"提前剧透)
+      conjunction_spoiler:
+        enabled: true
+        context_window: 50              # 检查连词前后N字是否有反转标记
+        warn_count: 2                   # >2处 = WARNING
+        block_count: 5                  # >5处 = BLOCK
+      # v2: 情绪冗余 ("复读机"式情绪形容词+动作+台词重复)
+      emotion_redundancy:
+        enabled: true
+        warn_count: 2                   # >2处/章 = WARNING
+        block_count: 5                  # >5处/章 = BLOCK
+      # v8.9: 对白占比检测 (来源: 160万字对比分析)
+      dialogue_ratio:
+        enabled: true
+        min_ratio: 0.05                 # < 5% = 疑似AI纯叙述
+        max_ratio: 0.65                 # > 65% = 疑似AI对话堆砌
+      # v8.9: 显性连接词全篇密度 (AI文 > 8/千字, 人工文 < 5/千字)
+      conjunction_density:
+        enabled: true
+        warn_density_per_1k: 5.0        # > 5/千字 = WARNING
+        block_density_per_1k: 8.0       # > 8/千字 = BLOCK
     positive_dimensions:                 # 正面评分维度
       dialogue_naturalness: true         # 对话口语化
       sensory_detail_density: true       # 感官细节密度
@@ -785,6 +864,33 @@ character_arc:
   emotion_monotony_threshold: 3      # 连续 N 章同一情绪 → 警告
   growth_stagnation_threshold: 10    # N 章无 growth_marker → 警告
   auto_check_every_n_chapters: 5     # 每 N 章自动检查弧光健康度
+
+# ============================================================
+# v8.3: 叙事质量扩展 — 命运变化评分 + 阻碍检测 + 情绪缓冲带
+# 模块: rhythm/rule_analyzer.py + rhythm/patterns.py + scoring/beat_detector.py
+# 来源: Kimi写作技巧建议量化
+# ============================================================
+narrative_quality:
+  # 命运变化评分 (量化"每章是否推动主角命运轨迹")
+  fate_change:
+    enabled: true
+    strong_threshold: 70                # ≥70: 强推动
+    moderate_threshold: 40              # ≥40: 中等推动
+    weak_threshold: 20                  # ≥20: 弱推动 (<20: 剧情停滞/水文风险)
+    stagnant_warning_streak: 3          # 连续N章 <20 → 触发"命运停滞警告"
+
+  # 6类阻碍检测 (与18爽点对偶)
+  obstacle_detection:
+    enabled: true
+    types: [enemy, rule, resource, identity, time, inner]
+
+  # 情绪缓冲带检测 (避免连续紧张或连续缓冲)
+  emotion_buffer:
+    enabled: true
+    high_threshold: 0.65                # 归一化后 ≥0.65 = 高紧张
+    low_threshold: 0.35                 # 归一化后 ≤0.35 = 低紧张
+    max_tension_streak: 5               # 连续紧张章数上限 (超过 = 读者疲劳风险)
+    max_buffer_streak: 2                # 连续缓冲章数上限 (超过 = 节奏拖沓风险)
 
 # ============================================================
 # P1.3: Style DNA — 风格基因提取 + Part E 增强
