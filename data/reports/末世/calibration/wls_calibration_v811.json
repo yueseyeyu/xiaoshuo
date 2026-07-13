@@ -1,0 +1,49 @@
+{
+  "method": "WLS (human=1.0, glm=0.3)",
+  "n_human": 30,
+  "n_glm": 95,
+  "n_total": 125,
+  "intensity": {
+    "intercept": 1.681,
+    "slope": 0.524,
+    "r": 0.565,
+    "r2": 0.319
+  },
+  "retention": {
+    "intercept": 2.992,
+    "slope": 0.432,
+    "r": 0.446,
+    "r2": 0.199
+  },
+  "pure_human_ols": {
+    "intensity": {
+      "intercept": 0.971,
+      "slope": 0.601,
+      "r": 0.392,
+      "r2": 0.154
+    },
+    "retention": {
+      "intercept": 1.684,
+      "slope": 0.596,
+      "r": 0.358,
+      "r2": 0.128
+    },
+    "n": 30
+  },
+  "mixed_ols": {
+    "intensity": {
+      "intercept": 2.249,
+      "slope": 0.463,
+      "r": 0.565,
+      "r2": 0.319
+    },
+    "retention": {
+      "intercept": 3.523,
+      "slope": 0.373,
+      "r": 0.446,
+      "r2": 0.199
+    },
+    "n": 125
+  },
+  "date": "2026-07-13"
+}
