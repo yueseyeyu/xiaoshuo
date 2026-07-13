@@ -294,6 +294,16 @@ def _start_llm_server():
     """Auto-start llama-server.exe as a background subprocess.
     Returns (pid, message) or (None, error_message)."""
     global _llm_process, _llm_ready
+
+    # v8.3: 检查 auto_start 开关，防止 AI 未经用户确认就启动模型
+    cfg = get_config_section("model_orchestration", default={})
+    if not cfg.get("auto_start", False):
+        msg = ("[BLOCKED] 模型自动启动已被禁用 (config.yaml: "
+               "model_orchestration.auto_start=false)。"
+               "请用户手动运行 scripts\\start_model.bat 启动模型。")
+        logging.warning(msg)
+        return None, msg
+
     exe, gguf, n_gpu, ctx_size, parallel = _get_llm_exe_and_model()
     if not exe or not Path(exe).exists():
         return None, f"llama-server.exe 未找到: {exe}"

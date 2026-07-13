@@ -1,0 +1,342 @@
+[
+  {
+    "ch_num": 1,
+    "ai_intensity": 7,
+    "ai_retention": 8,
+    "ai_hook": "strong",
+    "ai_pace": "fast",
+    "ai_conflict": "high",
+    "ai_emotion": "紧张",
+    "ai_analysis": "末日开篇场景震撼，新世界探索引人入胜，无心者威胁紧张，杜衡消失埋下悬念"
+  },
+  {
+    "ch_num": 10,
+    "ai_intensity": 4,
+    "ai_retention": 6,
+    "ai_hook": "medium",
+    "ai_pace": "medium",
+    "ai_conflict": "low",
+    "ai_emotion": "悬疑",
+    "ai_analysis": "探索新世界发现神秘灯光建筑，林碎身份推理引出更多谜团，铺垫章节节奏偏慢"
+  },
+  {
+    "ch_num": 19,
+    "ai_intensity": 4,
+    "ai_retention": 5,
+    "ai_hook": "medium",
+    "ai_pace": "medium",
+    "ai_conflict": "medium",
+    "ai_emotion": "紧张",
+    "ai_analysis": "录音笔过安检紧张刺激，商见曜中二发言既搞笑又埋伏笔，公司审查流程细致展现"
+  },
+  {
+    "ch_num": 29,
+    "ai_intensity": 8,
+    "ai_retention": 8,
+    "ai_hook": "strong",
+    "ai_pace": "fast",
+    "ai_conflict": "high",
+    "ai_emotion": "紧张",
+    "ai_analysis": "商见曜拖延战术揭露真理阴谋，黑暗爆发攻击众人，保护未现暗示背叛，高潮迭起"
+  },
+  {
+    "ch_num": 38,
+    "ai_intensity": 7,
+    "ai_retention": 8,
+    "ai_hook": "strong",
+    "ai_pace": "fast",
+    "ai_conflict": "medium",
+    "ai_emotion": "悬疑",
+    "ai_analysis": "蒋白棉发现超级计算机与生物芯片，杜衡身份揭露为庄生人格，每支旧调队有庄生觉醒者"
+  },
+  {
+    "ch_num": 48,
+    "ai_intensity": 9,
+    "ai_retention": 9,
+    "ai_hook": "strong",
+    "ai_pace": "fast",
+    "ai_conflict": "high",
+    "ai_emotion": "悲壮",
+    "ai_analysis": "龙悦红在绝望中爆发，扔出父母和白晨后独面高等无心者，崩溃到觉醒的转变震撼人心"
+  },
+  {
+    "ch_num": 58,
+    "ai_intensity": 4,
+    "ai_retention": 5,
+    "ai_hook": "medium",
+    "ai_pace": "slow",
+    "ai_conflict": "low",
+    "ai_emotion": "日常",
+    "ai_analysis": "白骑士团领地世界观展开，畸变种牛肉设定有趣，商见曜神秘提问结尾留悬念"
+  },
+  {
+    "ch_num": 68,
+    "ai_intensity": 5,
+    "ai_retention": 6,
+    "ai_hook": "medium",
+    "ai_pace": "medium",
+    "ai_conflict": "medium",
+    "ai_emotion": "紧张",
+    "ai_analysis": "护卫任务展开，装备展示震慑匪徒，瓦尔德基斯林观察后撤退，以武止戈的爽感"
+  },
+  {
+    "ch_num": 77,
+    "ai_intensity": 5,
+    "ai_retention": 6,
+    "ai_hook": "medium",
+    "ai_pace": "medium",
+    "ai_conflict": "low",
+    "ai_emotion": "悬疑",
+    "ai_analysis": "吉缇丝情报能力惊艳，素描画像锁定狙击手，商见曜天眼通推测有趣，调查推进"
+  },
+  {
+    "ch_num": 87,
+    "ai_intensity": 6,
+    "ai_retention": 7,
+    "ai_hook": "strong",
+    "ai_pace": "medium",
+    "ai_conflict": "medium",
+    "ai_emotion": "紧张",
+    "ai_analysis": "默里本尼托发现被控制，研究院设陷阱，菩提预言血光之灾三天后降临，多线汇聚"
+  },
+  {
+    "ch_num": 97,
+    "ai_intensity": 4,
+    "ai_retention": 5,
+    "ai_hook": "medium",
+    "ai_pace": "slow",
+    "ai_conflict": "low",
+    "ai_emotion": "压抑",
+    "ai_analysis": "柯宁米斯废墟探索，艾斯特家中儿童玩具照片引人唏嘘，新世界投影避行策略有效"
+  },
+  {
+    "ch_num": 107,
+    "ai_intensity": 7,
+    "ai_retention": 8,
+    "ai_hook": "strong",
+    "ai_pace": "fast",
+    "ai_conflict": "medium",
+    "ai_emotion": "悬疑",
+    "ai_analysis": "罗顿分裂意识探索131房间，黑暗走廊惊悚，平板问答揭岁末城联系，商见曜收网"
+  },
+  {
+    "ch_num": 116,
+    "ai_intensity": 6,
+    "ai_retention": 7,
+    "ai_hook": "strong",
+    "ai_pace": "medium",
+    "ai_conflict": "medium",
+    "ai_emotion": "悬疑",
+    "ai_analysis": "第五层探索发现电梯异常，院长办公室找到杜衡签名文件，身份揭露后杜衡现身"
+  },
+  {
+    "ch_num": 126,
+    "ai_intensity": 5,
+    "ai_retention": 6,
+    "ai_hook": "medium",
+    "ai_pace": "medium",
+    "ai_conflict": "low",
+    "ai_emotion": "日常",
+    "ai_analysis": "篝火社交与废墟情报交流，商见曜游轮上找到522房间主人若望，未来人骗术成功"
+  },
+  {
+    "ch_num": 136,
+    "ai_intensity": 7,
+    "ai_retention": 7,
+    "ai_hook": "medium",
+    "ai_pace": "fast",
+    "ai_conflict": "medium",
+    "ai_emotion": "爽快",
+    "ai_analysis": "商见曜发现寒冷是黑暗弱点，将船长关入冷库破解心理阴影，获得混乱手套道具"
+  },
+  {
+    "ch_num": 146,
+    "ai_intensity": 5,
+    "ai_retention": 6,
+    "ai_hook": "strong",
+    "ai_pace": "medium",
+    "ai_conflict": "medium",
+    "ai_emotion": "紧张",
+    "ai_analysis": "乌北戒严引出核弹头丢失，救世军世界观展开，酒店经理收猪肉票换情报生动"
+  },
+  {
+    "ch_num": 156,
+    "ai_intensity": 7,
+    "ai_retention": 8,
+    "ai_hook": "strong",
+    "ai_pace": "fast",
+    "ai_conflict": "high",
+    "ai_emotion": "紧张",
+    "ai_analysis": "蒋白棉发现记忆被篡改，214房间藏着末人领域觉醒者，生物电信号暴露敌人"
+  },
+  {
+    "ch_num": 165,
+    "ai_intensity": 6,
+    "ai_retention": 7,
+    "ai_hook": "strong",
+    "ai_pace": "medium",
+    "ai_conflict": "medium",
+    "ai_emotion": "紧张",
+    "ai_analysis": "黄委员制定撤退方案应对博士来袭，新世界强者威胁巨大，分批撤离加诱饵战术"
+  },
+  {
+    "ch_num": 175,
+    "ai_intensity": 4,
+    "ai_retention": 5,
+    "ai_hook": "medium",
+    "ai_pace": "slow",
+    "ai_conflict": "low",
+    "ai_emotion": "日常",
+    "ai_analysis": "冰原补给站世界观展开，常海江正直形象鲜明，畸变者交易鱼类互利共存，佛门僧人出现"
+  },
+  {
+    "ch_num": 185,
+    "ai_intensity": 7,
+    "ai_retention": 7,
+    "ai_hook": "strong",
+    "ai_pace": "fast",
+    "ai_conflict": "medium",
+    "ai_emotion": "悬疑",
+    "ai_analysis": "格纳瓦多种方案营救蒋白棉，利尿药计策巧妙，庄生梦蝶本质揭露令人震撼"
+  },
+  {
+    "ch_num": 195,
+    "ai_intensity": 5,
+    "ai_retention": 6,
+    "ai_hook": "medium",
+    "ai_pace": "medium",
+    "ai_conflict": "low",
+    "ai_emotion": "压抑",
+    "ai_analysis": "台城学校探索发现学生白骨与救世军士兵尸体，庄生梦境特殊原因成谜"
+  },
+  {
+    "ch_num": 204,
+    "ai_intensity": 8,
+    "ai_retention": 8,
+    "ai_hook": "strong",
+    "ai_pace": "fast",
+    "ai_conflict": "high",
+    "ai_emotion": "热血",
+    "ai_analysis": "最初城政变爆发，贝乌里斯无心病发作，盖乌斯手机杀人清敌，次人卫队开枪引爆冲突"
+  },
+  {
+    "ch_num": 214,
+    "ai_intensity": 8,
+    "ai_retention": 8,
+    "ai_hook": "strong",
+    "ai_pace": "fast",
+    "ai_conflict": "high",
+    "ai_emotion": "紧张",
+    "ai_analysis": "盖乌斯清除保守派元老，康娜鹦鹉唤醒解除控制，商见曜麻醉卡奥俘虏敌人"
+  },
+  {
+    "ch_num": 224,
+    "ai_intensity": 8,
+    "ai_retention": 8,
+    "ai_hook": "strong",
+    "ai_pace": "fast",
+    "ai_conflict": "high",
+    "ai_emotion": "紧张",
+    "ai_analysis": "阿苏斯克里斯汀娜突袭，瘙痒控制众人，商见曜言语激将分散注意力，蒋白棉反击"
+  },
+  {
+    "ch_num": 234,
+    "ai_intensity": 7,
+    "ai_retention": 7,
+    "ai_hook": "strong",
+    "ai_pace": "fast",
+    "ai_conflict": "high",
+    "ai_emotion": "紧张",
+    "ai_analysis": "格纳瓦实验室激战后守军自毁，龙悦红手术成功，蒋白棉识破福卡斯算计，杜衡现身"
+  },
+  {
+    "ch_num": 243,
+    "ai_intensity": 4,
+    "ai_retention": 6,
+    "ai_hook": "medium",
+    "ai_pace": "medium",
+    "ai_conflict": "low",
+    "ai_emotion": "悬疑",
+    "ai_analysis": "水源地偶遇机械改造人小队互相警戒，商见曜发现第三座异常平静的岛屿，结尾得知高等无心者出现埋下危机"
+  },
+  {
+    "ch_num": 253,
+    "ai_intensity": 3,
+    "ai_retention": 5,
+    "ai_hook": "medium",
+    "ai_pace": "slow",
+    "ai_conflict": "low",
+    "ai_emotion": "日常",
+    "ai_analysis": "拜访猎人公会会长顾博了解马克西米安悬赏情报，街市购物增添生活气息，结尾机器人卫队失联埋下危机"
+  },
+  {
+    "ch_num": 263,
+    "ai_intensity": 5,
+    "ai_retention": 6,
+    "ai_hook": "medium",
+    "ai_pace": "medium",
+    "ai_conflict": "medium",
+    "ai_emotion": "紧张",
+    "ai_analysis": "高等无心者袭击后续处理，格纳瓦机器人卫队到场，周h法器退敌之谜引发讨论，各方势力汇聚塔尔南"
+  },
+  {
+    "ch_num": 273,
+    "ai_intensity": 6,
+    "ai_retention": 7,
+    "ai_hook": "strong",
+    "ai_pace": "medium",
+    "ai_conflict": "medium",
+    "ai_emotion": "悬疑",
+    "ai_analysis": "各方势力交流无心者情报，格纳瓦旧世界大数据揭示江筱月真实身份，白晨发现植物人关联震动全组"
+  },
+  {
+    "ch_num": 283,
+    "ai_intensity": 6,
+    "ai_retention": 7,
+    "ai_hook": "strong",
+    "ai_pace": "medium",
+    "ai_conflict": "medium",
+    "ai_emotion": "悬疑",
+    "ai_analysis": "源脑揭示旧世界毁灭调查危险性并指引方向，商见曜查询神秘人物无果，律法厅审查格纳瓦人类化程度埋下新危机"
+  },
+  {
+    "ch_num": 292,
+    "ai_intensity": 4,
+    "ai_retention": 6,
+    "ai_hook": "medium",
+    "ai_pace": "medium",
+    "ai_conflict": "medium",
+    "ai_emotion": "日常",
+    "ai_analysis": "格纳瓦直率追问为何不拯救奴隶引发道德讨论，商见曜提出占领地下方舟一石三鸟之计，替天行道计划成型"
+  },
+  {
+    "ch_num": 302,
+    "ai_intensity": 5,
+    "ai_retention": 6,
+    "ai_hook": "medium",
+    "ai_pace": "medium",
+    "ai_conflict": "low",
+    "ai_emotion": "紧张",
+    "ai_analysis": "蒋白棉制定通风管道搜索维耶尔为掩护的斩首行动方案，巧妙拉大旗作虎皮获取教堂权限，行动前夕铺垫完成"
+  },
+  {
+    "ch_num": 585,
+    "ai_intensity": 5,
+    "ai_retention": 6,
+    "ai_hook": "medium",
+    "ai_pace": "medium",
+    "ai_conflict": "low",
+    "ai_emotion": "悬疑",
+    "ai_analysis": "商见曜十重人格民主协商探索游轮心理阴影，人梯登船妙趣横生，发现NPC实时演算能力异常引人深思"
+  },
+  {
+    "ch_num": 595,
+    "ai_intensity": 5,
+    "ai_retention": 6,
+    "ai_hook": "medium",
+    "ai_pace": "medium",
+    "ai_conflict": "low",
+    "ai_emotion": "悬疑",
+    "ai_analysis": "蒙蒂斯旧世界到访铁山市的发现串联调查线索，龙悦红与白晨同房暗含情感线发展，藏书室神秘学线索推进"
+  }
+]

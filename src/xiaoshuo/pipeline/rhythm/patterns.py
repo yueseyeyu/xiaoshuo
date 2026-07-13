@@ -101,6 +101,25 @@ PLEASURE_FORESHADOW_PAYOFF = re.compile(
 )
 
 # ============================================================
+# 题材专属爽点 (Genre-specific implicit pleasure)
+# ============================================================
+# 命名约定: PLEASURE_GENRE_<TYPE>
+# 未来扩展: PLEASURE_GENRE_XIANXIA, PLEASURE_GENRE_URBAN 等
+
+# ── 末世生存流隐式爽点 ──
+# 末世生存文(末日蟑螂/全球进化)的爽点是隐性的: 活下来=爽, 获得物资=爽
+PLEASURE_GENRE_APOCALYPSE = re.compile(
+    r"找到.{0,6}(食物|水源|药品|武器|弹药|物资|补给|装备|材料)|"
+    r"成功.{0,4}(逃离|逃脱|逃出|突围|躲过|避开)|"
+    r"击杀.{0,4}(丧尸|变异|怪物|敌人|感染者)|"
+    r"占领|攻占|夺[取下]|收复|清扫|肃清|"
+    r"安全[的了到达]|脱险|转危为安|死里逃生|"
+    r"升[级阶]|进化|变强|突破|觉醒|"
+    r"制[造作].{0,4}(武器|防具|工具|陷阱|药剂)|"
+    r"学[会到].{0,4}(技能|功法|能力|术)"
+)
+
+# ============================================================
 # 爽点时序标签 (即时爽 vs 延迟爽)
 # ============================================================
 PLEASURE_TIMING = {
@@ -135,7 +154,7 @@ PLEASURE_WEIGHTS = {
     "general": 0.108,
     "bond": 0.155,
     "cognitive": 0.017,
-    "sacrifice": 0.0,
+    "sacrifice": 0.086,
     "physio": 0.179,
     "strategy": 0.108,
     "resource": 0.108,
@@ -226,8 +245,14 @@ CONFLICT_KW_ALL = [
 # 对话/感叹/负面情绪/钩子
 # ============================================================
 DIALOGUE_PAT = re.compile(
+    # Standard quoted dialogue (full-width + half-width brackets)
     r'[「『"\u201c\u300c\u300e](.+?)[」』"\u201d\u300d\u300f]|'
-    r'[^\n]*[:：]["\u201c].+["\u201d]'
+    # Colon/label style: "Name: ..." or "Name：..."
+    r'[^\n]*[:：]["\u201c].+["\u201d]|'
+    # Dash-style dialogue (— or ——) common in web novels
+    r'(?<=[\n。！？!?])\s*[—–\-]{1,3}\s*(.+?)(?=[\n。！？!?]|$)|'
+    # Speech verb + content without quotes: said/replied/asked + unquoted
+    r'(?:说道|说道|说|道|问|答|喊|叫|笑道|冷笑|怒道|低声道|沉声道|大声道|低声说|淡淡说|冷声说|平静说|缓缓道|叹道|惊呼|惊叫|惨叫|怒吼|咆哮|低吼|呢喃|喃喃道|嘟囔|嘀咕)\s*[:：，,]?\s*(.+?)(?=[\n。！？!?]|$)'
 )
 EXCLAM_PAT = re.compile(r'！|!|\?|？')
 

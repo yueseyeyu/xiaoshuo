@@ -27,13 +27,16 @@ def extract_chapters(filepath):
     cn_nums = r"[一二三四五六七八九十百千零\d]+"
 
     # Try standard 第X章 format first (95% of novels)
-    pattern1 = r"(第" + cn_nums + r"章\s*[^\n]*)"
-    parts = re.split(pattern1, text)
+    # 修复: 用 ^[ \t]* + MULTILINE 防止匹配正文中的 "第X章"
+    # 修复: 支持行首带卷前缀的格式 (如蹉跎 "第一卷：xxx 第一章 yyy")
+    pattern1 = r"(^[ \t]*(?:第" + cn_nums + r"[卷部][^\n]*?)?第" + cn_nums + r"章\s*[^\n]*)"
+    parts = re.split(pattern1, text, flags=re.MULTILINE)
     if len(parts) >= 5:
         return _build_chapters(parts)
     # Fallback: mixed format (序章 + 章X, e.g. 狩魔手记)
-    pattern2 = r"(序章\s*[^\n]*|章" + cn_nums + r"\s*[^\n]*)"
-    parts = re.split(pattern2, text)
+    # 修复: 用 ^[ \t]* + MULTILINE + \s+ 防止匹配正文中的 "章X"
+    pattern2 = r"(^[ \t]*(?:序章\s*[^\n]*|章" + cn_nums + r"\s+[^\n]*))"
+    parts = re.split(pattern2, text, flags=re.MULTILINE)
     if len(parts) >= 5:
         return _build_chapters(parts)
     # Fallback: standalone number headers (e.g. 限制级末日症候)
@@ -111,4 +114,18 @@ def _build_chapters(parts):
         if ch["num"] == 0:
             offset += 1
             ch["num"] = offset
+
+    # Fix duplicate chapter numbers (e.g. 狩魔手记 "章一 上"/"章一 下" 同为 num=1)
+    # 修复: 有重复num时按顺序重新编号
+    seen = set()
+    has_dup = False
+    for ch in chapters:
+        if ch["num"] in seen:
+            has_dup = True
+            break
+        seen.add(ch["num"])
+    if has_dup:
+        for i, ch in enumerate(chapters, 1):
+            ch["num"] = i
+
     return chapters

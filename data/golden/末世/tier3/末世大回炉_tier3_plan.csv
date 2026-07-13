@@ -1,0 +1,16 @@
+﻿ch_num,source,stratum,disagreement,ai_intensity,ai_retention,t2_intensity,t2_retention
+1,anchor,Opening,2.8,7,8,5.0,4.0
+483,anchor,Rising,4.73,7,8,2.9,2.32
+966,anchor,Mid,3.72,7,8,4.0,3.2
+1448,anchor,Climax,1.79,7,8,6.1,4.88
+1928,anchor,Ending,4.14,8,8,4.2,3.3600000000000003
+975,disagreement,Mid,6.41,10,10,3.9,3.12
+1606,disagreement,Climax,6.38,8,9,2.2,1.7600000000000002
+1704,disagreement,Climax,6.06,9,9,3.2,2.5600000000000005
+1556,disagreement,Climax,6.04,10,10,4.3,3.44
+1625,disagreement,Climax,6.04,10,10,4.3,3.44
+1566,disagreement,Climax,5.96,9,9,3.3,2.64
+1645,disagreement,Climax,5.9,9,10,3.8,3.04
+1251,disagreement,Climax,5.72,9,10,4.0,3.2
+236,supplement,Rising,1.0,9,9,10.0,8.0
+335,supplement,Rising,1.0,9,9,10.0,8.0

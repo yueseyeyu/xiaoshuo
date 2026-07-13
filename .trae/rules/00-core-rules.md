@@ -35,3 +35,4 @@ AI 可生成正文参考/草稿，但**必须通过质量门禁（S3 多维度�
 7. 禁止创建一次性临时脚本（纳入 `scripts/` 或 `analysis/` 目录）
 8. 不要在函数内部 `import`（所有 import 放文件顶部）
 9. 如果项目涉及 Skill 触发词（审视/穷举搜索/进化粗纲/进化细纲/通用进化），这些是 CodeBuddy 的专属功能，Trae 无法使用。忽略这些请求或引导用户在 CodeBuddy 中执行。
+10. **禁止 AI 自动启动本地模型**。`config.yaml` 中 `model_orchestration.auto_start` 默认为 `false`。AI 不得通过任何方式（运行 bat 脚本、调用 Python 代码、请求 API 端点）自动启动 llama-server。如果任务需要本地模型，必须先告知用户并请用户手动运行 `scripts\start_model.bat`。

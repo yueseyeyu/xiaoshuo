@@ -1,0 +1,415 @@
+{
+  "method": "Entropy-Weight TOPSIS",
+  "references": [
+    "Hwang & Yoon (1981) - original TOPSIS",
+    "Elsayed & Dawood (2017) - entropy weight with TOPSIS",
+    "Chen (2021, Entropy journal) - ANP-entropy TOPSIS",
+    "Sun et al. (2016, IEEE) - entropy-TOPSIS for service ranking"
+  ],
+  "entropy_weights": {
+    "signing": 0.1847,
+    "retention": 0.1085,
+    "diversity": 0.3093,
+    "bt_rank": 0.2811,
+    "webnovel8": 0.1165
+  },
+  "ranking": [
+    {
+      "book_name": "《末世大回炉》（校对版全本）作者：二十二刀流",
+      "topsis_rank": 1,
+      "closeness": 0.7151,
+      "dim_scores": {
+        "signing": 80,
+        "retention": 59,
+        "diversity": 83.88083391783019,
+        "bt_rank": 73,
+        "webnovel8": 62
+      }
+    },
+    {
+      "book_name": "黑暗血时代",
+      "topsis_rank": 2,
+      "closeness": 0.6835,
+      "dim_scores": {
+        "signing": 87,
+        "retention": 57,
+        "diversity": 70,
+        "bt_rank": 78,
+        "webnovel8": 56
+      }
+    },
+    {
+      "book_name": "《神秘尽头》-+黑山老鬼",
+      "topsis_rank": 3,
+      "closeness": 0.6765,
+      "dim_scores": {
+        "signing": 71,
+        "retention": 61,
+        "diversity": 79,
+        "bt_rank": 96,
+        "webnovel8": 46
+      }
+    },
+    {
+      "book_name": "《地球游戏场》（校对版全本）作者：吉风冰",
+      "topsis_rank": 4,
+      "closeness": 0.6751,
+      "dim_scores": {
+        "signing": 87,
+        "retention": 59,
+        "diversity": 93,
+        "bt_rank": 47,
+        "webnovel8": 60
+      }
+    },
+    {
+      "book_name": "《末世之深渊召唤师》（校对版全本）作者：凉心未暖",
+      "topsis_rank": 5,
+      "closeness": 0.6669,
+      "dim_scores": {
+        "signing": 90,
+        "retention": 59,
+        "diversity": 88,
+        "bt_rank": 43,
+        "webnovel8": 76
+      }
+    },
+    {
+      "book_name": "全球变异，从灾厄降临开始",
+      "topsis_rank": 6,
+      "closeness": 0.6381,
+      "dim_scores": {
+        "signing": 84,
+        "retention": 61,
+        "diversity": 49,
+        "bt_rank": 84,
+        "webnovel8": 68
+      }
+    },
+    {
+      "book_name": "《末世魔神游戏》（校对版全本）作者：石闻",
+      "topsis_rank": 7,
+      "closeness": 0.585,
+      "dim_scores": {
+        "signing": 76,
+        "retention": 62,
+        "diversity": 109.1004021751832,
+        "bt_rank": 21,
+        "webnovel8": 57
+      }
+    },
+    {
+      "book_name": "《第一序列》（校对版全本）作者：会说话的肘子",
+      "topsis_rank": 8,
+      "closeness": 0.5556,
+      "dim_scores": {
+        "signing": 70,
+        "retention": 60,
+        "diversity": 44,
+        "bt_rank": 91,
+        "webnovel8": 56
+      }
+    },
+    {
+      "book_name": "《异兽迷城》（校对版全本）",
+      "topsis_rank": 9,
+      "closeness": 0.5433,
+      "dim_scores": {
+        "signing": 73,
+        "retention": 59,
+        "diversity": 63,
+        "bt_rank": 59,
+        "webnovel8": 55
+      }
+    },
+    {
+      "book_name": "《长夜余火》（校对版全本）作者：爱潜水的乌贼",
+      "topsis_rank": 10,
+      "closeness": 0.5371,
+      "dim_scores": {
+        "signing": 70,
+        "retention": 61,
+        "diversity": 84,
+        "bt_rank": 38,
+        "webnovel8": 51
+      }
+    },
+    {
+      "book_name": "黑暗文明_古羲",
+      "topsis_rank": 11,
+      "closeness": 0.528,
+      "dim_scores": {
+        "signing": 79,
+        "retention": 55,
+        "diversity": 100,
+        "bt_rank": 13,
+        "webnovel8": 59
+      }
+    },
+    {
+      "book_name": "《从红月开始》（校对版全本）作者：黑山老鬼",
+      "topsis_rank": 12,
+      "closeness": 0.512,
+      "dim_scores": {
+        "signing": 77,
+        "retention": 63,
+        "diversity": 24,
+        "bt_rank": 87,
+        "webnovel8": 41
+      }
+    },
+    {
+      "book_name": "《末日拼图游戏》（校对版全本）作者：更从心",
+      "topsis_rank": 13,
+      "closeness": 0.4867,
+      "dim_scores": {
+        "signing": 89,
+        "retention": 62,
+        "diversity": 16,
+        "bt_rank": 66,
+        "webnovel8": 49
+      }
+    },
+    {
+      "book_name": "狩魔手记_烟雨江南",
+      "topsis_rank": 14,
+      "closeness": 0.4563,
+      "dim_scores": {
+        "signing": 82,
+        "retention": 58,
+        "diversity": 54,
+        "bt_rank": 29,
+        "webnovel8": 60
+      }
+    },
+    {
+      "book_name": "《末世召唤狂潮》（校对版全本）作者：黑心的大白",
+      "topsis_rank": 15,
+      "closeness": 0.4481,
+      "dim_scores": {
+        "signing": 88,
+        "retention": 56,
+        "diversity": 58,
+        "bt_rank": 9,
+        "webnovel8": 68
+      }
+    },
+    {
+      "book_name": "《世界末日从考试不及格开始》作者：小猫要成仙",
+      "topsis_rank": 16,
+      "closeness": 0.4386,
+      "dim_scores": {
+        "signing": 78,
+        "retention": 59,
+        "diversity": 20,
+        "bt_rank": 69,
+        "webnovel8": 42
+      }
+    },
+    {
+      "book_name": "《黑暗王者》（校对版全本）作者：古羲",
+      "topsis_rank": 17,
+      "closeness": 0.4261,
+      "dim_scores": {
+        "signing": 63,
+        "retention": 61,
+        "diversity": 51,
+        "bt_rank": 52,
+        "webnovel8": 43
+      }
+    },
+    {
+      "book_name": "《我 的 末 世 领 地》（校对版）",
+      "topsis_rank": 18,
+      "closeness": 0.4186,
+      "dim_scores": {
+        "signing": 82,
+        "retention": 61,
+        "diversity": 37,
+        "bt_rank": 33,
+        "webnovel8": 55
+      }
+    },
+    {
+      "book_name": "《重卡战车在末世》（校对版全本）作者：白雨涵",
+      "topsis_rank": 19,
+      "closeness": 0.4041,
+      "dim_scores": {
+        "signing": 68,
+        "retention": 61,
+        "diversity": 66,
+        "bt_rank": 15,
+        "webnovel8": 55
+      }
+    },
+    {
+      "book_name": "《灾厄纪元》（校对版全本）作者：妖的境界",
+      "topsis_rank": 20,
+      "closeness": 0.3724,
+      "dim_scores": {
+        "signing": 66,
+        "retention": 64,
+        "diversity": 9,
+        "bt_rank": 64,
+        "webnovel8": 32
+      }
+    },
+    {
+      "book_name": "末日乐园",
+      "topsis_rank": 21,
+      "closeness": 0.3518,
+      "dim_scores": {
+        "signing": 75,
+        "retention": 61,
+        "diversity": 4.737722730310772,
+        "bt_rank": 54,
+        "webnovel8": 42
+      }
+    },
+    {
+      "book_name": "限制级末日症候",
+      "topsis_rank": 22,
+      "closeness": 0.3407,
+      "dim_scores": {
+        "signing": 84,
+        "retention": 62,
+        "diversity": 9.314494954601036,
+        "bt_rank": 28,
+        "webnovel8": 44
+      }
+    },
+    {
+      "book_name": "《我在末世有套房》（校对版全本）作者：晨星LL",
+      "topsis_rank": 23,
+      "closeness": 0.3058,
+      "dim_scores": {
+        "signing": 84,
+        "retention": 61,
+        "diversity": 13,
+        "bt_rank": 2,
+        "webnovel8": 57
+      }
+    },
+    {
+      "book_name": "《黑暗末日》（校对版全本）作者：我妻虚彩",
+      "topsis_rank": 24,
+      "closeness": 0.3005,
+      "dim_scores": {
+        "signing": 68,
+        "retention": 58,
+        "diversity": 8,
+        "bt_rank": 52,
+        "webnovel8": 38
+      }
+    },
+    {
+      "book_name": "《废土崛起》（校对版全本）作者：通吃道人",
+      "topsis_rank": 25,
+      "closeness": 0.2946,
+      "dim_scores": {
+        "signing": 68,
+        "retention": 60,
+        "diversity": 35.75094261739432,
+        "bt_rank": 24,
+        "webnovel8": 50
+      }
+    },
+    {
+      "book_name": "《全球进化》（精校版全本）作者：咬狗",
+      "topsis_rank": 26,
+      "closeness": 0.2928,
+      "dim_scores": {
+        "signing": 80,
+        "retention": 57,
+        "diversity": 26,
+        "bt_rank": 16,
+        "webnovel8": 48
+      }
+    },
+    {
+      "book_name": "《我的女友是丧尸》（校对版全本）作者：黑暗荔枝",
+      "topsis_rank": 27,
+      "closeness": 0.2903,
+      "dim_scores": {
+        "signing": 85,
+        "retention": 60,
+        "diversity": 6,
+        "bt_rank": 5,
+        "webnovel8": 48
+      }
+    },
+    {
+      "book_name": "《末日蟑螂》作者：伟岸蟑螂",
+      "topsis_rank": 28,
+      "closeness": 0.2773,
+      "dim_scores": {
+        "signing": 76,
+        "retention": 59,
+        "diversity": 34.24127751245368,
+        "bt_rank": 0,
+        "webnovel8": 52
+      }
+    },
+    {
+      "book_name": "我在末世种个田",
+      "topsis_rank": 29,
+      "closeness": 0.2715,
+      "dim_scores": {
+        "signing": 67,
+        "retention": 59,
+        "diversity": 46,
+        "bt_rank": 7,
+        "webnovel8": 40
+      }
+    },
+    {
+      "book_name": "末世超级商人",
+      "topsis_rank": 30,
+      "closeness": 0.2612,
+      "dim_scores": {
+        "signing": 70,
+        "retention": 63,
+        "diversity": 28,
+        "bt_rank": 8,
+        "webnovel8": 45
+      }
+    },
+    {
+      "book_name": "《第九特区》",
+      "topsis_rank": 31,
+      "closeness": 0.2596,
+      "dim_scores": {
+        "signing": 66,
+        "retention": 56,
+        "diversity": 48.793890004114566,
+        "bt_rank": 4,
+        "webnovel8": 38
+      }
+    },
+    {
+      "book_name": "《恐慌沸腾》【爱上阅读_www.isyd.net】",
+      "topsis_rank": 32,
+      "closeness": 0.1884,
+      "dim_scores": {
+        "signing": 68,
+        "retention": 60,
+        "diversity": 11,
+        "bt_rank": 18,
+        "webnovel8": 42
+      }
+    },
+    {
+      "book_name": "《蹉跎》（校对版全本）作者：随风飘摇",
+      "topsis_rank": 33,
+      "closeness": 0.1841,
+      "dim_scores": {
+        "signing": 68,
+        "retention": 61,
+        "diversity": 7,
+        "bt_rank": 18,
+        "webnovel8": 28
+      }
+    }
+  ],
+  "timestamp": "2026-07-13T14:46:09.444152"
+}

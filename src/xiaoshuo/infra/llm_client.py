@@ -27,10 +27,20 @@ llm_client.py — 统一 LLM 调用客户端
 from __future__ import annotations
 
 import json
+import os
 import re
 import urllib.request
 import urllib.error
 from typing import Optional
+
+# 确保localhost请求不走系统代理（梯子会拦截127.0.0.1导致LLM调用超时）
+_os_no_proxy = os.environ.get("NO_PROXY", "")
+if "127.0.0.1" not in _os_no_proxy:
+    os.environ["NO_PROXY"] = (_os_no_proxy + ",127.0.0.1,localhost").lstrip(",")
+    # 同时设置 urllib 的 ProxyHandler 为无代理
+    _proxy_handler = urllib.request.ProxyHandler({})
+    _opener = urllib.request.build_opener(_proxy_handler)
+    urllib.request.install_opener(_opener)
 
 from xiaoshuo.infra.config_manager import get_config
 from xiaoshuo.infra.logging_config import get_logger
@@ -90,7 +100,16 @@ def check_llm_health(base_url: Optional[str] = None, timeout: int = 3) -> bool:
     """
     url = base_url or get_llm_base_url()
     try:
-        urllib.request.urlopen(f"{url}/health", timeout=timeout)
+        import http.client as _httpc
+        from urllib.parse import urlparse as _urlparse
+        _parsed = _urlparse(url)
+        _host = _parsed.hostname
+        _port = _parsed.port or 80
+        _conn = _httpc.HTTPConnection(_host, _port, timeout=timeout)
+        _conn.request("GET", "/health")
+        _resp = _conn.getresponse()
+        _resp.read()
+        _conn.close()
         return True
     except Exception:
         return False
@@ -141,13 +160,18 @@ def llm_chat(
     last_error = None
     for attempt in range(max_retries):
         try:
-            req = urllib.request.Request(
-                f"{url}/v1/chat/completions",
-                data,
-                {"Content-Type": "application/json"},
-            )
-            resp = urllib.request.urlopen(req, timeout=timeout)
-            result = json.loads(resp.read())
+            # 用 http.client 直连，绕过系统代理（梯子会拦截 localhost）
+            import http.client as _httpc
+            from urllib.parse import urlparse as _urlparse
+            _parsed = _urlparse(url)
+            _host = _parsed.hostname
+            _port = _parsed.port or 80
+            _conn = _httpc.HTTPConnection(_host, _port, timeout=timeout)
+            _conn.request("POST", "/v1/chat/completions",
+                         body=data, headers={"Content-Type": "application/json"})
+            _resp = _conn.getresponse()
+            result = json.loads(_resp.read())
+            _conn.close()
             content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
             if strip_thinking:
                 content = _strip_thinking(content)

@@ -1,0 +1,312 @@
+{
+  "phase": "D",
+  "n_samples": 30,
+  "llm_intensity_mae": 1.9166666666666667,
+  "rule_intensity_mae": 2.9133333333333336,
+  "final_intensity_mae": 1.6843333333333335,
+  "final_retention_mae": 1.482,
+  "final_intensity_pearson": 0.32257910673032314,
+  "final_retention_pearson": 0.2912367463564163,
+  "details": [
+    {
+      "book": "废土崛起",
+      "ch_num": 1,
+      "llm_intensity": 4.5,
+      "rule_intensity": 3.0,
+      "final_intensity": 4.12,
+      "final_retention": 5.12,
+      "human_intensity": 3.0,
+      "human_retention": 3.0
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 193,
+      "llm_intensity": 6.0,
+      "rule_intensity": 2.4,
+      "final_intensity": 5.1,
+      "final_retention": 7.16,
+      "human_intensity": 4.0,
+      "human_retention": 6.0
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 385,
+      "llm_intensity": 5.0,
+      "rule_intensity": 2.2,
+      "final_intensity": 4.3,
+      "final_retention": 5.43,
+      "human_intensity": 5.0,
+      "human_retention": 5.0
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 577,
+      "llm_intensity": 7.0,
+      "rule_intensity": 3.3,
+      "final_intensity": 6.08,
+      "final_retention": 7.29,
+      "human_intensity": 6.0,
+      "human_retention": 7.0
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 769,
+      "llm_intensity": 8.5,
+      "rule_intensity": 2.1,
+      "final_intensity": 6.9,
+      "final_retention": 7.96,
+      "human_intensity": 7.5,
+      "human_retention": 7.5
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 961,
+      "llm_intensity": 6.5,
+      "rule_intensity": 3.6,
+      "final_intensity": 5.78,
+      "final_retention": 6.92,
+      "human_intensity": 3.5,
+      "human_retention": 6.5
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 1153,
+      "llm_intensity": 7.5,
+      "rule_intensity": 2.4,
+      "final_intensity": 6.22,
+      "final_retention": 7.58,
+      "human_intensity": 8.0,
+      "human_retention": 8.5
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 1345,
+      "llm_intensity": 3.0,
+      "rule_intensity": 2.6,
+      "final_intensity": 2.9,
+      "final_retention": 3.79,
+      "human_intensity": 3.0,
+      "human_retention": 5.5
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 1537,
+      "llm_intensity": 9.0,
+      "rule_intensity": 1.3,
+      "final_intensity": 7.08,
+      "final_retention": 7.84,
+      "human_intensity": 9.0,
+      "human_retention": 8.5
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 1729,
+      "llm_intensity": 4.0,
+      "rule_intensity": 2.4,
+      "final_intensity": 3.6,
+      "final_retention": 4.18,
+      "human_intensity": 8.5,
+      "human_retention": 9.5
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 1,
+      "llm_intensity": 3.0,
+      "rule_intensity": 2.1,
+      "final_intensity": 2.77,
+      "final_retention": 3.71,
+      "human_intensity": 1.5,
+      "human_retention": 1.5
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 241,
+      "llm_intensity": 5.0,
+      "rule_intensity": 4.0,
+      "final_intensity": 4.75,
+      "final_retention": 5.7,
+      "human_intensity": 7.0,
+      "human_retention": 7.5
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 481,
+      "llm_intensity": 2.5,
+      "rule_intensity": 9.3,
+      "final_intensity": 4.2,
+      "final_retention": 4.79,
+      "human_intensity": 2.0,
+      "human_retention": 3.5
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 721,
+      "llm_intensity": 8.0,
+      "rule_intensity": 1.4,
+      "final_intensity": 6.35,
+      "final_retention": 7.86,
+      "human_intensity": 3.5,
+      "human_retention": 4.0
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 961,
+      "llm_intensity": 4.0,
+      "rule_intensity": 5.8,
+      "final_intensity": 4.45,
+      "final_retention": 5.54,
+      "human_intensity": 1.5,
+      "human_retention": 2.5
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 1201,
+      "llm_intensity": 2.0,
+      "rule_intensity": 10.0,
+      "final_intensity": 4.0,
+      "final_retention": 4.47,
+      "human_intensity": 5.0,
+      "human_retention": 6.5
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 1441,
+      "llm_intensity": 6.0,
+      "rule_intensity": 4.4,
+      "final_intensity": 5.6,
+      "final_retention": 7.04,
+      "human_intensity": 7.5,
+      "human_retention": 7.5
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 1681,
+      "llm_intensity": 6.0,
+      "rule_intensity": 2.6,
+      "final_intensity": 5.15,
+      "final_retention": 6.34,
+      "human_intensity": 7.0,
+      "human_retention": 6.5
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 1921,
+      "llm_intensity": 4.5,
+      "rule_intensity": 10.0,
+      "final_intensity": 5.88,
+      "final_retention": 7.45,
+      "human_intensity": 5.0,
+      "human_retention": 5.5
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 2160,
+      "llm_intensity": 4.0,
+      "rule_intensity": 8.0,
+      "final_intensity": 5.0,
+      "final_retention": 6.3,
+      "human_intensity": 5.5,
+      "human_retention": 6.5
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 1,
+      "llm_intensity": 4.5,
+      "rule_intensity": 4.8,
+      "final_intensity": 4.58,
+      "final_retention": 5.39,
+      "human_intensity": 6.0,
+      "human_retention": 7.0
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 194,
+      "llm_intensity": 5.0,
+      "rule_intensity": 6.7,
+      "final_intensity": 5.42,
+      "final_retention": 5.68,
+      "human_intensity": 6.0,
+      "human_retention": 7.0
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 387,
+      "llm_intensity": 5.0,
+      "rule_intensity": 4.0,
+      "final_intensity": 4.75,
+      "final_retention": 6.12,
+      "human_intensity": 2.5,
+      "human_retention": 7.0
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 580,
+      "llm_intensity": 6.0,
+      "rule_intensity": 3.2,
+      "final_intensity": 5.3,
+      "final_retention": 6.43,
+      "human_intensity": 3.5,
+      "human_retention": 6.5
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 773,
+      "llm_intensity": 7.0,
+      "rule_intensity": 3.4,
+      "final_intensity": 6.1,
+      "final_retention": 7.31,
+      "human_intensity": 5.5,
+      "human_retention": 7.5
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 966,
+      "llm_intensity": 6.5,
+      "rule_intensity": 3.5,
+      "final_intensity": 5.75,
+      "final_retention": 6.9,
+      "human_intensity": 2.0,
+      "human_retention": 2.5
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 1159,
+      "llm_intensity": 8.0,
+      "rule_intensity": 3.7,
+      "final_intensity": 6.92,
+      "final_retention": 8.21,
+      "human_intensity": 5.0,
+      "human_retention": 6.5
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 1352,
+      "llm_intensity": 8.0,
+      "rule_intensity": 1.8,
+      "final_intensity": 6.45,
+      "final_retention": 7.49,
+      "human_intensity": 6.0,
+      "human_retention": 7.5
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 1545,
+      "llm_intensity": 7.0,
+      "rule_intensity": 3.6,
+      "final_intensity": 6.15,
+      "final_retention": 7.34,
+      "human_intensity": 5.5,
+      "human_retention": 7.5
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 1738,
+      "llm_intensity": 9.0,
+      "rule_intensity": 6.5,
+      "final_intensity": 8.38,
+      "final_retention": 8.62,
+      "human_intensity": 3.5,
+      "human_retention": 5.0
+    }
+  ]
+}

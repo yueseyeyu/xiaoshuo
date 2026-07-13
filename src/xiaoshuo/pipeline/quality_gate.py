@@ -210,9 +210,9 @@ def _load_commercial_scores():
         try:
             content = bench_file.read_text(encoding='utf-8', errors='replace')
             for line in content.split('\n'):
-                if '签约' in line and '分' in line:
-                    # Pattern: "- 书名: 签约XX分"
-                    parts = line.split('签约')
+                if '综合' in line and '分' in line:
+                    # Pattern: "- 书名: 综合XX分"
+                    parts = line.split('综合')
                     if len(parts) == 2:
                         book_name = parts[0].strip().lstrip('- ').strip()
                         score_str = parts[1].split('分')[0].strip()

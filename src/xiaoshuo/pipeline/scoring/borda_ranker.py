@@ -241,6 +241,137 @@ def generate_report(genre, analyses, synth, output_path):
     print(f"[OK] Synthesis: {output_path}")
 
 
+def _entropy_weights(matrix):
+    """v8.9: Entropy权重法 — 根据数据分布自动计算各维度权重。
+    
+    参考: Elsayed & Dawood (2017), Chen (2021, Entropy journal, cited by 106)
+    原理: 信息熵越低的维度 → 区分度越高 → 权重越高
+    
+    Args:
+        matrix: list of lists, 每行一本书, 每列一个维度 (已归一化到0-1)
+    Returns:
+        dict: {dim_index: weight}
+    """
+    n = len(matrix)
+    if n < 2:
+        return {i: 1.0 / len(matrix[0]) for i in range(len(matrix[0]))}
+    
+    m = len(matrix[0])
+    k = 1.0 / math.log(n)
+    weights = {}
+    
+    for j in range(m):
+        # 计算每列的信息熵
+        col = [matrix[i][j] for i in range(n)]
+        col_sum = sum(col)
+        if col_sum == 0:
+            entropy = 1.0  # 无信息
+        else:
+            p = [c / col_sum for c in col]
+            entropy = -k * sum(pi * math.log(max(pi, 1e-10)) for pi in p if pi > 0)
+        
+        # 权重 = (1 - entropy) / sum(1 - entropy)
+        weights[j] = 1.0 - entropy
+    
+    # 归一化权重
+    total_w = sum(weights.values())
+    if total_w > 0:
+        weights = {j: w / total_w for j, w in weights.items()}
+    else:
+        weights = {j: 1.0 / m for j in range(m)}
+    
+    return weights
+
+
+def _topsis_rank(matrix, weights):
+    """v8.9: TOPSIS排序 — 计算每本书到理想解的相对贴近度。
+    
+    参考: Hwang & Yoon (1981), 经典MCDA方法
+    论文: Sun et al. (2016, IEEE, cited by 22), Gorgij et al. (2019, cited by 62)
+    
+    Args:
+        matrix: list of lists, 归一化决策矩阵 (0-1)
+        weights: dict {dim_index: weight}
+    Returns:
+        list of (row_index, closeness_coefficient) sorted descending
+    """
+    n = len(matrix)
+    m = len(matrix[0])
+    
+    # 加权归一化矩阵
+    weighted = [[matrix[i][j] * weights.get(j, 0) for j in range(m)] for i in range(n)]
+    
+    # 理想最优解和最劣解
+    ideal_best = [max(weighted[i][j] for i in range(n)) for j in range(m)]
+    ideal_worst = [min(weighted[i][j] for i in range(n)) for j in range(m)]
+    
+    # 计算每本书到理想解的距离
+    results = []
+    for i in range(n):
+        d_best = math.sqrt(sum((weighted[i][j] - ideal_best[j]) ** 2 for j in range(m)))
+        d_worst = math.sqrt(sum((weighted[i][j] - ideal_worst[j]) ** 2 for j in range(m)))
+        
+        # 贴近度系数: 0=最劣, 1=最优
+        cc = d_worst / max(d_best + d_worst, 1e-10)
+        results.append((i, round(cc, 4)))
+    
+    results.sort(key=lambda x: -x[1])
+    return results
+
+
+def _compute_entropy_topsis(analyses, dims):
+    """v8.9: 完整Entropy-TOPSIS排名流程。
+    
+    1. 构建决策矩阵 (每行一本书, 每列一个评分维度)
+    2. Min-Max归一化到[0, 1]
+    3. Entropy法计算客观权重 (自动降低低区分度维度如hook的权重)
+    4. TOPSIS计算贴近度系数
+    
+    Returns:
+        (ranking_data, entropy_weights) 
+    """
+    n = len(analyses)
+    if n < 2:
+        return [], {}
+    
+    m = len(dims)
+    # 构建原始决策矩阵
+    raw_matrix = []
+    for a in analyses:
+        row = [score_fn(a) for _, score_fn in dims]
+        raw_matrix.append(row)
+    
+    # Min-Max归一化
+    norm_matrix = []
+    for i in range(n):
+        row = []
+        for j in range(m):
+            col_vals = [raw_matrix[k][j] for k in range(n)]
+            col_min, col_max = min(col_vals), max(col_vals)
+            if col_max - col_min < 1e-10:
+                row.append(0.5)  # 无差异时给中间值
+            else:
+                row.append((raw_matrix[i][j] - col_min) / (col_max - col_min))
+        norm_matrix.append(row)
+    
+    # Entropy权重
+    ent_weights = _entropy_weights(norm_matrix)
+    
+    # TOPSIS排名
+    topsis_results = _topsis_rank(norm_matrix, ent_weights)
+    
+    ranking_data = []
+    for rank, (idx, cc) in enumerate(topsis_results, 1):
+        ranking_data.append({
+            "book_name": analyses[idx].get("name", ""),
+            "topsis_rank": rank,
+            "closeness": cc,
+            "dim_scores": {dims[j][0]: raw_matrix[idx][j] for j in range(m)},
+        })
+    
+    return ranking_data, ent_weights
+
+
 def evaluate_loocv(genre, analyses):
     """v9: True Leave-One-Out Cross-Validation.
     For each fold: rebuild pool from 9 books, score the held-out 1, collect prediction.
@@ -381,7 +512,19 @@ def process_genre(genre, books_filter=None):
         correction = 1.0 + 0.20 * math.log2(ratio)
         return score * min(correction, 1.8)
 
-    # v12: Borda 5-dim LLM-dominant ranking
+    # v12→v8.7: Borda 5-dim ranking, now with configurable dimension weights
+    # v8.7: 修复等权Borda缺陷 — signing循环论证 + diversity非质量指标 + bt/webnovel8冗余
+    # 依据: DeepSeek(8.5) + Kimi(8.0) + Doubao(7.5) 三方共识
+    cfg = get_config()
+    borda_dim_cfg = cfg.get("analysis", {}).get("book_filter", {}).get("borda_dimension_weights", {})
+    # Default weights (equal=1.0 each) if config missing
+    dim_weights = {
+        "signing":   borda_dim_cfg.get("signing", 1.0),
+        "retention": borda_dim_cfg.get("retention", 1.0),
+        "diversity": borda_dim_cfg.get("diversity", 1.0),
+        "bt_rank":   borda_dim_cfg.get("bt_rank", 1.0),
+        "webnovel8": borda_dim_cfg.get("webnovel8", 1.0),
+    }
     dims = [
         ("signing",      lambda a: a.get("commercial", {}).get("signing_score", 50)),
         ("retention",    lambda a: a.get("commercial", {}).get("retention_score", 50)),
@@ -392,12 +535,14 @@ def process_genre(genre, books_filter=None):
     ]
     borda = {}
     for dim_name, score_fn in dims:
+        w = dim_weights.get(dim_name, 1.0)
         sorted_books = sorted(analyses, key=score_fn, reverse=True)
         for rank, book in enumerate(sorted_books, 1):
             stem = book.get("name", "")
             if stem not in borda:
                 borda[stem] = {"total_borda": 0, "dim_ranks": {}}
-            borda[stem]["total_borda"] += rank
+            # v8.7: Weighted Borda — rank * dimension_weight
+            borda[stem]["total_borda"] += rank * w
             borda[stem]["dim_ranks"][dim_name] = rank
     # Lower total_borda = higher consensus rank
     borda_list = sorted(borda.items(), key=lambda x: x[1]["total_borda"])
@@ -412,6 +557,35 @@ def process_genre(genre, books_filter=None):
     with open(rank_path, 'w', encoding='utf-8') as f:
         json.dump(ranking_data, f, ensure_ascii=False, indent=2)
     print(f"[OK] Borda Ranking: {rank_path}")
+
+    # ── v8.9: Entropy-TOPSIS排名 (客观权重, 自动处理hook通胀) ──
+    # 参考: Entropy-Weight TOPSIS (Hwang & Yoon 1981; Chen 2021, cited by 106)
+    # 优势: (1) 客观权重替代主观配置 (2) 低熵维度(hook 68%strong)自动降权
+    #        (3) TOPSIS贴近度系数提供连续排名, 非Borda的离散排名
+    topsis_data, ent_weights = _compute_entropy_topsis(analyses, dims)
+    if topsis_data:
+        topsis_path = PROJECT_ROOT / "data" / "reports" / genre / "synthesis" / f"{genre}_topsis_ranking.json"
+        topsis_path.parent.mkdir(parents=True, exist_ok=True)
+        topsis_output = {
+            "method": "Entropy-Weight TOPSIS",
+            "references": [
+                "Hwang & Yoon (1981) - original TOPSIS",
+                "Elsayed & Dawood (2017) - entropy weight with TOPSIS",
+                "Chen (2021, Entropy journal) - ANP-entropy TOPSIS",
+                "Sun et al. (2016, IEEE) - entropy-TOPSIS for service ranking",
+            ],
+            "entropy_weights": {dims[j][0]: round(ent_weights.get(j, 0), 4) for j in range(len(dims))},
+            "ranking": topsis_data,
+            "timestamp": datetime.datetime.now().isoformat(),
+        }
+        with open(topsis_path, 'w', encoding='utf-8') as f:
+            json.dump(topsis_output, f, ensure_ascii=False, indent=2)
+        print(f"[OK] Entropy-TOPSIS Ranking: {topsis_path}")
+        # 打印Entropy权重供诊断
+        print(f"  Entropy权重: {', '.join(f'{dims[j][0]}={ent_weights.get(j,0):.3f}' for j in range(len(dims)))}")
+        # 打印TOP5
+        for entry in topsis_data[:5]:
+            print(f"  TOPSIS #{entry['topsis_rank']}: {entry['book_name'][:20]} (CC={entry['closeness']})")
 
     # v11: Persist commercial scores to JSON for quality_gate consumption
     scores_path = PROJECT_ROOT / "data" / "processed" / genre / "quality" / "commercial_scores.json"

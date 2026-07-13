@@ -59,6 +59,140 @@ def _calib_dir(genre):
 # ── Bayesian BMA weights (loaded once from calibrate_v2) ──
 _bayesian_weights_cache = None
 
+# v18 O11: Online BMA weight update state
+# 当新评分完成后，记录LLM vs Rule的偏差，在线更新BMA权重
+# 参考: Bayesian Model Averaging with sequential updating (Hoeting et al. 1999)
+_bma_online_state = None  # {metric: {n_updates, cumulative_error_rule, cumulative_error_llm}}
+
+
+def _load_bma_online_state(genre="末世"):
+    """v18 O11: Load online BMA update state from disk."""
+    global _bma_online_state
+    if _bma_online_state is not None:
+        return _bma_online_state
+    state_path = _calib_dir(genre) / "bma_online_state.json"
+    if state_path.exists():
+        try:
+            with open(state_path, "r", encoding="utf-8") as f:
+                _bma_online_state = json.load(f)
+        except Exception:
+            _bma_online_state = {}
+    else:
+        _bma_online_state = {}
+    return _bma_online_state
+
+
+def _save_bma_online_state(genre="末世"):
+    """v18 O11: Persist online BMA state."""
+    if _bma_online_state is None:
+        return
+    state_path = _calib_dir(genre) / "bma_online_state.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(state_path, "w", encoding="utf-8") as f:
+        json.dump(_bma_online_state, f, ensure_ascii=False, indent=2)
+
+
+def update_bma_weights_online(llm_scores, rule_scores, genre="末世", golden_set=None):
+    """v20 O11: Online Bayesian weight update using prediction errors.
+    
+    当新评分产生时，比较LLM和Rule的预测误差，动态调整BMA权重。
+    
+    Args:
+        llm_scores: list of {intensity, retention, ...} dicts from LLM scoring
+        rule_scores: list of {pleasure_intensity, ...} dicts from rule-based scoring
+        genre: genre string for state persistence
+        golden_set: optional list of {book, ch_num, human_intensity, human_retention} dicts.
+                    v20: 当提供golden_set时，用human_score作为外部锚点替代consensus，
+                    彻底消除循环论证 (来源: Kimi BMA stacking分析 + DeepSeek 30章标注方案)
+    
+    Mechanism:
+    - v19(循环论证): consensus = w_r*rule + w_l*llm, 然后比较谁离consensus近 → LLM权重大时LLM永远"更准"
+    - v20(外部锚点): 当有golden set时，直接用human_score作为ground truth计算误差
+    - Track cumulative absolute error for rule and LLM per metric
+    - Weight ∝ 1/error (inverse error weighting, a simplified Bayesian update)
+    - Apply exponential decay (λ=0.95) to favor recent observations
+    - Clamp weights to [0.05, 0.95] to prevent degenerate solutions
+    """
+    global _bayesian_weights_cache
+    state = _load_bma_online_state(genre)
+    
+    # Pair LLM and rule scores by chapter
+    n = min(len(llm_scores), len(rule_scores))
+    if n < 3:
+        return  # Not enough data to update
+    
+    for metric_pair in [("intensity", "pleasure_intensity"), ("retention", "pleasure_intensity")]:
+        llm_key, rule_key = metric_pair
+        metric_name = llm_key
+        
+        # v20: 优先使用golden set的human_score作为外部锚点，消除循环论证
+        # Build golden lookup: {(ch_num): human_score} for this metric
+        golden_lookup = {}
+        if golden_set:
+            human_key = "human_intensity" if metric_name == "intensity" else "human_retention"
+            for g in golden_set:
+                ch = g.get("ch_num")
+                if ch is not None and human_key in g:
+                    golden_lookup[int(ch)] = float(g[human_key])
+        
+        # Compute prediction errors
+        errors_rule = []
+        errors_llm = []
+        golden_used = 0
+        for i in range(n):
+            llm_val = float(llm_scores[i].get(llm_key, 5))
+            rule_val = float(rule_scores[i].get(rule_key, 0)) / 10.0  # normalize rule 0-100 → 0-10
+            
+            # v20: 用golden set的human_score作为外部锚点 (优先)
+            ch_num = None
+            if isinstance(llm_scores[i], dict):
+                ch_num = llm_scores[i].get("ch_num")
+                if ch_num is None:
+                    ch_num = llm_scores[i].get("num")
+            if ch_num is not None and int(ch_num) in golden_lookup:
+                human_val = golden_lookup[int(ch_num)]
+                errors_rule.append(abs(rule_val - human_val))
+                errors_llm.append(abs(llm_val - human_val))
+                golden_used += 1
+            else:
+                # Fallback: consensus-based (legacy, 有循环论证风险但无golden数据时唯一选择)
+                bw = _load_bayesian_weights(genre)
+                w_r = bw.get(metric_name, {}).get("w_rule", 0.2)
+                w_l = bw.get(metric_name, {}).get("w_llm", 0.8)
+                consensus = w_r * rule_val + w_l * llm_val
+                errors_rule.append(abs(rule_val - consensus))
+                errors_llm.append(abs(llm_val - consensus))
+        
+        if golden_used > 0:
+            print(f"  [O11] {metric_name}: {golden_used}/{n} chapters used golden set human_score as anchor")
+        
+        # Update cumulative errors with exponential decay
+        s = state.get(metric_name, {"n": 0, "err_rule": 0, "err_llm": 0})
+        decay = 0.95
+        s["n"] = s["n"] + 1
+        s["err_rule"] = decay * s["err_rule"] + statistics.mean(errors_rule)
+        s["err_llm"] = decay * s["err_llm"] + statistics.mean(errors_llm)
+        state[metric_name] = s
+        
+        # Update weights: w_llm ∝ 1/err_llm, w_rule ∝ 1/err_rule
+        # This is a simplified Bayesian update where precision ∝ 1/variance
+        if s["err_llm"] > 0.01 and s["err_rule"] > 0.01:
+            precision_llm = 1.0 / s["err_llm"]
+            precision_rule = 1.0 / s["err_rule"]
+            new_w_llm = precision_llm / (precision_llm + precision_rule)
+            new_w_rule = 1.0 - new_w_llm
+            # Clamp to prevent degenerate weights
+            new_w_llm = max(0.05, min(0.95, new_w_llm))
+            new_w_rule = max(0.05, min(0.95, new_w_rule))
+            
+            # Update cache
+            if _bayesian_weights_cache and metric_name in _bayesian_weights_cache:
+                _bayesian_weights_cache[metric_name]["w_llm"] = round(new_w_llm, 3)
+                _bayesian_weights_cache[metric_name]["w_rule"] = round(new_w_rule, 3)
+    
+    _save_bma_online_state(genre)
+    print(f"  [O11] BMA weights updated online: {state}")
+
 
 def _load_bayesian_weights(genre="末世"):
     """v8: Read calibrate_v2 feature importance, compute per-metric Bayesian blend weights.
@@ -70,11 +204,16 @@ def _load_bayesian_weights(genre="末世"):
 
     fi_path = _calib_dir(genre) / "feature_importance.csv"
     if not fi_path.exists():
-        # Fallback to default weights (r_min=0.2 -> w_rule~0.04)
+        # Fallback to default weights
+        # v21 P3a: 分层融合权重 — 不同维度使用不同w_llm (来源: Doubao建议)
+        # intensity: w_llm=0.75 (规则对爽点密度有一定捕捉能力)
+        # retention: w_llm=0.85 (留存力更依赖语义理解)
+        # hook: w_llm=0.60 (钩子正则已经很精确，规则可信度高)
         _bayesian_weights_cache = {
-            "intensity": {"w_rule": 0.20, "w_llm": 0.80, "feature": "pos_density", "r": 0.445},
+            "intensity": {"w_rule": 0.25, "w_llm": 0.75, "feature": "pos_density", "r": 0.445},
+            "retention": {"w_rule": 0.15, "w_llm": 0.85, "feature": "pos_density", "r": 0.445},
             "conflict":  {"w_rule": 0.20, "w_llm": 0.80, "feature": "conflict_density", "r": 0.348},
-            "hook":      {"w_rule": 0.05, "w_llm": 0.95, "feature": "hook_density", "r": 0.135},
+            "hook":      {"w_rule": 0.40, "w_llm": 0.60, "feature": "hook_density", "r": 0.135},
         }
         return _bayesian_weights_cache
 
@@ -91,8 +230,10 @@ def _load_bayesian_weights(genre="末世"):
         return round(w_r, 3)
 
     # Best rule features per metric from calibrate_v2 Pearson r data
+    # v21 P3a: 添加retention维度 (与intensity共享pos_density特征，但用不同r值)
     best_features = {
         "intensity": ("pos_density", features.get("pos_density", 0.445)),
+        "retention": ("pos_density", features.get("pos_density", 0.445) * 0.7),  # retention与规则相关性更低
         "conflict":  ("conflict_density", features.get("conflict_density", 0.406)),
         "hook":      ("hook_density", features.get("hook_density", 0.096)),
     }
@@ -114,7 +255,7 @@ def _load_all_llm_scores():
     if cache is not None:
         return cache
     # Convert categorical LLM outputs to numeric
-    _hook_map = {"none": 0.0, "weak": 5.0, "strong": 10.0}
+    _hook_map = {"none": 0.0, "weak": 3.0, "medium": 6.0, "strong": 9.0}
     _pace_map = {"slow": 3.0, "medium": 6.0, "fast": 9.0}
     _conflict_map = {"none": 0.0, "low": 3.0, "medium": 6.0, "high": 9.0}
     all_scores = {}
@@ -132,6 +273,9 @@ def _load_all_llm_scores():
                             "hook": _hook_map.get(r.get("llm_hook", ""), 5.0),
                             "pace": _pace_map.get(r.get("llm_pace", ""), 6.0),
                             "conflict": _conflict_map.get(r.get("llm_conflict", ""), 5.0),
+                            # v8.9: 补回emotion和analysis原始字段 (文本类型，不转数值)
+                            "emotion": r.get("llm_emotion", ""),
+                            "analysis": r.get("llm_analysis", ""),
                         }
                     except (ValueError, KeyError):
                         continue  # skip malformed rows
@@ -195,9 +339,29 @@ def load_rhythm_data(csv_name, genre="末世"):
                 "pleasure_level": r.get("pleasure_level", "none"),
                 "hook_type": r.get("hook_type", "none"),
                 "readability": float(r.get("readability", 0)),
+                "avg_para_len": float(r.get("avg_para_len", 80)),
+                "avg_sentence_len": float(r.get("avg_sentence_len", 20)),
+                "vocab_diversity": float(r.get("vocab_diversity", 0)),
                 "dominant_sub": r.get("dominant_sub", "none"),
                 "pace": r.get("pace", "medium"),
                 "ch_variability": float(r.get("ch_variability", 0)),
+                "excl_density": float(r.get("excl_density", 0)),
+                "pleasure_timing": r.get("pleasure_timing", "instant"),
+                "conflict_level": r.get("conflict_level", "none"),
+                "emotion_valence": r.get("emotion_valence", "neutral"),
+                "emotion_burnout": r.get("emotion_burnout", "none"),
+                "high_emotion_count": int(r.get("high_emotion_count", 0)),
+                "burnout_count": int(r.get("burnout_count", 0)),
+                "anti_trope": r.get("anti_trope", "false"),
+                "anti_trope_count": int(r.get("anti_trope_count", 0)),
+                "identity_reveal_count": int(r.get("identity_reveal_count", 0)),
+                "foreshadow_payoff_count": int(r.get("foreshadow_payoff_count", 0)),
+                "bond_count": int(r.get("bond_count", 0)),
+                "cognitive_count": int(r.get("cognitive_count", 0)),
+                "sacrifice_count": int(r.get("sacrifice_count", 0)),
+                "comeback_count": int(r.get("comeback_count", 0)),
+                "crush_count": int(r.get("crush_count", 0)),
+                "level_count": int(r.get("level_count", 0)),
             })
     return rows
 
@@ -206,8 +370,57 @@ def load_rhythm_data(csv_name, genre="末世"):
 _firebook_pool = None
 
 
+# ── Quality tier weights (v8.7: 六级分层加权池) ──
+# 理论框架: Contrastive Learning + Curriculum Learning + WIS
+#   - Preference-based Data Selection (非DPO参数优化)
+#   - Weighted Importance Sampling (Precup et al. 2000, ICML)
+#   - Curriculum Learning (Bengio et al. 2009): S→A→B+→B→B-→C
+def _load_quality_tier_weights():
+    """Load quality tier weights from config.yaml.
+    Returns (tier_weights dict, tier_of_book dict).
+    v8.7: 支持 S/A/B_plus/B/B_minus/C 六级
+    tier_weights: {"S": 1.0, "A": 0.7, "B_plus": 0.4, "B": 0.3, "B_minus": 0.2, "C": 0.0}
+    tier_of_book: {"废土崛起": "A", "蹉跎": "C", ...}
+    """
+    cfg = get_config()
+    book_filter_cfg = cfg.get("analysis", {}).get("book_filter", {})
+    tiers_cfg = book_filter_cfg.get("quality_tiers", {})
+
+    if not tiers_cfg:
+        # Fallback: no tier config, all books get weight 1.0
+        return {"_default": 1.0}, {}
+
+    tier_weights = {}
+    tier_of_book = {}
+    for tier_name, tier_data in tiers_cfg.items():
+        weight = tier_data.get("weight", 1.0)
+        tier_weights[tier_name] = weight
+        for book_name in tier_data.get("books", []):
+            tier_of_book[book_name] = tier_name
+
+    return tier_weights, tier_of_book
+
+
+def _get_book_weight(book_file_name, tier_weights, tier_of_book):
+    """Get quality weight for a book based on its tier.
+    Returns 0.0 for C-tier (excluded from positive pool),
+    1.0 for unknown books (backward compatible)."""
+    for book_name, tier in tier_of_book.items():
+        if book_name in (book_file_name or ""):
+            return tier_weights.get(tier, 1.0)
+    # Unknown book: default weight (backward compatible with pre-v8.6)
+    return tier_weights.get("_default", 1.0)
+
+
 def get_firebook_pool(genre="末世", exclude_name=None):
-    """Load all fire book CSVs and compute P25/P50/P75 pool for normalization.
+    """Load all fire book CSVs and compute weighted P25/P50/P75 pool.
+
+    v8.7: Quality-tier weighted pool (WIS-inspired, 6-level).
+    - S=1.0, A=0.7, B+=0.4, B=0.3, B-=0.2, C=0.0(excluded)
+    - C级书不进入正样本池, 防止低质量书拉低基准
+    - 权重通过重复采样实现: round(weight*10) → S=10, A=7, B+=4, B=3, B-=2
+    - v8.7: 采样倍数从3提升到10, 消除B+/B/B-的精度损失
+
     exclude_name: skip this book (for LOOCV fold). Resets cache if non-None."""
     global _firebook_pool
     if exclude_name is not None:
@@ -215,115 +428,95 @@ def get_firebook_pool(genre="末世", exclude_name=None):
     elif _firebook_pool is not None:
         return _firebook_pool
 
+    # Load quality tier weights
+    tier_weights, tier_of_book = _load_quality_tier_weights()
+
     novels = load_genre_novels(genre)
-    # P1 pool isolation: only include PASS books from quality_manifest
-    manifest_path = PROJECT_ROOT / "data" / "processed" / genre / "quality" / "quality_manifest.json"
-    pass_stems = set()
-    if manifest_path.exists():
-        try:
-            with open(manifest_path, 'r', encoding='utf-8') as f:
-                m = json.load(f)
-            pass_stems = {a["stem"] for a in m.get("approved", [])}
-        except Exception:
-            pass
+    # v8.6: 分层加权池 — C级书(weight=0.0)不进入正样本池
+    # v15: Pool 使用全量书籍（已知精品库），不再用 manifest 隔离
     all_hooks, all_conflicts, all_intensities = [], [], []
     all_readabilities, all_slap_rates, all_diversities = [], [], []
     all_reversal_rates, all_suspense_rates, all_large_rates = [], [], []
     all_retentions = []  # v8: LLM retention pool for percentile normalization
+    _pool_book_count = {"S": 0, "A": 0, "B_plus": 0, "B": 0, "B_minus": 0, "C": 0, "unknown": 0}
 
     for novel in novels:
         if exclude_name and exclude_name in novel.get("file", ""):
             continue
-        # P1 pool isolation: only filter when approved pool is large enough (P0: >=3 books)
-        stem = novel.get("file", "").replace(".txt", "")
-        if len(pass_stems) >= 3:
-            matched = False
-            for p in pass_stems:
-                if stem[:8] in p or p[:8] in stem:
-                    matched = True
-                    break
-            if not matched:
-                continue
         csv_name = novel.get("rhythm_csv")
         if not csv_name:
             continue
+
+        # v8.6: Get quality weight, skip C-tier (weight=0.0)
+        book_file = novel.get("file", "")
+        weight = _get_book_weight(book_file, tier_weights, tier_of_book)
+
+        # Track tier distribution
+        for book_name, tier in tier_of_book.items():
+            if book_name in (book_file or ""):
+                _pool_book_count[tier] = _pool_book_count.get(tier, 0) + 1
+                break
+        else:
+            _pool_book_count["unknown"] += 1
+
+        if weight <= 0.0:
+            continue  # C-tier: skip, don't pollute positive pool
+
         rows = load_rhythm_data(csv_name, genre)
         if not rows or len(rows) < 10:
             continue
+
+        # v8.7: Weighted sampling — repeat values proportional to weight
+        # 采样倍数=10 (v8.6的3→10), 消除B+/B/B-精度损失
+        # S(1.0)→10, A(0.7)→7, B+(0.4)→4, B(0.3)→3, B-(0.2)→2, C(0.0)→skip
+        n_copies = max(1, round(weight * 10))  # v8.7: 10x for finer granularity
 
         total = len(rows)
         ch3 = rows[:min(3, total)]
         ch30 = rows[:min(30, total)]
 
-        all_hooks.append(statistics.mean([r["hook_density"] for r in ch3]))
-        all_conflicts.append(statistics.mean([r["conflict_density"] for r in ch3]))
-        all_intensities.append(statistics.mean([r["pleasure_intensity"] for r in ch3]))
-        all_readabilities.append(statistics.mean([r["readability"] for r in rows]))
+        hook_val = statistics.mean([r["hook_density"] for r in ch3])
+        conflict_val = statistics.mean([r["conflict_density"] for r in ch3])
+        intensity_val = statistics.mean([r["pleasure_intensity"] for r in ch3])
+        readability_val = statistics.mean([r["readability"] for r in rows])
 
-        # Slap rate: slaps per chapter (optimal ~0.25-0.5, NOT "more is better")
         slap_total = sum(r["slap_count"] for r in ch30)
-        all_slap_rates.append(slap_total / max(len(ch30), 1))
+        slap_val = slap_total / max(len(ch30), 1)
 
-        # Shannon diversity (reuse existing function)
         pd_div = _compute_plot_diversity(rows)
-        all_diversities.append(pd_div.get("diversity_index", 0))
+        diversity_val = pd_div.get("diversity_index", 0)
 
-        # Hook type rates
         ht = Counter(r["hook_type"] for r in rows)
-        all_reversal_rates.append(ht.get("反转式", 0) / max(total, 1))
-        all_suspense_rates.append(ht.get("悬念式", 0) / max(total, 1))
+        reversal_val = ht.get("反转式", 0) / max(total, 1)
+        suspense_val = ht.get("悬念式", 0) / max(total, 1)
 
-        # Large pleasure point rate
         pl = Counter(r["pleasure_level"] for r in rows)
-        all_large_rates.append(pl.get("large", 0) / max(total, 1))
+        large_val = pl.get("large", 0) / max(total, 1)
 
-        # v8: LLM retention pool (read from CSV to build percentile baseline)
+        # Weighted append: repeat values for higher-weight books
+        for _ in range(n_copies):
+            all_hooks.append(hook_val)
+            all_conflicts.append(conflict_val)
+            all_intensities.append(intensity_val)
+            all_readabilities.append(readability_val)
+            all_slap_rates.append(slap_val)
+            all_diversities.append(diversity_val)
+            all_reversal_rates.append(reversal_val)
+            all_suspense_rates.append(suspense_val)
+            all_large_rates.append(large_val)
+
+        # v8: LLM retention pool
         llm_csv = _llm_dir(genre) / f"{Path(csv_name).stem.replace('rhythm_', '')}_llm.csv"
         if llm_csv.exists():
             with open(llm_csv, 'r', encoding='utf-8-sig') as f:
                 llm_rows = list(csv.DictReader(f))
             if llm_rows:
-                all_retentions.append(statistics.mean([float(r["llm_retention"]) for r in llm_rows]))
+                ret_val = statistics.mean([float(r["llm_retention"]) for r in llm_rows])
+                for _ in range(n_copies):
+                    all_retentions.append(ret_val)
 
-    # P0: fallback -- if pool empty after isolation, rebuild with full genre pool
-    if not all_hooks and pass_stems:
-        print(f"[WARN] Isolation filter produced empty pool -- falling back to full {genre} pool")
-        pass_stems = set()
-        all_hooks, all_conflicts, all_intensities = [], [], []
-        all_readabilities, all_slap_rates, all_diversities = [], [], []
-        all_reversal_rates, all_suspense_rates, all_large_rates = [], [], []
-        all_retentions = []
-        for novel in novels:
-            if exclude_name and exclude_name in novel.get("file", ""):
-                continue
-            csv_name = novel.get("rhythm_csv")
-            if not csv_name:
-                continue
-            rows = load_rhythm_data(csv_name, genre)
-            if not rows or len(rows) < 10:
-                continue
-            total = len(rows)
-            ch3 = rows[:min(3, total)]
-            ch30 = rows[:min(30, total)]
-            all_hooks.append(statistics.mean([r["hook_density"] for r in ch3]))
-            all_conflicts.append(statistics.mean([r["conflict_density"] for r in ch3]))
-            all_intensities.append(statistics.mean([r["pleasure_intensity"] for r in ch3]))
-            all_readabilities.append(statistics.mean([r["readability"] for r in rows]))
-            slap_total = sum(r["slap_count"] for r in ch30)
-            all_slap_rates.append(slap_total / max(len(ch30), 1))
-            pd_div = _compute_plot_diversity(rows)
-            all_diversities.append(pd_div.get("diversity_index", 0))
-            ht = Counter(r["hook_type"] for r in rows)
-            all_reversal_rates.append(ht.get("反转式", 0) / max(total, 1))
-            all_suspense_rates.append(ht.get("悬念式", 0) / max(total, 1))
-            pl = Counter(r["pleasure_level"] for r in rows)
-            all_large_rates.append(pl.get("large", 0) / max(total, 1))
-            llm_csv = _llm_dir(genre) / f"{Path(csv_name).stem.replace('rhythm_', '')}_llm.csv"
-            if llm_csv.exists():
-                with open(llm_csv, 'r', encoding='utf-8-sig') as f:
-                    llm_rows = list(csv.DictReader(f))
-                if llm_rows:
-                    all_retentions.append(statistics.mean([float(r["llm_retention"]) for r in llm_rows]))
+    if not all_hooks:
+        print(f"[WARN] Pool empty for {genre} -- no valid rhythm CSVs found")
 
     def _p(sorted_vals, pct):
         if not sorted_vals:
@@ -339,7 +532,7 @@ def get_firebook_pool(genre="末世", exclude_name=None):
         "hook_density":  {"p25": _p(sorted(all_hooks), 25), "p50": _p(sorted(all_hooks), 50), "p75": _p(sorted(all_hooks), 75), "_sorted": sorted(all_hooks)},
         "conflict":      {"p25": _p(sorted(all_conflicts), 25), "p50": _p(sorted(all_conflicts), 50), "p75": _p(sorted(all_conflicts), 75), "_sorted": sorted(all_conflicts)},
         "intensity":     {"p25": _p(sorted(all_intensities), 25), "p50": _p(sorted(all_intensities), 50), "p75": _p(sorted(all_intensities), 75), "_sorted": sorted(all_intensities)},
-        "readability":   {"p50": _p(sorted(all_readabilities), 50)},
+        "readability":   {"p25": _p(sorted(all_readabilities), 25), "p50": _p(sorted(all_readabilities), 50), "p75": _p(sorted(all_readabilities), 75), "_sorted": sorted(all_readabilities)},
         "slap_rate":     {"p25": _p(sorted(all_slap_rates), 25), "p50": _p(sorted(all_slap_rates), 50), "p75": _p(sorted(all_slap_rates), 75), "_sorted": sorted(all_slap_rates)},
         "diversity":     {"p25": _p(sorted(all_diversities), 25), "p50": _p(sorted(all_diversities), 50), "p75": _p(sorted(all_diversities), 75), "_sorted": sorted(all_diversities)},
         "reversal_rate": {"p50": _p(sorted(all_reversal_rates), 50), "_sorted": sorted(all_reversal_rates)},
@@ -347,6 +540,7 @@ def get_firebook_pool(genre="末世", exclude_name=None):
         "large_rate":    {"p50": _p(sorted(all_large_rates), 50), "_sorted": sorted(all_large_rates)},
         "retention":     {"p50": _p(sorted(all_retentions), 50), "_sorted": sorted(all_retentions)} if all_retentions else {"p50": 5.0, "_sorted": [5.0]},  # v8
         "n_books": len(all_hooks),
+        "tier_distribution": _pool_book_count,  # v8.6: debug info
     }
     return _firebook_pool
 
@@ -505,6 +699,41 @@ def percentile_score(value, pool, metric):
     return raw_pct
 
 
+def _bradley_terry_winrate(value, sorted_pool):
+    """v15-L2: Bradley-Terry pairwise win rate (Rank-Then-Score inspired).
+    Instead of raw percentile, compute P(our > other) across all pool entries.
+    This is more robust to outliers and skewed distributions than linear percentile.
+    Reference: arXiv:2504.05736 (Rank-Then-Score)."""
+    if not sorted_pool or len(sorted_pool) < 3:
+        return 50
+    wins = sum(1 for v in sorted_pool if value > v)
+    ties = sum(1 for v in sorted_pool if value == v) * 0.5
+    return round((wins + ties) / len(sorted_pool) * 100)
+
+
+def rank_then_score(value, pool, metric):
+    """v15-L2: Rank-Then-Score — blend percentile with Bradley-Terry win rate.
+    percentile alone is noisy with small pools; BT winrate smooths it.
+    Final = 0.5 * percentile + 0.5 * BT_winrate, both shrunk if n<30."""
+    p_data = pool.get(metric, {})
+    sorted_vals = p_data.get("_sorted", [])
+    if not sorted_vals or len(sorted_vals) < 3:
+        return 50
+    n = len(sorted_vals)
+    # Percentile component
+    rank = sum(1 for v in sorted_vals if v <= value)
+    raw_pct = round((rank - 0.5) / n * 100) if n > 0 else 50
+    # BT winrate component
+    bt_wr = _bradley_terry_winrate(value, sorted_vals)
+    # Blend
+    blended = round(0.5 * raw_pct + 0.5 * bt_wr)
+    # Bayesian shrinkage for small pools
+    if n < 30:
+        shrinkage = n / 30.0
+        return round(50 + (blended - 50) * shrinkage)
+    return blended
+
+
 # ── v12: LLM sub-genre classification ──
 _llm_sub_genre_cache = {}
 
@@ -539,8 +768,12 @@ def _llm_classify_sub_genre(txt_path):
             ],
             "max_tokens": 20, "temperature": 0.0,
         }).encode("utf-8")
-        port = _get_llm_port() if '_get_llm_port' in dir() else 8000
-        conn = http.client.HTTPConnection(f"127.0.0.1:{port}", timeout=30)
+        from xiaoshuo.infra.llm_client import get_main_model_base_url as _get_base
+        import urllib.parse as _up
+        _parsed = _up.urlparse(_get_base())
+        _host = _parsed.hostname or '127.0.0.1'
+        _port = _parsed.port or 8000
+        conn = http.client.HTTPConnection(_host, _port, timeout=30)
         conn.request("POST", "/v1/chat/completions", body=data,
                      headers={"Content-Type": "application/json"})
         resp = json.loads(conn.getresponse().read())
@@ -561,13 +794,9 @@ def classify_all_sub_genres(genre, novels):
     # Check if LLM is available
     try:
         import http.client
-        port = 8000
-        try:
-            cfg = get_config()
-            port = cfg.get("analysis", {}).get("llm_port", 8000)
-        except Exception:
-            pass
-        conn = http.client.HTTPConnection(f"127.0.0.1:{port}", timeout=5)
+        from xiaoshuo.infra.llm_client import get_llm_port as _get_port
+        port = _get_port()
+        conn = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
         conn.request("GET", "/v1/models")
         conn.getresponse().read()
         conn.close()
@@ -703,6 +932,7 @@ def _set_ds_cached(book_stem, ds_data):
     _save_ds_cache()
 
 
+# v18: DS维度对齐 — 7维→6维 (增加emotion，character+prose合并为quality_bonus)
 _DS_SCORING_PROMPT = (
     "你是网文商业评估专家。请对以下末世题材网文章节进行评分。\n\n"
     "评分维度（0-10分，允许小数点后1位）：\n"
@@ -711,12 +941,14 @@ _DS_SCORING_PROMPT = (
     "3. 钩子质量：章末悬念/反转/期待感\n"
     "4. 节奏合理性：情节推进速度是否恰当\n"
     "5. 冲突强度：本章冲突的激烈程度\n"
-    "6. 人物塑造：角色行为是否立体、有记忆点\n"
-    "7. 文笔流畅度：阅读体验是否顺畅、无卡顿\n\n"
+    "6. 情绪氛围：本章主要情绪 (爽快/紧张/悲壮/悬疑/日常/温情/压抑)\n"
+    "7. 人物塑造：角色行为是否立体、有记忆点\n"
+    "8. 文笔流畅度：阅读体验是否顺畅、无卡顿\n\n"
     "评分要求：\n"
     "- 先简要分析本章优缺点（1-2句话）\n"
-    "- 再给出分数，格式：爽感,留存,钩子,节奏,冲突,人物,文笔\n"
-    "- 示例：7.5,6.0,8.0,7.0,5.5,4.0,6.5\n\n"
+    "- 再给出分数，格式：爽感,留存,钩子,节奏,冲突,情绪,人物,文笔\n"
+    "- 情绪维度输出汉字（如：紧张），其他维度输出数字\n"
+    "- 示例：7.5,6.0,8.0,7.0,5.5,紧张,4.0,6.5\n\n"
     "章节内容：\n{text}"
 )
 
@@ -755,17 +987,46 @@ def _call_ds_api(text, cfg):
         resp = json.loads(conn.getresponse().read())
         conn.close()
         raw = resp.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-        nums = [float(n) for n in re.findall(r"\d+\.?\d*", raw)]
+        # v18: 解析8个值 (7数字 + 1情绪汉字)
+        # 格式: 爽感,留存,钩子,节奏,冲突,情绪,人物,文笔
+        # v18-fix: 先按行分割，找以数字开头的评分行，避免分析文本中的逗号干扰
+        score_line = None
+        for line in raw.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            # 评分行: 以数字开头，或包含逗号分隔的多个值
+            if line[0].isdigit() and "," in line:
+                score_line = line
+                break
+            # 备选: 如果分析行后面直接跟数字(无换行),尝试提取最后一个逗号段>=5的行
+        if not score_line:
+            # Fallback: 用regex提取所有逗号分隔的数字段
+            score_line = raw
+        parts = [p.strip() for p in score_line.split(",")]
+        nums = []
+        emotion = "日常"
+        for p in parts:
+            try:
+                nums.append(float(p))
+            except ValueError:
+                # 非数字 = 情绪维度
+                emotion = p
         if len(nums) >= 7:
-            return nums[:7]
+            # 7个数字: intensity,retention,hook,pace,conflict,character,prose
+            return {"intensity": nums[0], "retention": nums[1], "hook": nums[2],
+                    "pace": nums[3], "conflict": nums[4], "character": nums[5],
+                    "prose": nums[6], "emotion": emotion}
         elif len(nums) >= 5:
-            return nums[:5] + [5.0, 5.0]
+            return {"intensity": nums[0], "retention": nums[1], "hook": nums[2],
+                    "pace": nums[3], "conflict": nums[4],
+                    "character": 5.0, "prose": 5.0, "emotion": emotion}
         return None
     except Exception:
         return None
 
 
-def _load_chapter_texts(book_stem, indices):
+def _load_chapter_texts(book_stem, indices, genre="末世"):
     """Load actual chapter text from raw novel file for LLM scoring.
     Returns {idx: text} dict."""
     if not book_stem or not indices:
@@ -774,7 +1035,7 @@ def _load_chapter_texts(book_stem, indices):
         from xiaoshuo.pipeline.rhythm_analyzer import extract_chapters
         scoring_cfg = _load_scoring_config()
         novel_base = scoring_cfg.get("novel_source_dir", "data/raw/novels")
-        novel_dir = PROJECT_ROOT / novel_base / "末世"
+        novel_dir = PROJECT_ROOT / novel_base / genre
         for txt_file in novel_dir.glob("*.txt"):
             if book_stem[:6] in txt_file.stem or txt_file.stem[:6] in book_stem:
                 chapters = extract_chapters(str(txt_file))
@@ -788,7 +1049,7 @@ def _load_chapter_texts(book_stem, indices):
         return {}
 
 
-def _score_book_with_deepseek(rows, ds_config, sample_n=None, book_stem=""):
+def _score_book_with_deepseek(rows, ds_config, sample_n=None, book_stem="", genre="末世"):
     """Score with DeepSeek, with cache check. Returns dims dict or None."""
     if not ds_config or not rows:
         return None
@@ -796,7 +1057,7 @@ def _score_book_with_deepseek(rows, ds_config, sample_n=None, book_stem=""):
     # Check cache first
     if book_stem:
         cached = _get_ds_cached(book_stem)
-        if cached and cached.get("overall"):
+        if cached and cached.get("intensity"):
             return cached
 
     scoring_cfg = _load_scoring_config()
@@ -808,11 +1069,13 @@ def _score_book_with_deepseek(rows, ds_config, sample_n=None, book_stem=""):
     step = max(1, total // sample_n)
     indices = list(range(0, min(total, step * sample_n), step))[:sample_n]
 
+    # v18: DS返回dict而非list，新增emotion维度
     dims = ["intensity", "retention", "hook", "pace", "conflict", "character", "prose"]
     all_scores = {d: [] for d in dims}
+    all_emotions = []
 
     # -- v7.5 fix: pass actual chapter text, not metadata --
-    chapter_texts = _load_chapter_texts(book_stem, indices) if book_stem else {}
+    chapter_texts = _load_chapter_texts(book_stem, indices, genre=genre) if book_stem else {}
 
     for idx in indices:
         ch = rows[idx]
@@ -824,8 +1087,12 @@ def _score_book_with_deepseek(rows, ds_config, sample_n=None, book_stem=""):
             text += f"钩子密度={ch.get('hook_density','?')} 冲突密度={ch.get('conflict_density','?')} 爽点={ch.get('pleasure_intensity','?')}"
         scores = _deepseek_call_scoring(text, ds_config)
         if scores:
-            for i, dim in enumerate(dims):
-                all_scores[dim].append(scores[i])
+            # v18: scores现在是dict而非list
+            for dim in dims:
+                if dim in scores:
+                    all_scores[dim].append(scores[dim])
+            if scores.get("emotion"):
+                all_emotions.append(scores["emotion"])
 
     if not all_scores["intensity"]:
         return None
@@ -833,6 +1100,11 @@ def _score_book_with_deepseek(rows, ds_config, sample_n=None, book_stem=""):
     result = {}
     for dim in dims:
         result[dim] = round(statistics.mean(all_scores[dim]), 1) if all_scores[dim] else 5.0
+    # v18: 情绪维度 (取众数)
+    if all_emotions:
+        result["emotion"] = Counter(all_emotions).most_common(1)[0][0]
+    else:
+        result["emotion"] = "日常"
 
     # Cache result
     if book_stem:
@@ -1058,6 +1330,277 @@ def compute_cross_genre_competitiveness(rows, genre_pooled):
 
 
 # ══════════════════════════════════════════════════════════════
+# compute_rule_only_score — 纯规则评分 (无 LLM 依赖)
+# ══════════════════════════════════════════════════════════════
+
+def _check_known_quality(book_name):
+    """Check if book_name matches any entry in config.yaml book_filter.known_quality_list."""
+    try:
+        cfg = get_config()
+        known_list = cfg.get("analysis", {}).get("book_filter", {}).get("known_quality_list", [])
+        for qname in known_list:
+            if qname in (book_name or ""):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def compute_rule_only_score(rows, genre="末世", book_name=None):
+    """纯规则商业评分 (不含任何 LLM 调用).
+    
+    从 compute_commercial_score 中提取的规则部分，确保管线可以
+    在无 LLM 环境下独立运行。
+    
+    Returns:
+        dict with: overall, grade, signing_score, retention_score,
+        scores, risks, sub_genre, pool_n
+    """
+    total = len(rows)
+    if total < 10:
+        return {"overall": 0, "grade": "insufficient_data", "scores": {}, "risks": []}
+
+    pool = get_firebook_pool()
+    if pool["n_books"] < 3:
+        return {"overall": 0, "grade": "insufficient_pool", "scores": {}, "risks": []}
+
+    ch3 = rows[:min(3, total)]
+    ch30 = rows[:min(30, total)]
+
+    opening_hook = statistics.mean([r["hook_density"] for r in ch3])
+    opening_conflict = statistics.mean([r["conflict_density"] for r in ch3])
+    opening_intensity = statistics.mean([r["pleasure_intensity"] for r in ch3])
+
+    slap_total_30 = sum(r["slap_count"] for r in ch30)
+    slap_rate = slap_total_30 / max(len(ch30), 1)
+
+    pd_div = _compute_plot_diversity(rows)
+    shannon_div = pd_div.get("diversity_index", 0)
+
+    hook_types = Counter(r["hook_type"] for r in rows)
+    reversal_rate = hook_types.get("反转式", 0) / max(total, 1)
+    suspense_rate = hook_types.get("悬念式", 0) / max(total, 1)
+
+    pleasure_levels = Counter(r["pleasure_level"] for r in rows)
+
+    # ── v15-L1: 句法层特征 (参考 arXiv:2604.19261) ──
+    sent_lens = [r.get("avg_sentence_len", 20) for r in rows]
+    sent_std = statistics.stdev(sent_lens) if len(sent_lens) > 1 else 0
+    sent_variety_score = max(0, 100 - abs(sent_std - 15) * 4)
+
+    excl_densities = [r.get("excl_density", 0) for r in rows]
+    avg_excl = statistics.mean(excl_densities) if excl_densities else 0
+    dialogue_ratios = [r.get("dialogue_ratio", 0) for r in rows]
+    avg_dialogue = statistics.mean(dialogue_ratios) if dialogue_ratios else 0
+    narr_ratio = max(0.001, 1 - avg_excl - avg_dialogue)
+    style_props = [max(0.001, avg_excl), max(0.001, avg_dialogue), narr_ratio]
+    style_sum = sum(style_props)
+    style_entropy = -sum((p / style_sum) * math.log(p / style_sum) for p in style_props) / math.log(3) if style_sum > 0 else 0
+    syntax_diversity_score = round(style_entropy * 100)
+
+    # ── v15-L1: 情绪节奏曲线 ──
+    emotion_valences = []
+    for r in rows:
+        v = r.get("emotion_valence", "0")
+        if isinstance(v, str) and v.lstrip("-").isdigit():
+            emotion_valences.append(int(v))
+        elif isinstance(v, (int, float)):
+            emotion_valences.append(int(v))
+    if emotion_valences:
+        emotion_range = max(emotion_valences) - min(emotion_valences)
+        emotion_volatility = min(100, emotion_range * 12)
+    else:
+        emotion_volatility = 50
+    burnout_total = sum(r.get("burnout_count", 0) for r in rows)
+    burnout_rate = burnout_total / max(total, 1)
+    burnout_penalty = max(0, 1 - burnout_rate * 0.5)
+
+    # ── v15-L1: 伏笔密度 ──
+    foreshadow_total = sum(r.get("foreshadow_payoff_count", 0) for r in rows)
+    identity_total = sum(r.get("identity_reveal_count", 0) for r in rows)
+    foreshadow_rate = (foreshadow_total + identity_total) / max(total, 1)
+    foreshadow_score = min(100, foreshadow_rate * 30)
+
+    # ── v15-L2: Rank-Then-Score 评分 (BT winrate + percentile blend) ──
+    scores = {}
+    scores["前3章钩子"] = rank_then_score(opening_hook, pool, "hook_density")
+    scores["前3章冲突"] = rank_then_score(opening_conflict, pool, "conflict")
+    scores["首章爽点"] = rank_then_score(opening_intensity, pool, "intensity")
+    scores["爽点多样性"] = rank_then_score(shannon_div, pool, "diversity")
+    scores["打脸频率"] = rank_then_score(slap_rate, pool, "slap_rate")
+    scores["反转率"] = rank_then_score(reversal_rate, pool, "reversal_rate")
+    scores["悬念率"] = rank_then_score(suspense_rate, pool, "suspense_rate")
+    # v15-L1: 新增维度
+    scores["句式多样性"] = syntax_diversity_score
+    scores["句长节奏感"] = round(sent_variety_score)
+    scores["情绪张力"] = round(emotion_volatility * burnout_penalty)
+    scores["伏笔密度"] = round(foreshadow_score)
+
+    # ── v15-L1: 子类型自适应权重 ──
+    sub_genre = _detect_sub_genre(rows, book_name=book_name)
+    if sub_genre == "打脸流":
+        w_hook, w_conflict, w_intensity, w_slap = 0.30, 0.25, 0.15, 0.30
+    elif sub_genre == "智斗流":
+        w_hook, w_conflict, w_intensity, w_slap = 0.25, 0.35, 0.10, 0.30
+    elif sub_genre == "羁绊流":
+        w_hook, w_conflict, w_intensity, w_slap = 0.35, 0.20, 0.20, 0.25
+    else:
+        w_hook, w_conflict, w_intensity, w_slap = 0.35, 0.30, 0.15, 0.20
+
+    # ── 签约分 (规则版 + v15-L1自适应权重) ──
+    signing_score = round(
+        scores["前3章钩子"] * w_hook +
+        scores["前3章冲突"] * w_conflict +
+        scores["首章爽点"] * w_intensity +
+        scores["打脸频率"] * w_slap
+    )
+
+    # ── 留存分 (规则版 + v15-L1新维度) ──
+    hook_coverage = sum(1 for r in rows if r.get("hook_density", 0) > 0) / max(total, 1) * 100
+    retention_score = round(
+        min(100, hook_coverage) * 0.25 +
+        scores["首章爽点"] * 0.15 +
+        scores["爽点多样性"] * 0.15 +
+        scores["反转率"] * 0.10 +
+        scores["句式多样性"] * 0.10 +
+        scores["情绪张力"] * 0.10 +
+        scores["伏笔密度"] * 0.10 +
+        scores["句长节奏感"] * 0.05
+    )
+
+    # ── v8.8: BT ranking (rule-only: use opening_hook for pairwise) ──
+    bt_wins = 0
+    bt_comparisons = 0
+    for other_hook in pool.get("hook_density", {}).get("_sorted", []):
+        bt_comparisons += 1
+        our = max(0.1, opening_hook)
+        th = max(0.1, other_hook)
+        if our / (our + th) > 0.5:
+            bt_wins += 1
+    bt_rank = round(bt_wins / max(bt_comparisons, 1) * 100)
+    scores["BT相对排名"] = bt_rank
+
+    # ── v8.8 P-C2: WebNovelBench (rule-only: 5 independent dimensions, no bt_rank) ──
+    webnovel = {
+        "情节强度": scores["前3章冲突"],
+        "人物深度": scores["爽点多样性"],
+        "文笔风格": rank_then_score(statistics.mean([r.get("readability", 0.5) for r in rows]), pool, "readability"),
+        "情感张力": scores["首章爽点"],
+        "读者吸引力": min(100, hook_coverage),  # v8.8: hook coverage as attractiveness proxy
+    }
+    scores["WebNovelBench综合"] = round(statistics.mean(webnovel.values()))
+
+    # ── 反模板惩罚 ──
+    vocab_diversities = [r.get("vocab_diversity", 0) for r in rows if r.get("vocab_diversity", 0) > 0]
+    avg_vocab_div = statistics.mean(vocab_diversities) if vocab_diversities else 0.2
+    sub_counter = Counter(r.get("dominant_sub", "none") for r in rows)
+    total_subs = sum(sub_counter.values())
+    top2_concentration = sum(v for _, v in sub_counter.most_common(2)) / max(total_subs, 1)
+    ch_vars = [r.get("ch_variability", 0) for r in rows if r.get("ch_variability", 0) > 0]
+    avg_ch_var = statistics.mean(ch_vars) if ch_vars else 0
+
+    anti_template_penalty = 1.0
+    if avg_vocab_div < 0.18:
+        anti_template_penalty -= 0.05
+    if top2_concentration > 0.55 and opening_hook < 1.5:
+        anti_template_penalty -= 0.05
+    if avg_ch_var < 0.05 and len(rows) > 50:
+        anti_template_penalty -= 0.05
+    anti_template_penalty = max(0.70, anti_template_penalty)
+
+    # v8.8 P-C1: 5-dimension overall (was 2-dim signing+retention)
+    _is_slow_burn = (statistics.mean([r.get("dialogue_ratio", 0) for r in rows[:min(30, total)]]) > 0.40
+                     and opening_hook < 1.5)
+    if _is_slow_burn:
+        _ws, _wr = 0.25, 0.30
+    else:
+        _ws, _wr = 0.30, 0.25
+    _wrest = 1.0 - _ws - _wr
+    _wd = _wrest / 3.0
+    overall = round((signing_score * _ws + retention_score * _wr +
+                     scores["爽点多样性"] * _wd + scores["BT相对排名"] * _wd +
+                     scores["WebNovelBench综合"] * _wd) * anti_template_penalty)
+
+    # ── v14→v8.9: Bayesian软保底 (替代硬保底60分) ──
+    known_quality = _check_known_quality(book_name)
+    if known_quality and overall < 60:
+        overall = round(overall * 0.75 + 60 * 0.25)
+
+    # ── v15-L2: Bootstrap 95% CI (纯规则版) ──
+    import random as _random
+    _random.seed(42)
+    score_vals = list(scores.values())
+    boot_means = []
+    for _ in range(500):
+        samp = [_random.choice(score_vals) for __ in range(len(score_vals))]
+        boot_means.append(statistics.mean(samp) if samp else 50)
+    boot_means.sort()
+    bs_low, bs_high = boot_means[12], boot_means[487]
+    bs_width = bs_high - bs_low
+
+    # ── v15-L2: 零方差维度检测 ──
+    zero_var_dims = [k for k, v in scores.items() if v == 50 and pool.get(k.replace("前3章", "").replace("率", "_rate"), {}).get("_sorted", [1]) == [50]]
+
+    # ── v8.8: 权重敏感性分析 (5-dim) ──
+    alt_scores = []
+    _dv = scores["爽点多样性"]
+    _bv = scores["BT相对排名"]
+    _wv = scores["WebNovelBench综合"]
+    for _ws2 in [0.25, 0.30, 0.35]:
+        for _wr2 in [0.20, 0.25, 0.30]:
+            _wrest2 = 1.0 - _ws2 - _wr2
+            if _wrest2 < 0.30 or _wrest2 > 0.55:
+                continue
+            _wd2 = _wrest2 / 3.0
+            alt_scores.append(round(signing_score * _ws2 + retention_score * _wr2 +
+                                    _dv * _wd2 + _bv * _wd2 + _wv * _wd2))
+    ws_lo = min(alt_scores) if alt_scores else overall
+    ws_hi = max(alt_scores) if alt_scores else overall
+
+    # ── 评级 ──
+    grade = _grade(overall)
+    grade_stable = sum(1 for s in alt_scores if _grade(s) == grade) / max(len(alt_scores), 1)
+    grade_range = f"{grade} [{ws_lo}-{ws_hi}]" if ws_hi - ws_lo >= 10 else grade
+    decision, recommendation, decision_color = _decision(overall)
+
+    # ── 弃书风险 ──
+    risks = []
+    for i in range(len(rows) - 1):
+        r = rows[i]
+        if i > 0 and r["hook_density"] == 0 and rows[i - 1]["hook_density"] == 0:
+            risks.append({"ch": r["ch_num"], "reason": "连续2章零钩子", "fire_rate": "12-18%"})
+        if r.get("ch_variability", 0) > 0.15:
+            risks.append({"ch": r["ch_num"], "reason": "节奏突变", "fire_rate": "15-20%"})
+    for i in range(len(rows) - 3):
+        if all(rows[i + j]["conflict_density"] < 0.1 for j in range(3)):
+            risks.append({"ch": rows[i + 2]["ch_num"], "reason": "冲突断崖(连续3章<0.1)", "fire_rate": "20-30%"})
+            break
+
+    return {
+        "overall": overall,
+        "grade": grade,
+        "grade_range": grade_range,
+        "decision": decision,
+        "recommendation": recommendation,
+        "decision_color": decision_color,
+        "llm_source": "rule",
+        "signing_score": signing_score,
+        "retention_score": retention_score,
+        "scores": scores,
+        "risks": risks[:10],
+        "pool_n": pool["n_books"],
+        "sub_genre": sub_genre,
+        "anti_template_penalty": round(anti_template_penalty, 2),
+        "slow_burn": (statistics.mean([r.get("dialogue_ratio", 0) for r in rows[:min(30, total)]]) > 0.40
+                      and opening_hook < 1.5),
+        "known_quality": known_quality,
+        "bootstrap_ci": {"low": bs_low, "high": bs_high, "width": bs_width},
+        "grade_stability": round(grade_stable * 100),
+        "zero_var_dims": zero_var_dims,
+    }
+
+
+# ══════════════════════════════════════════════════════════════
 # compute_commercial_score — 商业可行性评分 v12
 # ══════════════════════════════════════════════════════════════
 
@@ -1080,7 +1623,6 @@ def compute_commercial_score(rows, genre="末世", book_name=None):
     opening_intensity = statistics.mean([r["pleasure_intensity"] for r in ch3])
     opening_pos_density = statistics.mean([r["pos_density"] for r in ch3])  # v8: best rule feature (r=0.445)
 
-    zero_hook_streak = _max_streak([r["hook_density"] for r in ch30], lambda x: x == 0)
     slap_total_30 = sum(r["slap_count"] for r in ch30)
     slap_rate = slap_total_30 / max(len(ch30), 1)
 
@@ -1092,7 +1634,6 @@ def compute_commercial_score(rows, genre="末世", book_name=None):
     suspense_rate = hook_types.get("悬念式", 0) / max(total, 1)
 
     pleasure_levels = Counter(r["pleasure_level"] for r in rows)
-    large_rate = pleasure_levels.get("large", 0) / max(total, 1)
 
     # -- P0-3: Read annotation reliability -> adjust weights for low-F1 metrics --
     rel_path = PROJECT_ROOT / "data" / "processed" / genre / "quality" / "annotation_reliability.json"
@@ -1122,7 +1663,7 @@ def compute_commercial_score(rows, genre="末世", book_name=None):
     llm_source = "rule"
     ds_data = None
     if ds_config and book_stem:
-        ds_data = _score_book_with_deepseek(rows, ds_config, book_stem=book_stem)
+        ds_data = _score_book_with_deepseek(rows, ds_config, book_stem=book_stem, genre=genre)
         if ds_data:
             llm_source = "deepseek"
 
@@ -1154,15 +1695,15 @@ def compute_commercial_score(rows, genre="末世", book_name=None):
     else:
         # Compute LLM averages (v7.5: fallback to rule-based weighted mean, not fixed 5.0/6.0)
         llm_avg_intensity = opening_intensity
-    # retention fallback: weighted mean of hook + conflict + pleasure (rule-based signals)
-    rule_retention_est = (opening_hook * 3 + opening_conflict * 3 + opening_pos_density * 2) / 8 * 10
-    llm_avg_retention = statistics.mean(llm_data["retention"]) if llm_data["retention"] else min(10, max(1, round(rule_retention_est, 1)))
-    llm_avg_hook = statistics.mean(llm_data["hook"]) if llm_data["hook"] else (opening_hook * 10)
-    # pace fallback: based on para_len (fast=7, medium=5, slow=3)
-    avg_para_len = statistics.mean([r.get("avg_para_len", 80) for r in rows[:min(30, total)]])
-    rule_pace = 7 if avg_para_len < 60 else (5 if avg_para_len < 200 else 3)
-    llm_avg_pace = statistics.mean(llm_data["pace"]) if llm_data["pace"] else rule_pace
-    llm_avg_conflict = statistics.mean(llm_data["conflict"]) if llm_data["conflict"] else (opening_conflict * 10)
+        # retention fallback: weighted mean of hook + conflict + pleasure (rule-based signals)
+        rule_retention_est = (opening_hook * 3 + opening_conflict * 3 + opening_pos_density * 2) / 8 * 10
+        llm_avg_retention = min(10, max(1, round(rule_retention_est, 1)))
+        llm_avg_hook = opening_hook * 10
+        # pace fallback: based on para_len (fast=7, medium=5, slow=3)
+        avg_para_len = statistics.mean([r.get("avg_para_len", 80) for r in rows[:min(30, total)]])
+        rule_pace = 7 if avg_para_len < 60 else (5 if avg_para_len < 200 else 3)
+        llm_avg_pace = rule_pace
+        llm_avg_conflict = opening_conflict * 10
     # Opening-specific LLM scores (first 3 chapters)
     llm_opening_int = llm_data["intensity"][:3] if len(llm_data["intensity"]) >= 3 else llm_data["intensity"]
     llm_opening_hook = llm_data["hook"][:3] if len(llm_data["hook"]) >= 3 else llm_data["hook"]
@@ -1172,8 +1713,7 @@ def compute_commercial_score(rows, genre="末世", book_name=None):
     llm_opening_retention = statistics.mean(llm_opening_ret) if llm_opening_ret else llm_avg_retention
 
     # -- v7.5: DeepSeek independent scoring (self-eval bias mitigation) --
-    ds_config = _load_deepseek_config()
-    ds_data = _score_book_with_deepseek(rows, ds_config) if ds_config else None
+    # Note: ds_data already loaded above (line ~1286), no need to call API twice
     # Paywall hook: LLM retention at ~20% mark (free chapter boundary)
     paywall_idx = max(0, min(len(llm_data["retention"]) - 1, len(llm_data["retention"]) // 5))
     llm_paywall_ret = llm_data["retention"][paywall_idx] if llm_data["retention"] else 5.0
@@ -1188,32 +1728,79 @@ def compute_commercial_score(rows, genre="末世", book_name=None):
     # v12: LLM-DOMINANT SCORING
     # ══════════════════════════════════════════════════════════════
 
+    # ── v15-L1: 句法层 + 情绪 + 伏笔 (与规则路径同步) ──
+    sent_lens = [r.get("avg_sentence_len", 20) for r in rows]
+    sent_std = statistics.stdev(sent_lens) if len(sent_lens) > 1 else 0
+    sent_variety_score = max(0, 100 - abs(sent_std - 15) * 4)
+    excl_densities = [r.get("excl_density", 0) for r in rows]
+    avg_excl = statistics.mean(excl_densities) if excl_densities else 0
+    dialogue_ratios = [r.get("dialogue_ratio", 0) for r in rows]
+    avg_dialogue = statistics.mean(dialogue_ratios) if dialogue_ratios else 0
+    narr_ratio = max(0.001, 1 - avg_excl - avg_dialogue)
+    style_props = [max(0.001, avg_excl), max(0.001, avg_dialogue), narr_ratio]
+    style_sum = sum(style_props)
+    style_entropy = -sum((p / style_sum) * math.log(p / style_sum) for p in style_props) / math.log(3) if style_sum > 0 else 0
+    syntax_diversity_score = round(style_entropy * 100)
+    emotion_valences = []
+    for r in rows:
+        v = r.get("emotion_valence", "0")
+        if isinstance(v, str) and v.lstrip("-").isdigit():
+            emotion_valences.append(int(v))
+        elif isinstance(v, (int, float)):
+            emotion_valences.append(int(v))
+    if emotion_valences:
+        emotion_range = max(emotion_valences) - min(emotion_valences)
+        emotion_volatility = min(100, emotion_range * 12)
+    else:
+        emotion_volatility = 50
+    burnout_total = sum(r.get("burnout_count", 0) for r in rows)
+    burnout_rate = burnout_total / max(total, 1)
+    burnout_penalty = max(0, 1 - burnout_rate * 0.5)
+    foreshadow_total = sum(r.get("foreshadow_payoff_count", 0) for r in rows)
+    identity_total = sum(r.get("identity_reveal_count", 0) for r in rows)
+    foreshadow_rate = (foreshadow_total + identity_total) / max(total, 1)
+    foreshadow_score = min(100, foreshadow_rate * 30)
+
+    # -- v15-L2: Rank-Then-Score (BT winrate + percentile blend) --
     # -- Score 1: 签约概率 (Signing Probability) --
-    signing_intensity = percentile_score(llm_opening_intensity, pool, "intensity")
-    signing_hook = percentile_score(llm_opening_hook_val, pool, "hook_density")
-    signing_paywall = percentile_score(llm_paywall_ret, pool, "retention")
-    rule_conflict_pct = percentile_score(opening_conflict, pool, "conflict")
+    signing_intensity = rank_then_score(llm_opening_intensity, pool, "intensity")
+    signing_hook = rank_then_score(llm_opening_hook_val, pool, "hook_density")
+    signing_paywall = rank_then_score(llm_paywall_ret, pool, "retention")
+    rule_conflict_pct = rank_then_score(opening_conflict, pool, "conflict")
+
+    # -- v15-L1: 子类型自适应权重 --
+    if sub_genre == "打脸流":
+        w_int, w_hook, w_paywall, w_conflict = 0.30, 0.25, 0.15, 0.30
+    elif sub_genre == "智斗流":
+        w_int, w_hook, w_paywall, w_conflict = 0.25, 0.35, 0.10, 0.30
+    elif sub_genre == "羁绊流":
+        w_int, w_hook, w_paywall, w_conflict = 0.35, 0.20, 0.20, 0.25
+    else:
+        w_int, w_hook, w_paywall, w_conflict = 0.35, 0.30, 0.10, 0.25
     signing_score = round(
-        signing_intensity * 0.35 +
-        signing_hook * 0.30 +
-        signing_paywall * 0.10 +
-        rule_conflict_pct * 0.25
+        signing_intensity * w_int +
+        signing_hook * w_hook +
+        signing_paywall * w_paywall +
+        rule_conflict_pct * w_conflict
     )
 
-    # -- Score 2: 留存预测 (Retention Prediction) --
-    retention_llm = percentile_score(llm_avg_retention, pool, "retention")
-    intensity_llm = percentile_score(llm_avg_intensity, pool, "intensity")
+    # -- Score 2: 留存预测 (Retention Prediction + v15-L1新维度) --
+    retention_llm = rank_then_score(llm_avg_retention, pool, "retention")
+    intensity_llm = rank_then_score(llm_avg_intensity, pool, "intensity")
     pace_vals = llm_data["pace"] if llm_data["pace"] else [6.0]
     pace_std = statistics.stdev(pace_vals) if len(pace_vals) > 1 else 0
     pace_consistency = max(0, 100 - pace_std * 15)
-    retention_pace = percentile_score(pace_consistency, pool, "hook_density")
     hook_coverage = sum(1 for r in rows if r.get("hook_density", 0) > 0) / max(total, 1) * 100
-    retention_rule = percentile_score(hook_coverage, pool, "hook_density")
+    retention_rule = min(100, hook_coverage)
     retention_score = round(
-        retention_llm * 0.40 +
-        intensity_llm * 0.25 +
-        retention_pace * 0.20 +
-        retention_rule * 0.15
+        retention_llm * 0.25 +
+        intensity_llm * 0.15 +
+        pace_consistency * 0.10 +
+        retention_rule * 0.15 +
+        syntax_diversity_score * 0.10 +
+        round(emotion_volatility * burnout_penalty) * 0.10 +
+        round(foreshadow_score) * 0.10 +
+        round(sent_variety_score) * 0.05
     )
 
     # -- Backward-compatible sub-scores (for Borda ranking dims) --
@@ -1221,43 +1808,57 @@ def compute_commercial_score(rows, genre="末世", book_name=None):
     scores["前3章冲突"] = rule_conflict_pct
     scores["首章爽点"] = signing_intensity
     scores["读者留存力"] = retention_llm
-    scores["爽点多样性"] = percentile_score(shannon_div, pool, "diversity")
+    scores["爽点多样性"] = rank_then_score(shannon_div, pool, "diversity")
     scores["付费转化钩子"] = signing_paywall
-    # BT ranking
+    # v15-L1: 新增维度
+    scores["句式多样性"] = syntax_diversity_score
+    scores["句长节奏感"] = round(sent_variety_score)
+    scores["情绪张力"] = round(emotion_volatility * burnout_penalty)
+    scores["伏笔密度"] = round(foreshadow_score)
+    # BT ranking — v8.8 fix: use opening_hook (rule-based, same scale as pool)
+    # Old code used llm_opening_hook_val/10 (0-1 range) vs pool hook_density (0-4 range),
+    # causing scale mismatch that artificially deflated bt_rank for LLM-scored books
     bt_wins = 0
     bt_comparisons = 0
-    if pool.get("_sorted"):
-        for other_hook in pool["_sorted"].get("hook_density", []):
-            bt_comparisons += 1
-            our = max(0.1, llm_opening_hook_val / 10.0)
-            th = max(0.1, other_hook)
-            if our / (our + th) > 0.5:
-                bt_wins += 1
+    for other_hook in pool.get("hook_density", {}).get("_sorted", []):
+        bt_comparisons += 1
+        our = max(0.1, opening_hook)
+        th = max(0.1, other_hook)
+        if our / (our + th) > 0.5:
+            bt_wins += 1
     bt_rank = round(bt_wins / max(bt_comparisons, 1) * 100)
     scores["BT相对排名"] = bt_rank
-    # WebNovelBench (simplified -- LLM-based)
+    # v8.8 P-C2: WebNovelBench — 5 independent dimensions (bt_rank removed to fix redundancy)
+    # 读者吸引力 changed from bt_rank to retention_llm (independent signal, no circular counting)
     webnovel = {
         "情节强度": rule_conflict_pct,
-        "人物深度": percentile_score(shannon_div * 10, pool, "diversity"),
-        "文笔风格": percentile_score(statistics.mean([r.get("readability", 0.5) for r in rows]) * 100, pool, "readability"),
+        "人物深度": rank_then_score(shannon_div, pool, "diversity"),
+        "文笔风格": rank_then_score(statistics.mean([r.get("readability", 0.5) for r in rows]), pool, "readability"),
         "情感张力": signing_intensity,
-        "读者吸引力": bt_rank,
+        "读者吸引力": retention_llm,  # v8.8: was bt_rank (caused circular counting with bt_rank dim)
     }
     scores["WebNovelBench综合"] = round(statistics.mean(webnovel.values()))
 
-    # -- v7.5: Adaptive signing/retention weights --
+    # -- v8.8 P-C1: 5-dimension overall (was 2-dim signing+retention) --
+    # signing 0.30 + retention 0.25 + diversity 0.15 + bt_rank 0.15 + webnovel8 0.15 = 1.00
+    # slow_burn: shift 5% from signing to retention (0.25/0.30)
     avg_dialogue = statistics.mean([r.get("dialogue_ratio", 0) for r in rows[:min(30, total)]])
     vd_vals = [r.get("vocab_diversity", 0) for r in rows if r.get("vocab_diversity", 0) > 0]
     avg_vd_all = statistics.mean(vd_vals) if vd_vals else 0.2
     is_slow_burn = (avg_dialogue > 0.40) and (opening_hook < 1.5) and (avg_vd_all > 0.20)
     if is_slow_burn:
-        w_sign, w_retain = 0.40, 0.60
+        w_sign, w_retain, w_div, w_bt, w_wn = 0.25, 0.30, 0.15, 0.15, 0.15
     else:
-        w_sign, w_retain = 0.50, 0.50
+        w_sign, w_retain, w_div, w_bt, w_wn = 0.30, 0.25, 0.15, 0.15, 0.15
     sign = signing_score
     retain_old = retention_score
-    bonus = retention_score
-    overall = round(signing_score * w_sign + retention_score * w_retain)
+    overall = round(
+        signing_score * w_sign +
+        retention_score * w_retain +
+        scores["爽点多样性"] * w_div +
+        bt_rank * w_bt +
+        scores["WebNovelBench综合"] * w_wn
+    )
 
     # -- v13: Anti-template penalty --
     vocab_diversities = [r.get("vocab_diversity", 0) for r in rows if r.get("vocab_diversity", 0) > 0]
@@ -1271,15 +1872,25 @@ def compute_commercial_score(rows, genre="末世", book_name=None):
     avg_ch_var = statistics.mean(ch_vars) if ch_vars else 0
 
     anti_template_penalty = 1.0
-    if avg_vocab_div < 0.18 and overall < 85:
+    if avg_vocab_div < 0.18:
         anti_template_penalty -= 0.05
     if top2_concentration > 0.55 and opening_hook < 1.5 and not is_slow_burn:
         anti_template_penalty -= 0.05
-    if avg_ch_var < 0.1 and len(rows) > 50:
+    if avg_ch_var < 0.05 and len(rows) > 50:
         anti_template_penalty -= 0.05
     anti_template_penalty = max(0.70, anti_template_penalty)
 
     overall_raw = round(overall * anti_template_penalty)
+
+    # ── v15-L2: 零方差维度检测 (与规则路径同步) ──
+    zero_var_dims = []
+    for k, v in scores.items():
+        if v == 50:
+            metric_key = k.replace("前3章", "").replace("率", "_rate")
+            p_data = pool.get(metric_key, {})
+            sorted_vals = p_data.get("_sorted", [])
+            if sorted_vals and len(set(sorted_vals)) <= 1:
+                zero_var_dims.append(k)
 
     # -- v7.5: OLS linear regression calibration --
     calib_enabled = scoring_cfg.get("calibration_enabled", False)
@@ -1288,29 +1899,39 @@ def compute_commercial_score(rows, genre="末世", book_name=None):
     else:
         overall = overall_raw
 
-    zero_var_dims = []
-    gw = {"sign": 0.5, "retain": 0.5, "bonus": 0.0}
-
-    # -- Bootstrap 95% CI --
+    # ── v14→v8.9: Bayesian软保底 (替代硬保底60分) ──
+    # 旧逻辑: if known_quality and overall < 60: overall = 60  (所有书都变60, 零区分度)
+    # 新逻辑: Bayesian shrinkage — overall = overall * 0.75 + prior * 0.25
+    # 效果: 保底但不抹平差异, 45分→49.875, 55分→56.25, 30分→36.0
+    known_quality = _check_known_quality(book_name)
+    if known_quality and overall < 60:
+        prior = 60  # B级先验
+        shrinkage = 0.75  # 75%数据 + 25%先验
+        overall = round(overall * shrinkage + prior * (1 - shrinkage))
+    # -- Bootstrap 95% CI (v15: 统一500次与规则路径一致) --
     import random as _random
     _random.seed(42)
     score_vals = list(scores.values())
     boot_means = []
-    for _ in range(1000):
+    for _ in range(500):
         samp = [_random.choice(score_vals) for __ in range(len(score_vals))]
         boot_means.append(statistics.mean(samp) if samp else 50)
     boot_means.sort()
-    bs_low, bs_high = boot_means[25], boot_means[974]
+    bs_low, bs_high = boot_means[12], boot_means[487]
     bs_width = bs_high - bs_low
 
-    # -- v4: 权重敏感性分析 (Weight Sensitivity) --
+    # -- v8.8: 权重敏感性分析 (5-dim weight sensitivity) --
     alt_scores = []
-    for w_sign in [0.40, 0.45, 0.50, 0.55, 0.60]:
-        for w_retain in [0.20, 0.25, 0.30, 0.35, 0.40]:
-            w_bonus = 1.0 - w_sign - w_retain
-            if w_bonus < 0.05 or w_bonus > 0.35:
+    _div_val = scores["爽点多样性"]
+    _bt_val = bt_rank
+    _wn_val = scores["WebNovelBench综合"]
+    for _ws in [0.25, 0.30, 0.35]:
+        for _wr in [0.20, 0.25, 0.30]:
+            _wrest = 1.0 - _ws - _wr
+            if _wrest < 0.30 or _wrest > 0.55:
                 continue
-            alt_scores.append(round(sign * w_sign + retain_old * w_retain + bonus * w_bonus))
+            _wd = _wrest / 3.0
+            alt_scores.append(round(sign * _ws + retain_old * _wr + _div_val * _wd + _bt_val * _wd + _wn_val * _wd))
     ws_lo = min(alt_scores) if alt_scores else overall
     ws_hi = max(alt_scores) if alt_scores else overall
     grade_stable = sum(1 for s in alt_scores if _grade(s) == _grade(overall)) / max(len(alt_scores), 1)
@@ -1325,32 +1946,41 @@ def compute_commercial_score(rows, genre="末世", book_name=None):
         r = rows[i]
         if i > 0 and r["hook_density"] == 0 and rows[i - 1]["hook_density"] == 0:
             risks.append({"ch": r["ch_num"], "reason": "连续2章零钩子", "fire_rate": "12-18%"})
-        if r["ch_variability"] > 50:
+        if r["ch_variability"] > 0.15:
             risks.append({"ch": r["ch_num"], "reason": "节奏突变", "fire_rate": "15-20%"})
     for i in range(len(rows) - 3):
         if all(rows[i + j]["conflict_density"] < 0.1 for j in range(3)):
             risks.append({"ch": rows[i + 2]["ch_num"], "reason": "冲突断崖(连续3章<0.1)", "fire_rate": "20-30%"})
             break
 
-    # -- v7.5: DeepSeek vs Qwen comparison --
+    # -- v7.5: DeepSeek vs Qwen comparison (v15: 同步自适应权重+新8项留存公式) --
     ds_score = None
     self_eval_bias = None
     if ds_data and ds_config:
         ds_signing = round(
-            ds_data["intensity"] / 10 * 100 * 0.35 +
-            ds_data["hook"] / 10 * 100 * 0.30 +
-            ds_data["retention"] / 10 * 100 * 0.10 +
-            rule_conflict_pct * 0.25
+            ds_data["intensity"] / 10 * 100 * w_int +
+            ds_data["hook"] / 10 * 100 * w_hook +
+            ds_data["retention"] / 10 * 100 * w_paywall +
+            rule_conflict_pct * w_conflict
         )
         char_prose_bonus = (ds_data.get("character", 5.0) + ds_data.get("prose", 5.0)) / 20 * 10
         ds_retention = round(
-            ds_data["retention"] / 10 * 100 * 0.40 +
-            ds_data["intensity"] / 10 * 100 * 0.25 +
-            (100 - ds_data["pace"] * 10) * 0.20 +
+            ds_data["retention"] / 10 * 100 * 0.25 +
+            ds_data["intensity"] / 10 * 100 * 0.15 +
+            (100 - ds_data["pace"] * 10) * 0.10 +
             retention_rule * 0.15 +
-            char_prose_bonus * 0.05
+            syntax_diversity_score * 0.10 +
+            round(emotion_volatility * burnout_penalty) * 0.10 +
+            round(foreshadow_score) * 0.10 +
+            round(sent_variety_score) * 0.05
         )
-        ds_overall = round((ds_signing * 0.5 + ds_retention * 0.5) * anti_template_penalty)
+        # v8.8: DS overall uses same 5-dim formula (bt/webnovel8 from rule path, shared)
+        ds_overall = round((ds_signing * w_sign + ds_retention * w_retain +
+                            scores["爽点多样性"] * w_div + bt_rank * w_bt +
+                            scores["WebNovelBench综合"] * w_wn) * anti_template_penalty)
+        # v8.9: Bayesian软保底 for DS score too
+        if known_quality and ds_overall < 60:
+            ds_overall = round(ds_overall * 0.75 + 60 * 0.25)
         ds_score = {
             "overall": ds_overall,
             "signing": ds_signing, "retention": ds_retention,
@@ -1385,6 +2015,7 @@ def compute_commercial_score(rows, genre="末世", book_name=None):
         "llm_source": llm_source,
         "calibrated": calib_enabled,
         "slow_burn": is_slow_burn,
+        "known_quality": known_quality,
         "literary_bonus": 0,
         "grade_range": grade_range,
         "scores": scores, "risks": risks[:10],
@@ -1461,7 +2092,14 @@ def analyze_single_novel(name, csv_name, genre="末世"):
     result["tags"] = compute_tags(rows)
 
     # Commercial viability
-    result["commercial"] = compute_commercial_score(rows, genre, book_name=name)
+    # v15: 自动路由 — 有 LLM 分数时走 compute_commercial_score，否则走 compute_rule_only_score
+    llm_ch = _load_all_llm_scores()
+    book_stem = _find_book_stem(rows, llm_ch)
+    has_llm = bool(book_stem and llm_ch)
+    if has_llm:
+        result["commercial"] = compute_commercial_score(rows, genre, book_name=name)
+    else:
+        result["commercial"] = compute_rule_only_score(rows, genre, book_name=name)
 
     # Diversity + arc
     result["plot_diversity"] = _compute_plot_diversity(rows)

@@ -56,8 +56,24 @@ def rhythm_dir(genre: str) -> Path:
 
 
 def llm_score_dir(genre: str) -> Path:
-    """LLM 评分输出目录: data/processed/{genre}/scores/"""
+    """LLM/AI 评分输出目录: data/processed/{genre}/scores/
+
+    包含:
+    - {book}_llm.csv: 本地 Qwen LLM 评分
+    - {book}_ai.csv:  AI (CatPaw) 评分
+    - human_golden.csv: 人工标注 Golden Set (富 CSV)
+    - golden_set.json: 校准用 Golden Set (精简 JSON)
+    """
     return PROJECT_ROOT / "data" / "processed" / genre / "scores"
+
+
+def golden_set_path(genre: str = "末世") -> Path:
+    """Golden Set JSON 路径 (校准用): data/processed/{genre}/scores/golden_set.json
+
+    v8.7: 从 chapter_decisions/ 迁移到 scores/，与评分数据同目录。
+    被 llm_batch_score.py 的 apply_golden_set_calibration() 使用。
+    """
+    return llm_score_dir(genre) / "golden_set.json"
 
 
 def summaries_dir(genre: str) -> Path:

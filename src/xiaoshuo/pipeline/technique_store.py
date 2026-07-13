@@ -23,6 +23,7 @@ LLM Wiki 的"编译"思想 -- 自动化增量编译，不手工维护。
 """
 import json
 import re
+import statistics
 from pathlib import Path
 from collections import Counter
 
@@ -30,6 +31,7 @@ from xiaoshuo import PROJECT_ROOT
 
 # ── 常量 ──
 CARD_CATEGORIES = ["hook", "conflict", "pleasure", "character", "pace", "style", "structure", "risk"]
+CARD_TYPES = ["do", "dont"]  # v8.6: 正例(do) + 反例(dont) 双轨
 POSITION_LABELS = ["opening", "early", "mid", "late", "ending"]
 POSITION_RANGES = {
     "opening": (1, 10),
@@ -327,8 +329,10 @@ def _adjacent_positions(pos1, pos2):
         return False
 
 
-def retrieve_cards(genre, context, top_k=5):
+def retrieve_cards(genre, context, top_k=5, card_type=None):
     """Retrieve most relevant technique cards for a chapter context.
+    
+    v8.6: Supports do/don't dual-track retrieval.
     
     Args:
         genre: genre name (e.g. "末世")
@@ -337,6 +341,7 @@ def retrieve_cards(genre, context, top_k=5):
             total_chapters: total chapters in book
             keywords: list of keywords for matching
         top_k: max cards to return
+        card_type: filter by card_type ('do', 'dont', or None for both)
     
     Returns:
         list of card dicts, sorted by relevance (most relevant first)
@@ -344,6 +349,10 @@ def retrieve_cards(genre, context, top_k=5):
     cards = load_cards(genre)
     if not cards:
         return []
+
+    # v8.6: Filter by card_type if specified
+    if card_type:
+        cards = [c for c in cards if c.get("card_type", "do") == card_type]
 
     # Auto-extract keywords from context if not provided
     if not context.get("keywords"):
@@ -372,23 +381,217 @@ def _auto_keywords(context):
 
 
 def format_cards_for_prompt(cards):
-    """Format retrieved cards into a prompt-ready string."""
+    """Format retrieved cards into a prompt-ready string.
+    v8.6: Separates do/don't cards into distinct sections."""
     if not cards:
         return ""
-    lines = ["## 技法参考 (自动检索)"]
-    for i, c in enumerate(cards, 1):
-        lines.append(f"{i}. **{c['title']}**: {c['content']}")
+    
+    do_cards = [c for c in cards if c.get("card_type", "do") == "do"]
+    dont_cards = [c for c in cards if c.get("card_type", "do") == "dont"]
+    
+    lines = []
+    
+    if do_cards:
+        lines.append("## ✅ 精品技法参考 (Do — 向标杆学习)")
+        for i, c in enumerate(do_cards, 1):
+            lines.append(f"{i}. **{c['title']}**: {c['content']}")
+    
+    if dont_cards:
+        if do_cards:
+            lines.append("")
+        lines.append("## ⚠️ 反面教材避坑 (Don't — 避免重蹈覆辙)")
+        for i, c in enumerate(dont_cards, 1):
+            lines.append(f"{i}. **{c['title']}**: {c['content']}")
+    
     return "\n".join(lines)
 
 
 # ── 管线入口（供 analyze_all 调用） ──
 
+# ── v8.6: 反模式提取 (Anti-pattern Extraction) ──
+# 理论依据: DPO (Rafailov et al. 2023) — C级=rejected
+#          Learning from negative examples (Google Scholar)
+# 从C级反例池(垃圾书)提取反模式卡片, 与正例(do)形成对比
+
+def extract_anti_patterns(genre="末世"):
+    """Extract anti-pattern cards from C-tier books by comparing
+    their rhythm metrics against S/A-tier benchmarks.
+
+    v8.7: 蹉跎和黑暗末日现在有节奏数据(trash_analysis.json),
+    可以提取真正的C级反模式, 不再需要用B级垫底书替代。
+
+    Returns list of anti-pattern card dicts with card_type='dont'.
+    """
+    anti_cards = []
+
+    # Load borda ranking for tier info
+    borda_json = _report_dir(genre) / "synthesis" / f"{genre}_borda_ranking.json"
+    if not borda_json.exists():
+        return anti_cards
+
+    try:
+        borda_data = json.loads(borda_json.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, IOError):
+        return anti_cards
+
+    # Load trash analysis for rhythm metrics
+    trash_json = PROJECT_ROOT / "scripts" / "trash_analysis.json"
+    if not trash_json.exists():
+        return anti_cards
+
+    try:
+        trash_data = json.loads(trash_json.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, IOError):
+        return anti_cards
+
+    # Build S/A tier benchmark (P25 of S+A books)
+    tier_cfg = _load_tier_config()
+    s_a_books = set(tier_cfg.get("S", {}).get("books", []) + tier_cfg.get("A", {}).get("books", []))
+    c_books = set(tier_cfg.get("C", {}).get("books", []))
+
+    # Collect S/A tier metrics
+    s_a_metrics = {"hook3": [], "conflict3": [], "pleasure3": [], "hook_all": [], "pleasure_all": []}
+    c_metrics = {"hook3": [], "conflict3": [], "pleasure3": [], "hook_all": [], "pleasure_all": []}
+
+    for entry in trash_data:
+        name = entry.get("name", "")
+        is_s_a = any(b in name for b in s_a_books)
+        is_c = any(b in name for b in c_books)
+
+        for key in s_a_metrics:
+            val = entry.get(key)
+            if val is not None:
+                if is_s_a:
+                    s_a_metrics[key].append(val)
+                elif is_c:
+                    c_metrics[key].append(val)
+
+    # v8.7: 蹉跎/黑暗末日现在在C级且有节奏数据, 优先用真实C级数据
+    # 如果C级书无节奏数据(末世之三宫六院/末世精灵皇), 回退到borda垫底5本
+    c_metrics_from_real_c = bool(c_metrics["hook3"])  # v8.7: 是否有真实C级数据
+    if not c_metrics["hook3"]:
+        bottom_n = min(5, len(borda_data))
+        bottom_books = borda_data[-bottom_n:] if bottom_n > 0 else []
+        bottom_names = set()
+        for e in bottom_books:
+            bn = e.get("book_name", "")
+            # Extract short name from full book name (remove 《》, author, etc.)
+            short = re.sub(r'[《》（】]+', '', bn).split('作者')[0].split('_')[0][:15]
+            bottom_names.add(short)
+            bottom_names.add(bn[:20])  # Also try full prefix
+        
+        for entry in trash_data:
+            name = entry.get("name", "")
+            if any(bn in name for bn in bottom_names):
+                for key in c_metrics:
+                    val = entry.get(key)
+                    if val is not None:
+                        c_metrics[key].append(val)
+
+    if not s_a_metrics["hook3"] or not c_metrics["hook3"]:
+        # Fall through to borda-based anti-patterns
+        pass
+    else:
+        # Compute metric-based anti-patterns
+        for metric_name in ["hook3", "conflict3", "pleasure3", "hook_all", "pleasure_all"]:
+            s_a_vals = s_a_metrics[metric_name]
+            c_vals = c_metrics[metric_name]
+            if not s_a_vals or not c_vals:
+                continue
+
+            s_a_p25 = sorted(s_a_vals)[max(0, len(s_a_vals) // 4)]  # P25 of S/A
+            c_mean = statistics.mean(c_vals)
+
+            # v8.7: 使用真实C级数据时阈值更严格(0.70), 因为是真正的反例
+            # 回退到B级垫底时用0.85(相对弱点, 非真正反例)
+            threshold = 0.70 if c_metrics_from_real_c else 0.85
+            if c_mean < s_a_p25 * threshold:
+                ratio = c_mean / max(s_a_p25, 0.01)
+                metric_labels = {
+                    "hook3": ("开篇钩子密度", "开篇3章钩子密度不足, 读者流失风险极高"),
+                    "conflict3": ("开篇冲突密度", "开篇3章冲突不足, 缺乏吸引力"),
+                    "pleasure3": ("开篇爽点强度", "开篇3章爽点匮乏, 无法抓住读者"),
+                    "hook_all": ("全书钩子密度", "全书钩子密度过低, 节奏拖沓"),
+                    "pleasure_all": ("全书爽点强度", "全书爽点不足, 读者体验差"),
+                }
+                label, desc = metric_labels.get(metric_name, (metric_name, ""))
+                anti_cards.append({
+                    "id": f"{genre}_dont_{metric_name}",
+                    "card_type": "dont",
+                    "category": "risk",
+                    "title": f"避坑: {label}过低",
+                    "content": f"反例书{label}均值 {c_mean:.2f}, 仅为精品P25({s_a_p25:.2f})的{ratio:.0%}。{desc}。"
+                               f"这是C级反例书的典型特征, 创作时必须避免。",
+                    "keywords": [label, "反例", "避坑", metric_name, "C级"],
+                    "chapter_position": "opening" if "3" in metric_name else "any",
+                    "source": "anti_pattern_extraction",
+                    "severity": "rule",
+                })
+
+    # Add anti-pattern from bottom-ranked books in borda (C-tier or B-tier bottom)
+    # Use bottom 5 borda books as anti-pattern references
+    bottom_n = min(5, len(borda_data))
+    for entry in borda_data[-bottom_n:] if bottom_n > 0 else []:
+        book_name = entry.get("book_name", "")
+        is_c = any(c in book_name for c in c_books)
+        tier_label = "C级反例" if is_c else "B级垫底"
+        
+        dim_ranks = entry.get("dim_ranks", {})
+        worst_dims = sorted(dim_ranks.items(), key=lambda x: x[1], reverse=True)[:2]
+        for dim, rank in worst_dims:
+            dim_labels = {
+                "signing": "签约潜力", "retention": "留存率",
+                "diversity": "多样性", "bt_rank": "外部排名", "webnovel8": "网文排名"
+            }
+            label = dim_labels.get(dim, dim)
+            short_name = re.sub(r'[《》（】]+', '', book_name).split('作者')[0].split('_')[0][:15]
+            anti_cards.append({
+                "id": f"{genre}_dont_{short_name}_{dim}",
+                "card_type": "dont",
+                "category": "risk",
+                "title": f"避坑: {short_name} — {label}最弱",
+                "content": f"{tier_label}书《{short_name}》在{label}维度排名#{rank}(倒数), "
+                           f"这是典型的失败模式。创作时需特别注意避免类似问题。",
+                "keywords": [label, "反例", "避坑", short_name],
+                "chapter_position": "any",
+                "source": "anti_pattern_borda",
+                "severity": "reference",
+            })
+
+    return anti_cards
+
+
+def _load_tier_config():
+    """Load quality tiers from config.yaml."""
+    try:
+        from xiaoshuo.infra.config_manager import get_config
+        cfg = get_config()
+        return cfg.get("analysis", {}).get("book_filter", {}).get("quality_tiers", {})
+    except Exception:
+        return {}
+
+
 def process_genre(genre="末世"):
-    """Full pipeline: extract + save cards. Returns card count."""
+    """Full pipeline: extract positive cards + anti-pattern cards + save.
+    v8.6: Now includes do/don't dual-track extraction."""
     cards = extract_cards(genre)
-    if cards:
-        save_cards(genre, cards)
-    return len(cards)
+
+    # v8.6: Add anti-pattern cards
+    anti_cards = extract_anti_patterns(genre)
+    cards.extend(anti_cards)
+
+    # Deduplicate
+    seen = set()
+    unique = []
+    for c in cards:
+        key = c.get("id", c.get("title", ""))
+        if key not in seen:
+            seen.add(key)
+            unique.append(c)
+
+    if unique:
+        save_cards(genre, unique)
+    return len(unique)
 
 
 if __name__ == "__main__":

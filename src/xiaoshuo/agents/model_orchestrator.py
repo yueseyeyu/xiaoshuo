@@ -40,7 +40,7 @@ import re
 from pathlib import Path
 from xiaoshuo import PROJECT_ROOT
 from xiaoshuo.infra.logging_config import get_logger
-from xiaoshuo.infra.config_manager import get_config
+from xiaoshuo.infra.config_manager import get_config, get_config_section
 
 import yaml
 
@@ -146,6 +146,14 @@ class ModelServer:
 
         返回: True=启动成功, False=启动失败
         """
+        # v8.3: 检查 auto_start 开关，防止 AI 未经用户确认就启动模型
+        orch_cfg = get_config_section("model_orchestration", default={})
+        if not orch_cfg.get("auto_start", False):
+            print("[BLOCKED] 模型自动启动已被禁用 (config.yaml: "
+                  "model_orchestration.auto_start=false)。"
+                  "请用户手动运行 scripts\\start_model.bat 启动模型。")
+            return False
+
         # 前置检查：GGUF 文件是否存在
         if not self.gguf_path or not Path(self.gguf_path).exists():
             print(f"[FAIL] ModelServer({self.model_key}): GGUF 文件不存在: {self.gguf_path}")

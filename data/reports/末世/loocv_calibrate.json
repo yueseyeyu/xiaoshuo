@@ -1,0 +1,20 @@
+{
+  "n_samples": 30,
+  "shrinkage": 0.6,
+  "in_sample_median_offset_i": -1.0,
+  "in_sample_median_offset_r": -0.5,
+  "raw_mae_i": 1.9166666666666667,
+  "in_sample_mae_i": 1.8433333333333335,
+  "loocv_mae_i": 1.8433333333333335,
+  "loocv_qm_mae_i": 2.006666666666667,
+  "loocv_blend_mae_i": 1.9600000000000002,
+  "raw_mae_r": 1.7166666666666666,
+  "in_sample_mae_r": 1.6166666666666667,
+  "loocv_mae_r": 1.6166666666666667,
+  "loocv_qm_mae_r": 1.91,
+  "loocv_blend_mae_r": 1.7933333333333334,
+  "wilcoxon_z": -0.38051427806554095,
+  "wilcoxon_p": 0.7035636998700077,
+  "improved_chapters": 17,
+  "worsened_chapters": 13
+}

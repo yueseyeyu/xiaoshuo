@@ -125,21 +125,27 @@ def analyze_book(filepath):
     dt = time.time() - t1
     logger.info("  Phase 1 done: %.1fs (%.1fms/ch)", dt, dt/total*1000 if total else 0)
 
-    # ── Phase 1b: Chapter-to-chapter variability ──
+    # ── Phase 1b: Chapter-to-chapter variability (v2: fixed formula) ──
+    # v1 bug: dividing by near-zero denominators (e.g. pos_density=0) caused
+    #         values up to 107 instead of 0-1 range.
+    # v2 fix: use absolute differences normalized by stable scale constants,
+    #         add pleasure_intensity + hook_density dimensions, clip to [0, 1].
     for i, r in enumerate(results):
         if i == 0 or i == len(results) - 1:
+            r["ch_variability"] = 0.0
             continue
-        prev = results[i-1]
+        prev = results[i - 1]
+        # Each dimension: abs delta / scale, where scale is a stable constant
+        # (not the previous value) to avoid division-by-near-zero explosions.
         diff = (
-            abs(r["wc"] - prev["wc"]) / max(prev["wc"], 1) +
-            abs(r["dialogue_ratio"] - prev["dialogue_ratio"]) / max(prev["dialogue_ratio"], 0.001) +
-            abs(r["pos_density"] - prev["pos_density"]) / max(prev["pos_density"], 0.001) +
-            abs(r["conflict_density"] - prev["conflict_density"]) / max(prev["conflict_density"], 0.001)
-        ) / 4
-        r["ch_variability"] = round(diff, 3)
-    if results:
-        results[0]["ch_variability"] = 0.0
-        results[-1]["ch_variability"] = 0.0
+            min(abs(r["wc"] - prev["wc"]) / max(prev["wc"], 100), 1.0) +
+            abs(r["dialogue_ratio"] - prev["dialogue_ratio"]) / 0.5 +     # typical range 0-0.5
+            abs(r["pos_density"] - prev["pos_density"]) / 5.0 +            # typical range 0-5
+            abs(r["conflict_density"] - prev["conflict_density"]) / 3.0 +  # typical range 0-3
+            abs(r["pleasure_intensity"] - prev["pleasure_intensity"]) / 10.0 +  # 0-10 scale
+            abs(r.get("hook_density", 0) - prev.get("hook_density", 0)) / 5.0    # typical range 0-5
+        ) / 6
+        r["ch_variability"] = round(min(diff, 1.0), 3)
 
     # ── 马良三级爽点递进: small/medium/large (3-ch sliding window) ──
     for i, r in enumerate(results):
