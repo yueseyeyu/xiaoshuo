@@ -269,8 +269,60 @@ def generate_attribution(book_name, book_stats, pool_stats, score, grade):
 
 # ── ③ 写书指导手册: 聚合脚本 ──
 
+def generate_tier_comparison(book_name, genre="末世"):
+    """v8.7: Generate S-tier benchmark vs C-tier anti-pattern comparison.
+    Uses technique_store do/don't cards for dual-track guidance.
+    
+    v8.7: 理论框架从"DPO-inspired"修正为"Contrastive Learning + Curriculum Learning"
+    (DPO需成对偏好对+参数优化, 本系统仅做数据选择+检索注入)
+    
+    Returns list of markdown lines for the tier comparison section.
+    """
+    lines = []
+    try:
+        from xiaoshuo.pipeline.technique_store import retrieve_cards, format_cards_for_prompt
+    except ImportError:
+        return lines
+
+    # Retrieve do (positive) and dont (anti-pattern) cards
+    context = {"chapter_num": 1, "total_chapters": 300, "keywords": ["开篇", "钩子", "爽点"]}
+    do_cards = retrieve_cards(genre, context, top_k=3, card_type="do")
+    dont_cards = retrieve_cards(genre, context, top_k=3, card_type="dont")
+
+    if not do_cards and not dont_cards:
+        return lines
+
+    lines.append("## 分层对标: 标杆学习 vs 反面避坑")
+    lines.append("> v8.7 正反例双轨学习 (Contrastive Learning + Curriculum Learning)")
+    lines.append("")
+
+    # S-tier benchmark
+    if do_cards:
+        lines.append("### ✅ S/A级标杆技法 (Do — 向精品学习)")
+        for i, c in enumerate(do_cards, 1):
+            lines.append(f"{i}. **{c['title']}**: {c['content']}")
+        lines.append("")
+
+    # C-tier anti-patterns
+    if dont_cards:
+        lines.append("### ⚠️ C级反例避坑 (Don't — 避免重蹈覆辙)")
+        for i, c in enumerate(dont_cards, 1):
+            lines.append(f"{i}. **{c['title']}**: {c['content']}")
+        lines.append("")
+
+    # Contrast summary
+    if do_cards and dont_cards:
+        lines.append("### 对比启示")
+        lines.append("- 精品书的核心优势在于开篇即可抓住读者——钩子、冲突、爽点三位一体")
+        lines.append("- 反例书的共同特征是开篇节奏薄弱, 读者在3章内流失")
+        lines.append("- 创作时: 先确保达到S/A级标杆的下限, 再追求上限")
+        lines.append("")
+
+    return lines
+
+
 def generate_writing_manual(book_name, instruction_lines, attribution_lines, 
-                             rhythm_summary, creative_paths=None):
+                             rhythm_summary, creative_paths=None, genre="末世"):
     """Merge all outputs into a single writing manual.
     
     Args:
@@ -336,6 +388,13 @@ def generate_writing_manual(book_name, instruction_lines, attribution_lines,
                 lines.append(content)
             except Exception:
                 lines.append(f"> (无法读取: {cp})")
+
+    # v8.6: Add tier comparison section
+    tier_lines = generate_tier_comparison(book_name, genre)
+    if tier_lines:
+        lines.append("---")
+        lines.append("")
+        lines.extend(tier_lines)
 
     return lines
 

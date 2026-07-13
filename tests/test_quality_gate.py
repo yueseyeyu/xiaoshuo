@@ -5,9 +5,9 @@ import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT / "analysis"))
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
 import yaml
-from quality_gate import _is_known_quality
+from xiaoshuo.pipeline.quality_gate import _is_known_quality
 
 
 class TestQualityConfig(unittest.TestCase):

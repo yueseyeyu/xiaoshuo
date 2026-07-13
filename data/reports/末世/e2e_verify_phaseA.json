@@ -1,0 +1,252 @@
+{
+  "phase": "A",
+  "n_samples": 30,
+  "old_pearson_r": -0.16773276540902396,
+  "new_pearson_r": -0.20585214453520637,
+  "old_mae": 3.103333333333333,
+  "new_mae": 2.9133333333333336,
+  "old_miss_rate": 0.2,
+  "new_miss_rate": 0.06666666666666667,
+  "details": [
+    {
+      "book": "废土崛起",
+      "ch_num": 1,
+      "wc": 2963,
+      "old_rule": 1.9,
+      "new_rule": 3.0,
+      "human": 3.0
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 193,
+      "wc": 2158,
+      "old_rule": 1.5,
+      "new_rule": 2.4,
+      "human": 4.0
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 385,
+      "wc": 2168,
+      "old_rule": 1.3,
+      "new_rule": 2.2,
+      "human": 5.0
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 577,
+      "wc": 2475,
+      "old_rule": 2.1,
+      "new_rule": 3.3,
+      "human": 6.0
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 769,
+      "wc": 2315,
+      "old_rule": 1.3,
+      "new_rule": 2.1,
+      "human": 7.5
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 961,
+      "wc": 2154,
+      "old_rule": 2.3,
+      "new_rule": 3.6,
+      "human": 3.5
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 1153,
+      "wc": 2543,
+      "old_rule": 1.5,
+      "new_rule": 2.4,
+      "human": 8.0
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 1345,
+      "wc": 2445,
+      "old_rule": 1.6,
+      "new_rule": 2.6,
+      "human": 3.0
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 1537,
+      "wc": 2347,
+      "old_rule": 0.8,
+      "new_rule": 1.3,
+      "human": 9.0
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 1729,
+      "wc": 2653,
+      "old_rule": 1.6,
+      "new_rule": 2.4,
+      "human": 8.5
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 1,
+      "wc": 3207,
+      "old_rule": 1.3,
+      "new_rule": 2.1,
+      "human": 1.5
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 241,
+      "wc": 2371,
+      "old_rule": 2.6,
+      "new_rule": 4.0,
+      "human": 7.0
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 481,
+      "wc": 2174,
+      "old_rule": 5.8,
+      "new_rule": 9.3,
+      "human": 2.0
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 721,
+      "wc": 2190,
+      "old_rule": 1.0,
+      "new_rule": 1.4,
+      "human": 3.5
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 961,
+      "wc": 2316,
+      "old_rule": 3.8,
+      "new_rule": 5.8,
+      "human": 1.5
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 1201,
+      "wc": 2826,
+      "old_rule": 7.8,
+      "new_rule": 10,
+      "human": 5.0
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 1441,
+      "wc": 2660,
+      "old_rule": 2.8,
+      "new_rule": 4.4,
+      "human": 7.5
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 1681,
+      "wc": 2980,
+      "old_rule": 1.6,
+      "new_rule": 2.6,
+      "human": 7.0
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 1921,
+      "wc": 2714,
+      "old_rule": 8.5,
+      "new_rule": 10,
+      "human": 5.0
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 2160,
+      "wc": 2785,
+      "old_rule": 5.1,
+      "new_rule": 8.0,
+      "human": 5.5
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 1,
+      "wc": 3019,
+      "old_rule": 3.0,
+      "new_rule": 4.8,
+      "human": 6.0
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 194,
+      "wc": 2099,
+      "old_rule": 4.1,
+      "new_rule": 6.7,
+      "human": 6.0
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 387,
+      "wc": 2132,
+      "old_rule": 2.6,
+      "new_rule": 4.0,
+      "human": 2.5
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 580,
+      "wc": 2097,
+      "old_rule": 2.0,
+      "new_rule": 3.2,
+      "human": 3.5
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 773,
+      "wc": 2250,
+      "old_rule": 2.1,
+      "new_rule": 3.4,
+      "human": 5.5
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 966,
+      "wc": 2267,
+      "old_rule": 2.1,
+      "new_rule": 3.5,
+      "human": 2.0
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 1159,
+      "wc": 2222,
+      "old_rule": 2.2,
+      "new_rule": 3.7,
+      "human": 5.0
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 1352,
+      "wc": 2276,
+      "old_rule": 1.1,
+      "new_rule": 1.8,
+      "human": 6.0
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 1545,
+      "wc": 2102,
+      "old_rule": 2.2,
+      "new_rule": 3.6,
+      "human": 5.5
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 1738,
+      "wc": 2157,
+      "old_rule": 4.0,
+      "new_rule": 6.5,
+      "human": 3.5
+    }
+  ]
+}

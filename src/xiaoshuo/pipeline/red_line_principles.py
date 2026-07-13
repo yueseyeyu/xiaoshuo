@@ -236,9 +236,46 @@ class RedLineChecker:
             RedLinePrinciple(
                 id="rl-003", category="character",
                 rule="主角不能圣母 (无底线原谅敌人)",
-                keywords=["原谅了", "放过了", "算了饶他"],
+                keywords=[
+                    # 原有
+                    "原谅了", "放过了", "算了饶他",
+                    # v2 扩展: 无条件宽恕
+                    "放过他吧", "饶他一命", "饶了他吧",
+                    "放了他吧", "看在孩子的份上", "看在他母亲",
+                    "也挺可怜", "也不容易", "挺苦的",
+                    # v2 扩展: 道德绑架自我
+                    "我不能杀", "我不该杀", "我不会杀",
+                    "杀了他和有什么区别", "我不是那种人",
+                    "我不想变成", "不能变得和他一样",
+                    # v2 扩展: 反派洗白无代价
+                    "其实他是好人", "本性不坏", "也是被迫的",
+                    "误会了他", "错怪了他", "有苦衷的",
+                ],
+                patterns=[
+                    # 无条件宽恕
+                    r"放[了过].*吧",
+                    r"饶[了过].*[一这]命",
+                    r"[看念].*[老小孩子母亲父亲家人]",
+                    r"[他她].*也[挺很蛮].*[可怜不容易苦]",
+                    # 道德绑架自我
+                    r"我[不能不该不会].*[杀伤害]",
+                    r"[杀伤害].*[人他她].*和.*[有没].*什么[区别不同]",
+                    # 反派洗白无代价
+                    r"[原本].*[来就].*[好善无幸]",
+                    r"[误会误解错怪].*[了他她]",
+                    r"[其实原来].*[有挺].*[苦衷原因理由]",
+                    # 牺牲自我救敌人
+                    r"救.*[反敌坏].*[派人]",
+                    r"[放让].*[走逃跑].*.*[自己我].*[伤死危险]",
+                ],
                 severity="serious",
-                alternative="主角可以有原则的宽容，但不能无底线圣母",
+                alternative=(
+                    "主角可以有原则的宽容，但不能无底线圣母。\n"
+                    "番茄存活作品中，主角的善良必须有底线：\n"
+                    "- 对坏人：杀伐果断，或废其修为/剥夺身份\n"
+                    "- 对可改造者：有条件宽恕（完成任务/提供情报/付出代价）\n"
+                    "- 绝不让步：不因'反派有家人'而放过"
+                ),
                 created_at=now,
             ),
             # 战力红线
@@ -292,6 +329,20 @@ class RedLineChecker:
         ]
         return defaults
 
+    # ── v2: 圣母心对冲检测 (基于建议文件"开篇五大毒点") ──
+
+    # 合理宽恕信号: 如果文中出现这些，说明宽恕是有条件的，可以对冲圣母信号
+    JUSTIFIED_MERCY_PATTERNS = [
+        re.compile(r'放.*[一这]命.*[但不过].*[废剥夺限制]'),
+        re.compile(r'饶.*[但不过].*[必须要].*[做完成]'),
+        re.compile(r'[看念].*[但不过].*[下这].*[次回].*[不没].*[放过留情]'),
+        re.compile(r'[留留着].*[还更].*[有用价值]'),
+        re.compile(r'杀.*[太过于].*[便宜简单容易]'),
+        re.compile(r'[要想].*[问知道].*[更多情报秘密]'),
+        re.compile(r'[用拿].*换.*[命自由]'),
+        re.compile(r'[交献].*[出上].*[才才].*[放饶]'),
+    ]
+
     # ── 检测 ──
 
     def check_chapter(
@@ -330,6 +381,20 @@ class RedLineChecker:
                     result.has_critical = True
                 if v.severity_level >= SEVERITY_LEVELS["warning"]:
                     result.has_warnings = True
+
+        # v2: 圣母心对冲检测 — 检查是否有合理宽恕信号
+        saint_principle = self.get_by_id("rl-003")
+        if saint_principle and any(v.principle.id == "rl-003" for v in result.violations):
+            justified_count = sum(1 for p in self.JUSTIFIED_MERCY_PATTERNS if p.search(chapter_text))
+            if justified_count > 0:
+                # 有合理宽恕信号, 降级处理: 移除部分圣母违规
+                saint_violations = [v for v in result.violations if v.principle.id == "rl-003"]
+                # 每个合理宽恕信号可对冲1条圣母违规
+                removable = min(justified_count, len(saint_violations))
+                for v in saint_violations[:removable]:
+                    result.violations.remove(v)
+                logger.debug("圣母心对冲: %d 条合理宽恕信号, 移除 %d 条圣母违规",
+                             justified_count, removable)
 
         # 按严重度排序
         result.violations.sort(key=lambda v: v.severity_level, reverse=True)

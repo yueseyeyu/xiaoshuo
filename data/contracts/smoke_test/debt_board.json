@@ -1,8 +1,8 @@
 {
   "book": "smoke_test",
-  "updated": "2026-06-19T19:19:34.092299",
-  "total": 5,
-  "pending": 5,
+  "updated": "2026-07-11T21:18:31.112091",
+  "total": 14,
+  "pending": 14,
   "debts": [
     {
       "id": 1,
@@ -11,8 +11,11 @@
       "summary": "测试债务",
       "severity": "high",
       "status": "pending",
-      "created_at": "2026-06-19T19:15:50.030277",
-      "resolved_at": null
+      "created_at": "2026-07-08T19:58:27.884558",
+      "resolved_at": null,
+      "faction_id": null,
+      "target_faction_id": null,
+      "is_faction_debt": false
     },
     {
       "id": 2,
@@ -21,18 +24,24 @@
       "summary": "测试债务",
       "severity": "high",
       "status": "pending",
-      "created_at": "2026-06-19T19:16:50.741386",
-      "resolved_at": null
+      "created_at": "2026-07-08T20:03:11.587137",
+      "resolved_at": null,
+      "faction_id": null,
+      "target_faction_id": null,
+      "is_faction_debt": false
     },
     {
       "id": 3,
       "origin_ch": 10,
       "type": "伏笔",
-      "summary": "测试",
+      "summary": "测试债务",
       "severity": "high",
       "status": "pending",
-      "created_at": "2026-06-19T19:17:39.065237",
-      "resolved_at": null
+      "created_at": "2026-07-08T20:25:13.388781",
+      "resolved_at": null,
+      "faction_id": null,
+      "target_faction_id": null,
+      "is_faction_debt": false
     },
     {
       "id": 4,
@@ -41,8 +50,11 @@
       "summary": "测试债务",
       "severity": "high",
       "status": "pending",
-      "created_at": "2026-06-19T19:18:24.153321",
-      "resolved_at": null
+      "created_at": "2026-07-08T20:35:34.931804",
+      "resolved_at": null,
+      "faction_id": null,
+      "target_faction_id": null,
+      "is_faction_debt": false
     },
     {
       "id": 5,
@@ -51,8 +63,128 @@
       "summary": "测试债务",
       "severity": "high",
       "status": "pending",
-      "created_at": "2026-06-19T19:19:34.091755",
-      "resolved_at": null
+      "created_at": "2026-07-08T20:50:28.361899",
+      "resolved_at": null,
+      "faction_id": null,
+      "target_faction_id": null,
+      "is_faction_debt": false
+    },
+    {
+      "id": 6,
+      "origin_ch": 10,
+      "type": "伏笔",
+      "summary": "测试债务",
+      "severity": "high",
+      "status": "pending",
+      "created_at": "2026-07-08T21:14:26.141415",
+      "resolved_at": null,
+      "faction_id": null,
+      "target_faction_id": null,
+      "is_faction_debt": false
+    },
+    {
+      "id": 7,
+      "origin_ch": 10,
+      "type": "伏笔",
+      "summary": "测试债务",
+      "severity": "high",
+      "status": "pending",
+      "created_at": "2026-07-11T11:55:33.274056",
+      "resolved_at": null,
+      "faction_id": null,
+      "target_faction_id": null,
+      "is_faction_debt": false
+    },
+    {
+      "id": 8,
+      "origin_ch": 10,
+      "type": "伏笔",
+      "summary": "测试债务",
+      "severity": "high",
+      "status": "pending",
+      "created_at": "2026-07-11T12:03:37.950094",
+      "resolved_at": null,
+      "faction_id": null,
+      "target_faction_id": null,
+      "is_faction_debt": false
+    },
+    {
+      "id": 9,
+      "origin_ch": 10,
+      "type": "伏笔",
+      "summary": "测试债务",
+      "severity": "high",
+      "status": "pending",
+      "created_at": "2026-07-11T12:08:53.286944",
+      "resolved_at": null,
+      "faction_id": null,
+      "target_faction_id": null,
+      "is_faction_debt": false
+    },
+    {
+      "id": 10,
+      "origin_ch": 10,
+      "type": "伏笔",
+      "summary": "测试债务",
+      "severity": "high",
+      "status": "pending",
+      "created_at": "2026-07-11T12:21:12.643718",
+      "resolved_at": null,
+      "faction_id": null,
+      "target_faction_id": null,
+      "is_faction_debt": false
+    },
+    {
+      "id": 11,
+      "origin_ch": 10,
+      "type": "伏笔",
+      "summary": "测试债务",
+      "severity": "high",
+      "status": "pending",
+      "created_at": "2026-07-11T19:55:01.194715",
+      "resolved_at": null,
+      "faction_id": null,
+      "target_faction_id": null,
+      "is_faction_debt": false
+    },
+    {
+      "id": 12,
+      "origin_ch": 10,
+      "type": "伏笔",
+      "summary": "测试债务",
+      "severity": "high",
+      "status": "pending",
+      "created_at": "2026-07-11T20:39:39.598031",
+      "resolved_at": null,
+      "faction_id": null,
+      "target_faction_id": null,
+      "is_faction_debt": false
+    },
+    {
+      "id": 13,
+      "origin_ch": 10,
+      "type": "伏笔",
+      "summary": "测试债务",
+      "severity": "high",
+      "status": "pending",
+      "created_at": "2026-07-11T20:44:57.182630",
+      "resolved_at": null,
+      "faction_id": null,
+      "target_faction_id": null,
+      "is_faction_debt": false
+    },
+    {
+      "id": 14,
+      "origin_ch": 10,
+      "type": "伏笔",
+      "summary": "测试债务",
+      "severity": "high",
+      "status": "pending",
+      "created_at": "2026-07-11T21:18:31.112091",
+      "resolved_at": null,
+      "faction_id": null,
+      "target_faction_id": null,
+      "is_faction_debt": false
     }
   ]
 }

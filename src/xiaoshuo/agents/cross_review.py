@@ -252,6 +252,46 @@ def merge_reports(
     }
 
 
+def _build_primary_sys() -> str:
+    """构建主模型审查的 system prompt (v8.7: 提取为共享函数, 避免重复)。
+
+    cross_review() 和 cross_review_batch() 共用此函数, 确保 prompt 一致性。
+    """
+    fp_categories = []
+    for cat, words in AI_FINGERPRINT_WORDS.items():
+        fp_categories.append(f"  - {cat}: {' / '.join(words[:10])}... (共{len(words)}个)")
+    fp_list = "\n".join(fp_categories)
+    high_risk = "、".join(HIGH_RISK_FINGERPRINTS)
+    return (
+        "你是网文质量控制专家。请从以下三个视角审查本章，分别输出发现，最后综合评分。\n\n"
+        "## 视角A: 逻辑审查\n"
+        "覆盖: 时间线、因果关系、角色动机、世界观规则、信息一致性。\n\n"
+        "## 视角B: 情绪表达质量\n"
+        "检查作者的写法是否\u201c强情绪\u201d而非\u201c直白情绪\u201d。\n"
+        "- 优秀写法 (加分): 通过外在动作、被迫承受苦难、冰冷克制的动作来传递情绪\n"
+        "  (如: 将剑从泥中捡起擦干净; 摘下对方送的手表放入抽屉; 上前摆正遗像抚摸镜框后退鞠躬)\n"
+        "- 直白写法 (扣分): 直接写\u201c他很愤怒\u201d\u201c她非常悲伤\u201d\u201c他心中一紧\u201d\n"
+        "- 如果使用了身体反应类词汇 (如心跳加速、浑身一颤) 但缺少外部动作铺垫, 标记为\u201c情绪直白\u201d\n\n"
+        "## 视角C: 读者体验\n"
+        "检查: 钩子位置、节奏起伏、爽点/虐点分布、章末悬念。\n\n"
+        "## AI 指纹词检测\n"
+        "逐句扫描以下平台级 AI 指纹词, 标记出现频率和位置:\n"
+        f"{fp_list}\n"
+        f"特别注意高危词 (AI降智高频): {high_risk}\n"
+        "豁免规则: 如果指纹词出现在对话中、角色口癖、或梦境/发疯/醉酒等非理性场景, 标注但豁免。\n\n"
+        "## 综合输出\n"
+        "先分别输出视角A/B/C的发现, 再输出指纹词检测, 最后给出综合评分。"
+    )
+
+
+def _build_secondary_sys() -> str:
+    """构建辅助模型交叉标注的 system prompt (v8.7: 提取为共享函数)。"""
+    return (
+        "你是网文逻辑审查专家。你的任务是找出主模型审查中可能遗漏的微观细节问题。"
+        "重点关注: 命名不一致、数量矛盾、角色知识矛盾。直接输出发现的问题。"
+    )
+
+
 def cross_review(
     chapter_text: str,
     chapter_num: int,
@@ -286,31 +326,7 @@ def cross_review(
     # v8.0 MoA 多视角 (S5): 单次推理模拟逻辑/情绪/读者三视角 → 聚合
     # v8.0 AI指纹词 (S6): 嵌入词库, 交叉检测 + 豁免规则
     # v8.0 强情绪判据 (S1): 检测是否使用外在动作/被迫承受/冰冷克制写法
-    fp_categories = []
-    for cat, words in AI_FINGERPRINT_WORDS.items():
-        fp_categories.append(f"  - {cat}: {' / '.join(words[:10])}... (共{len(words)}个)")
-    fp_list = "\n".join(fp_categories)
-    high_risk = "、".join(HIGH_RISK_FINGERPRINTS)
-    primary_sys = (
-        "你是网文质量控制专家。请从以下三个视角审查本章，分别输出发现，最后综合评分。\n\n"
-        "## 视角A: 逻辑审查\n"
-        "覆盖: 时间线、因果关系、角色动机、世界观规则、信息一致性。\n\n"
-        "## 视角B: 情绪表达质量\n"
-        "检查作者的写法是否\u201c强情绪\u201d而非\u201c直白情绪\u201d。\n"
-        "- 优秀写法 (加分): 通过外在动作、被迫承受苦难、冰冷克制的动作来传递情绪\n"
-        "  (如: 将剑从泥中捡起擦干净; 摘下对方送的手表放入抽屉; 上前摆正遗像抚摸镜框后退鞠躬)\n"
-        "- 直白写法 (扣分): 直接写\u201c他很愤怒\u201d\u201c她非常悲伤\u201d\u201c他心中一紧\u201d\n"
-        "- 如果使用了身体反应类词汇 (如心跳加速、浑身一颤) 但缺少外部动作铺垫, 标记为\u201c情绪直白\u201d\n\n"
-        "## 视角C: 读者体验\n"
-        "检查: 钩子位置、节奏起伏、爽点/虐点分布、章末悬念。\n\n"
-        "## AI 指纹词检测\n"
-        "逐句扫描以下平台级 AI 指纹词, 标记出现频率和位置:\n"
-        f"{fp_list}\n"
-        f"特别注意高危词 (AI降智高频): {high_risk}\n"
-        "豁免规则: 如果指纹词出现在对话中、角色口癖、或梦境/发疯/醉酒等非理性场景, 标注但豁免。\n\n"
-        "## 综合输出\n"
-        "先分别输出视角A/B/C的发现, 再输出指纹词检测, 最后给出综合评分。"
-    )
+    # v8.7: primary_sys 提取为 _build_primary_sys() 共享函数, 此处不再内联构建
     memory_hint = ""
     if previous_findings:
         memory_hint = (
@@ -325,7 +341,7 @@ def cross_review(
         f"请逐条列出发现的所有逻辑问题。仅列新问题或已有问题在本章的新证据。"
     )
     primary_messages = [
-        {"role": "system", "content": primary_sys},
+        {"role": "system", "content": _build_primary_sys()},
         {"role": "user", "content": primary_user},
     ]
     primary_result = orch.chat("S3_logic_cop", primary_messages, max_tokens=2048, temperature=0.3, timeout=180)
@@ -361,19 +377,17 @@ def cross_review(
             f"## 章节 ({word_count}字):\n\n{chapter_text}"
         )
 
-    secondary_sys = (
-        "你是网文逻辑审查专家。你的任务是找出主模型审查中可能遗漏的微观细节问题。"
-        "重点关注: 命名不一致、数量矛盾、角色知识矛盾。直接输出发现的问题。"
-    )
     secondary_messages = [
-        {"role": "system", "content": secondary_sys},
+        {"role": "system", "content": _build_secondary_sys()},
         {"role": "user", "content": secondary_user},
     ]
     secondary_result = orch.chat("S3_cross_check", secondary_messages, max_tokens=2048, temperature=0.6, timeout=180)
 
     # ── 切回主模型 ──
     logger.info(f"  [SWAP] 切回主模型 (Qwen3.5-9B)...")
-    orch.swap_to("main_model", timeout=120)
+    swap_back = orch.swap_to("main_model", timeout=120)
+    if not swap_back:
+        logger.error("  [SWAP] 切回主模型失败! 系统可能处于不可用状态")
 
     # ── Phase 3: MoA 聚合 (冲突检测 + 优先级裁决) ──
     secondary_patch = ""
@@ -461,6 +475,185 @@ def cross_review_iterative(
             break
 
     return rounds
+
+
+def cross_review_batch(
+    chapters: list[tuple[str, int]],
+    primary_model: str = "main_model",
+    secondary_model: str = "logic_cop_candidate",
+    r1_specialty_only: bool = True,
+) -> list[dict]:
+    """v8.7: 批量交叉评审 — 将 N 章的主审和交叉标注分两批执行, 大幅减少 swap 次数。
+
+    来源: 建议文件 "批量处理减少 swap_to()"
+
+    传统流程 (N 章 x 2 swaps/章 = 2N 次 swap)::
+
+        Ch1: main -> swap -> secondary -> swap -> main
+        Ch2: main -> swap -> secondary -> swap -> main
+        ...
+
+    批量流程 (仅 2 次 swap)::
+
+        Batch 1: Ch1 main, Ch2 main, ... ChN main  (全部在主模型完成)
+        -> swap -> secondary
+        Batch 2: Ch1 secondary, Ch2 secondary, ... ChN secondary
+        -> swap -> main
+
+    8GB 单 GPU 环境下, 每次 swap 约 30-40 秒。
+    批量处理将 10 章的 swap 开销从 ~400 秒降至 ~80 秒。
+
+    Args:
+        chapters: [(chapter_text, chapter_num), ...] 章节文本和编号列表
+        primary_model: 主模型 key
+        secondary_model: 辅助模型 key
+        r1_specialty_only: 辅助模型是否只查专长维度
+
+    Returns:
+        list[dict]: 每章一个结果, 格式同 cross_review() 的返回值。
+        如果某章主审失败, 对应结果包含 {"error": ...}。
+        如果辅助模型不可用, 所有章的 secondary_patches 为空。
+    """
+    if not chapters:
+        return []
+
+    orch = get_orchestrator()
+    results: list[dict] = [{} for _ in chapters]
+
+    # -- Batch 1: 全部主模型审查 (无 swap) --
+    logger.info("[BATCH] Phase 1: 批量主模型审查 (%d 章)", len(chapters))
+
+    # v8.7: 使用共享函数, 确保 prompt 与 cross_review() 一致
+    primary_sys = _build_primary_sys()
+
+    primary_reports: list[str | None] = [None] * len(chapters)
+
+    for i, (chapter_text, chapter_num) in enumerate(chapters):
+        word_count = len(chapter_text.replace("\n", "").replace(" ", ""))
+        truncated = chapter_text
+        if len(truncated) > 3000:
+            truncated = truncated[:3000] + "\n[...章节过长, 仅分析前3000字符...]"
+
+        primary_user = (
+            f"## 第{chapter_num}章 逻辑审查\n"
+            f"## 章节 ({word_count}字):\n\n{truncated}\n\n"
+            f"请逐条列出发现的所有逻辑问题。"
+        )
+        primary_messages = [
+            {"role": "system", "content": primary_sys},
+            {"role": "user", "content": primary_user},
+        ]
+        logger.info("  [BATCH] 第%d/%d章 (ch%d) 主模型审查...", i + 1, len(chapters), chapter_num)
+        primary_result = orch.chat("S3_logic_cop", primary_messages, max_tokens=2048, temperature=0.3, timeout=180)
+
+        if "error" in primary_result:
+            results[i] = {"error": f"主模型审查失败: {primary_result['error']}", "primary": primary_result}
+            primary_reports[i] = None
+            continue
+
+        primary_reports[i] = primary_result["content"]
+        results[i] = {
+            "primary": primary_result["content"],
+            "primary_usage": primary_result.get("usage", {}),
+        }
+
+    # -- Batch 2: 一次 swap, 全部辅助模型交叉标注 --
+    logger.info("[BATCH] Phase 2: 切换到辅助模型 (仅 1 次 swap)")
+    swap_ok = orch.swap_to(secondary_model, timeout=120)
+
+    if not swap_ok:
+        logger.warning("[BATCH] 辅助模型不可用, 所有章仅返回主模型结果")
+        for i, report in enumerate(primary_reports):
+            if report is None:
+                continue
+            results[i].update({
+                "secondary_patches": "",
+                "merged": f"## 主审查 (Qwen3.5-9B)\n\n{report}\n\n---\n## 交叉标注\n[交叉模型不可用，跳过]",
+                "has_additions": False,
+                "secondary_usage": None,
+                "findings_summary": _extract_findings_summary(report, ""),
+                "moa_high_confidence": [],
+                "moa_conflicts": [],
+                "moa_primary_only": [],
+                "moa_secondary_only": [],
+            })
+        orch.swap_to("main_model", timeout=120)
+        logger.warning("[BATCH] 辅助模型不可用, 已尝试切回主模型")
+        return results
+
+    # 辅助模型可用, 批量交叉标注
+    secondary_sys = _build_secondary_sys()
+
+    for i, (chapter_text, chapter_num) in enumerate(chapters):
+        if primary_reports[i] is None:
+            continue
+
+        word_count = len(chapter_text.replace("\n", "").replace(" ", ""))
+        truncated = chapter_text
+        if len(truncated) > 3000:
+            truncated = truncated[:3000] + "\n[...章节过长, 仅分析前3000字符...]"
+
+        if r1_specialty_only:
+            specialty_desc = "、".join(R1_SPECIALTY_DIMS)
+            secondary_user = (
+                f"## 交叉标注: 只检查遗漏的微观问题\n"
+                f"主模型已完成全面逻辑审查。你的任务是**只补充主模型可能遗漏的微观细节问题**，"
+                f"包括: {specialty_desc}。\n\n"
+                f"## 章节 ({word_count}字):\n\n{truncated}\n\n"
+                f"## 主模型审查报告:\n{primary_reports[i][:2000]}\n\n"
+                f"请标注主模型遗漏的具体问题。如果没有遗漏,回复[无遗漏]。"
+            )
+        else:
+            secondary_user = (
+                f"## 交叉审查\n"
+                f"请独立审查以下章节，标注所有逻辑问题。\n\n"
+                f"## 章节 ({word_count}字):\n\n{truncated}"
+            )
+
+        secondary_messages = [
+            {"role": "system", "content": secondary_sys},
+            {"role": "user", "content": secondary_user},
+        ]
+        logger.info("  [BATCH] 第%d/%d章 (ch%d) 交叉标注...", i + 1, len(chapters), chapter_num)
+        secondary_result = orch.chat("S3_cross_check", secondary_messages, max_tokens=2048, temperature=0.6, timeout=180)
+
+        secondary_patch = ""
+        if "error" not in secondary_result:
+            secondary_patch = secondary_result["content"]
+
+        has_additions = secondary_patch.strip() and "[无遗漏]" not in secondary_patch
+
+        moa_result = merge_reports(
+            primary_report=primary_reports[i],
+            secondary_report=secondary_patch,
+            primary_label="Qwen3.5-9B",
+            secondary_label="DeepSeek-R1",
+        )
+
+        merged = moa_result["merged"]
+        merged += f"\n\n---\n## 原始主审查报告 (Qwen3.5-9B)\n\n{primary_reports[i][:3000]}"
+        if has_additions:
+            merged += f"\n\n## 交叉标注 (DeepSeek-R1)\n\n{secondary_patch[:2000]}"
+
+        results[i].update({
+            "secondary_patches": secondary_patch,
+            "has_additions": has_additions,
+            "merged": merged,
+            "findings_summary": moa_result["findings_summary"],
+            "moa_high_confidence": moa_result["high_confidence"],
+            "moa_conflicts": moa_result["conflicts"],
+            "moa_primary_only": moa_result["primary_only"],
+            "moa_secondary_only": moa_result["secondary_only"],
+            "secondary_usage": secondary_result.get("usage", {}) if "error" not in secondary_result else None,
+        })
+
+    # -- 切回主模型 (第 2 次 swap) --
+    logger.info("[BATCH] Phase 3: 切回主模型")
+    swap_back = orch.swap_to("main_model", timeout=120)
+    if not swap_back:
+        logger.error("[BATCH] 切回主模型失败! 系统可能处于不可用状态, 请手动检查")
+
+    return results
 
 
 # S3 评审维度 (4 维度, 每个 1-10 分)

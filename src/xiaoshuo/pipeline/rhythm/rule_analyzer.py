@@ -19,9 +19,12 @@ from xiaoshuo.pipeline.rhythm.patterns import (
     PLEASURE_BACKFIRE, PLEASURE_TRAP_MASTER, PLEASURE_KNOWLEDGE_GAP,
     PLEASURE_HIDDEN_VALUE, PLEASURE_IDENTITY_REVEAL, PLEASURE_FORESHADOW_PAYOFF,
     PLEASURE_TIMING, PLEASURE_WEIGHTS, PLEASURE_SUBTYPE_NAMES,
+    PLEASURE_GENRE_APOCALYPSE,
     CONFLICT_KW_ALL,
     DIALOGUE_PAT, EXCLAM_PAT, NEGATIVE, CLIFFHANGER,
     ANTI_TROPE, EMOTION_HIGH, EMOTION_LOW, EMOTION_BURNOUT,
+    OBSTACLE_KW_ALL, OBSTACLE_TYPE_NAMES,
+    FATE_SIGNALS,
 )
 from xiaoshuo.pipeline.text_utils import split_paragraphs as _split_paragraphs
 
@@ -73,8 +76,18 @@ def rule_analyze(ch):
         if re.search(r"你|我|他|她|眼中|心里|轻声|沉默|握住|凝视", ctx):
             bond_count += 1
 
-    # ── 加权聚合 (CCMMW方法) ──
+    # ── v3: 慢热生存流隐式爽点检测 ──
+    # 末世生存文(末日蟑螂/全球进化)的爽点是隐性的: 活下来=爽, 获得物资=爽
+    # 当前正则只检测显性爽点关键词，对这类文系统性低估
+    # 解决: 检测生存成就信号，作为 implicit_pleasure 补充到 weighted_pleasure
     w = PLEASURE_WEIGHTS
+    # v11: 题材专属爽点正则从 patterns.py 导入 (SSOT)
+    # 未来扩展其他类型时，在 patterns.py 添加 PLEASURE_GENRE_<TYPE> 并在此条件加载
+    survival_gain_count = len(PLEASURE_GENRE_APOCALYPSE.findall(body))
+    # 隐式爽点权重: 约为 strategy 的 60% (不让隐式爽点压过显式爽点)
+    implicit_pleasure = survival_gain_count * w.get("strategy", 0.108) * 0.6
+
+    # ── 加权聚合 (CCMMW方法 + v3隐式爽点) ──
     weighted_pleasure = (
         slap_count * w["slap"] + level_count * w["level"] + crush_count * w["crush"] +
         comeback_count * w["comeback"] + hidden_count * w["hidden"] + general_count * w["general"] +
@@ -83,10 +96,30 @@ def rule_analyze(ch):
         strategy_count * w["strategy"] + resource_count * w["resource"] + social_count * w["social"] +
         backfire_count * w["backfire"] + trap_master_count * w["trap_master"] +
         knowledge_gap_count * w["knowledge_gap"] + hidden_value_count * w["hidden_value"] +
-        identity_reveal_count * w["identity_reveal"] + foreshadow_payoff_count * w["foreshadow_payoff"]
+        identity_reveal_count * w["identity_reveal"] + foreshadow_payoff_count * w["foreshadow_payoff"] +
+        implicit_pleasure  # v3: 慢热生存流隐式爽点
     )
     total_pleasure = weighted_pleasure
-    pos_density = total_pleasure / max(wc, 1) * 100
+    # v12: BM25风格归一化 + 次线性TF缩放 (来源: Doubao建议, IR领域30年验证)
+    # 替代简单线性 total_pleasure/wc*100，解决:
+    #   (1) 长章节被过度惩罚 (字数多→密度被稀释)
+    #   (2) 爽点数量边际递减 (10个爽点 ≠ 5个爽点的2倍爽感)
+    # 设计约束: 保持与旧公式相同的量级(0.01-0.5)，避免下游pleasure_raw系数失效
+    import math as _bm25
+    _AVG_CHAPTER_WC = 2500  # 网文章节平均字数 (可从语料统计更新)
+    _B = 0.75  # BM25长度惩罚强度
+    if total_pleasure > 0:
+        # 次线性TF: tf>=1时用1+log(tf)实现边际递减, tf<1时不缩放(避免低爽点章被放大)
+        if total_pleasure >= 1.0:
+            tf_scaled = 1 + _bm25.log(total_pleasure)
+        else:
+            tf_scaled = total_pleasure
+        # BM25长度归一化: 1/(1-b+b*wc/avg) 替代 1/wc
+        # wc=avg时: norm=1 (无变化), wc=2*avg时: norm=0.57 (比旧公式1/2=0.5更温和)
+        length_norm = 1.0 / (1 - _B + _B * wc / _AVG_CHAPTER_WC)
+        pos_density = tf_scaled * length_norm / _AVG_CHAPTER_WC * 100
+    else:
+        pos_density = 0.0
 
     # Dominant pleasure sub-type
     counts_map = {
@@ -157,27 +190,64 @@ def rule_analyze(ch):
     elif hook_system:
         hook_type = "系统提示"
 
-    # ── Readability score (AlphaReadabilityChinese method) ──
+    # ── Readability score (v2: calibrated formula) ──
+    # v1 issues: vocab_diversity*3 coefficient uncalibrated, /80 and /35 magic numbers.
+    # v2: use sigmoid-based normalization with empirically calibrated midpoints.
+    #     Chinese web novels: avg_sentence 15-60 chars, vocab_diversity 0.15-0.45.
+    #     Optimal readability ~0.5-0.7 for commercial fiction.
     sentences = re.split(r'[。！？!?]', body)
     sentence_lengths = [len(s.strip()) for s in sentences if s.strip()]
     avg_sentence_len = sum(sentence_lengths) / max(len(sentence_lengths), 1)
     pure_text = body.replace("\n", "").replace(" ", "")
     unique_chars = len(set(pure_text))
     vocab_diversity = unique_chars / max(len(pure_text), 1)
+    # Sigmoid: maps sentence length to 0-1, peak at 30 chars (ideal for web novels)
+    import math as _math
+    sent_component = 1.0 / (1.0 + _math.exp(-0.08 * (avg_sentence_len - 30)))
+    # Vocab diversity: 0.3 is ideal (balanced repetition), deviations reduce readability
+    vocab_component = 1.0 - abs(vocab_diversity - 0.30) * 2.5
+    vocab_component = max(0.0, min(1.0, vocab_component))
+    # Sentence length variance: low variance = monotonous, too high = chaotic
+    if len(sentence_lengths) > 3:
+        sl_std = _math.sqrt(sum((l - avg_sentence_len) ** 2 for l in sentence_lengths) / len(sentence_lengths))
+        variance_component = 1.0 - min(1.0, abs(sl_std - 15) / 30)  # ideal std ~15
+    else:
+        variance_component = 0.5
     readability_score = round(
-        max(0.0, min(1.0, (avg_sentence_len / 80) * 0.5 + (1 - vocab_diversity * 3) * 0.3 +
-         (abs(avg_sentence_len - 35) / 50) * 0.2)), 3)
+        max(0.0, min(1.0,
+            sent_component * 0.40 +
+            vocab_component * 0.35 +
+            variance_component * 0.25
+        )), 3)
 
-    # ── pleasure_intensity (v8: Platt Scaling) ──
+    # ── pleasure_intensity (v10: 放宽压缩+情绪极性校验) ──
+    # v8: *0.7 压缩太狠, 导致10本书 intensity 全部 1.0-2.4, 几乎无章能到"爽"阈值
+    # v9: *0.9 放宽 + 生存成就额外加分
+    # v10: 两项优化 —
+    #   (1) ×0.9→×1.5 放宽压缩，让高潮章能到5-7分
+    #   (2) 情绪极性校验: neg_density>1.5时×0.7，避免悲壮/惨烈场景误判为高爽
     pleasure_raw = (
         pos_density * 2.0 +
         conflict_density * 1.5 +
         excl_density * 0.5 +
         hook_density * 0.5 +
         neg_density * 0.2 +
-        physio_count * 2.0 / max(wc/100, 1)
+        physio_count * 2.0 / max(wc/100, 1) +
+        survival_gain_count * 0.3  # v9: 生存成就贡献
     )
-    pleasure_raw = pleasure_raw * 0.7
+    pleasure_raw = pleasure_raw * 1.5  # v10: 0.9→1.5 放宽压缩
+
+    # v11: 情绪极性校验 — V维度连续衰减替代二元阈值
+    # v10问题: neg_density>1.5时×0.7是断崖式降权，且只看负面不看正面
+    # v11改进: 用V= pos_density - neg_density (效价平衡) 连续衰减
+    #   V > 0 (正面为主): 不降权
+    #   V = 0 (正负平衡，如"压抑→爆发"铺垫): 轻微降权
+    #   V < 0 (纯负面，如惨烈/悲壮): 按比例降权，最低×0.3
+    # 参考VAD模型Valence维度 (vad_analyzer.py), 但只用V避免A维度循环
+    valence = pos_density - neg_density
+    if valence < 0:
+        penalty = max(0.3, 1.0 + valence * 0.15)
+        pleasure_raw *= penalty
     pleasure_intensity = round(max(0, min(10, pleasure_raw)), 1)
 
     if pleasure_intensity >= 6:
@@ -239,6 +309,42 @@ def rule_analyze(ch):
             (low_emotion_count * 2 + burnout_count * 4)
         )), 1)
 
+    # ── v2: 6类阻碍检测 (与18爽点对偶) ──
+    obstacle_counts = {}
+    for i, (cn_name, en_key) in enumerate(OBSTACLE_TYPE_NAMES):
+        obstacle_counts[en_key] = len(OBSTACLE_KW_ALL[i].findall(body))
+    total_obstacles = sum(obstacle_counts.values())
+    obstacle_density = total_obstacles / max(wc, 1) * 100
+    # 主导阻碍类型
+    if total_obstacles > 0:
+        dominant_obstacle = max(obstacle_counts.items(), key=lambda x: x[1])
+        dominant_obstacle_name = next(
+            (cn for cn, en in OBSTACLE_TYPE_NAMES if en == dominant_obstacle[0]),
+            "无"
+        )
+    else:
+        dominant_obstacle_name = "无"
+
+    # ── v2: 命运变化评分 (量化"每章是否推动主角命运轨迹") ──
+    fate_signals_found = {}
+    for signal_name, signal_pat in FATE_SIGNALS:
+        fate_signals_found[signal_name] = len(signal_pat.findall(body))
+    total_fate_signals = sum(fate_signals_found.values())
+    # 评分: 0-100, >70=强推动, <30=日常水文
+    if wc > 0:
+        fate_raw = total_fate_signals / (wc / 1000) * 15
+    else:
+        fate_raw = 0
+    fate_change_score = round(min(100, max(0, fate_raw)), 1)
+    if fate_change_score >= 70:
+        fate_change_level = "strong"   # 强推动
+    elif fate_change_score >= 40:
+        fate_change_level = "moderate"  # 中等推动
+    elif fate_change_score >= 20:
+        fate_change_level = "weak"      # 弱推动
+    else:
+        fate_change_level = "stagnant"  # 剧情停滞 (水文风险)
+
     return {
         "ch_num": ch["num"],
         "ch_hash": ch_hash,
@@ -289,4 +395,23 @@ def rule_analyze(ch):
         "emotion_burnout": emotion_burnout,
         "high_emotion_count": high_emotion_count,
         "burnout_count": burnout_count,
+        # v2: 阻碍检测
+        "obstacle_enemy": obstacle_counts.get("enemy", 0),
+        "obstacle_rule": obstacle_counts.get("rule", 0),
+        "obstacle_resource": obstacle_counts.get("resource", 0),
+        "obstacle_identity": obstacle_counts.get("identity", 0),
+        "obstacle_time": obstacle_counts.get("time", 0),
+        "obstacle_inner": obstacle_counts.get("inner", 0),
+        "obstacle_total": total_obstacles,
+        "obstacle_density": round(obstacle_density, 2),
+        "dominant_obstacle": dominant_obstacle_name,
+        # v2: 命运变化
+        "fate_change_score": fate_change_score,
+        "fate_change_level": fate_change_level,
+        "fate_goal_progress": fate_signals_found.get("goal_progress", 0),
+        "fate_setback": fate_signals_found.get("setback", 0),
+        "fate_revelation": fate_signals_found.get("revelation", 0),
+        "fate_relationship_shift": fate_signals_found.get("relationship_shift", 0),
+        # v3: 生存流隐式爽点
+        "survival_gain_count": survival_gain_count,
     }

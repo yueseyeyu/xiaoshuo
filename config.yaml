@@ -36,6 +36,11 @@ model_orchestration:
   # single_model = 仅加载主模型（P0-2已确定Qwen3.5为最优单模型方案）
   mode: "single_model"
 
+  # v8.3: 禁止 AI 自动启动模型。AI 必须先征求用户确认，用户手动运行 start_model.bat
+  # 设为 true 时: progress_server / model_orchestrator 的自动启动路径被阻断
+  # 手动 bat 脚本不受影响（bat 自带交互确认）
+  auto_start: false
+
   # llama-server.exe 路径（共享环境，所有模型共用）
   llama_server_exe: "D:/miniconda3/envs/llm-shared/Library/bin/llama-server.exe"
 
@@ -46,10 +51,10 @@ model_orchestration:
       gguf: "D:/DaMoXing/Qwen3.5-9B-IQ4_XS.gguf"
       quant: "IQ4_XS"                    # v8.2: 从 Q4_K_M 切换。ByteShape 基准: 准确率 0.9858 vs Q4_K_M 0.9765, TPS +8.6%, 体积 -0.5GB
       port: 8000                         # llama.cpp server 端口
-      n_ctx: 8192                        # 上下文窗口。IQ4_XS 节省 ~0.5GB 显存，可尝试提升至 16384
+      n_ctx: 4096                        # v16: 评分场景 prompt~1200tok+output 180tok，4096 绰绰有余
       n_gpu_layers: 35                   # 全部 35 层 offload 到 GPU
       kv_cache_type_k: "q8_0"           # v7.6: Key 缓存 8-bit（保持精度，影响 MTP 接受率）
-      kv_cache_type_v: "q4_0"           # v7.6: Value 缓存 4-bit（节省 ~25% KV 显存，质量影响极小）
+      kv_cache_type_v: "q8_0"           # v16: Value 缓存 8-bit（q4_0 与 flash-attn 不兼容导致 20x 减速）
       api_key: "xiaoshuo-local-2026"     # v7.5: 本地 API 认证密钥（可选，留空则无认证）
       chat_format: "chatml"              # Qwen 系列用 ChatML 格式
       estimated_vram: "5.5GB"            # v8.2: IQ4_XS 模型 ~5.17GB + KV Cache ~0.3GB
@@ -147,6 +152,25 @@ model_orchestration:
     S4_detection: "main_model"           # 风格检测→主模型
     M5a_beat: "main_model"                # 节拍分析→Qwen3.5-9B
     M5b_drift: "main_model"              # 漂移分析→Qwen3.5-9B
+
+  # ── 按任务分配 ctx 预算 (v8.7) ──
+  # budget = prompt_tokens + max_tokens (总上下文窗口预算)
+  # 在 chat() 中自动估算 messages token 数, 超出 prompt_budget 时裁剪最早的消息
+  # 注意: budget 必须 > 该任务常用的 max_tokens, 否则 prompt_budget 会很小
+  #   例如 S3_logic_cop 用 max_tokens=2048, system prompt ~2000 token, user ~2000 token
+  #   budget 需 ≥ 6144 才能避免误触发裁剪
+  task_ctx_budget:
+    S1_creative: 7168                    # 创意引导: system+设定 ~3000 + 生成 2048 + 余量
+    S2b_reference: 7168                  # AI 参考版: 章节内容 ~3000 + 生成 2048 + 余量
+    S3_logic_cop: 6144                   # 逻辑警察: system ~2000 + 章节 ~2000 + 生成 2048
+    S3_cross_check: 6144                 # 交叉审查: system+章节+主模型报告 ~4000 + 生成 2048
+    S4_style_check: 6144                 # 风格检测: system+章节 ~4000 + 生成 2048
+    S3_editor: 6144                      # 网文编辑: system+章节 ~4000 + 生成 2048
+    S3_qc: 3072                          # 语言质检: 短文本 ~1000 + 生成 2048
+    S4_detection: 6144                   # 风格检测: system+章节 ~4000 + 生成 2048
+    M5a_beat: 6144                       # 节拍分析: system+章节 ~4000 + 生成 2048
+    M5b_drift: 7168                      # 漂移分析: 多章对比 ~5000 + 生成 2048
+    _default: 6144                       # 未列出的任务使用默认预算
 
   fallback: "single_model"               # 双模型任一崩溃→自动降级
 
@@ -323,6 +347,39 @@ detection:
       enabled: true
       fatal_threshold_ratio: 0.6         # N-gram PPL < 基线均值×0.6 = 过于可预测
 
+    # v9.0: 作者指纹偏离度 (来源: "4个致命通病" — 过度依赖Agent导致风格丢失)
+    # 生成稿 vs 作者风格指纹的相对偏离度
+    # 无作者指纹时自动跳过
+    l8_author_fingerprint:
+      enabled: true
+      warning_threshold: 0.3              # 偏离度 > 30% = WARNING
+      fatal_threshold: 0.5                # 偏离度 > 50% = FATAL
+
+    # v8.9: 对白占比检测 (来源: 160万字AI文vs人工文对比分析)
+    # AI文特征: 对白占比极端（<5%纯叙述 或 >65%对话堆砌）
+    # 人工文特征: 自然区间 5%-65%
+    l8_dialogue_ratio:
+      enabled: true
+      min_ratio: 0.05                     # < 5% = 疑似AI纯叙述
+      max_ratio: 0.65                     # > 65% = 疑似AI对话堆砌
+
+    # v8.9: 情感曲线平滑度 (来源: 160万字对比, vad_analyzer.py v3)
+    # AI文情感波动率 < 0.3（一潭死水），人工文 > 0.5
+    # 单调段: 连续3+章同方向情绪变化
+    l9_emotion_curve:
+      enabled: true
+      volatility_warn: 0.3                # < 0.3 = WARNING (情感过于平滑)
+      volatility_block: 0.2               # < 0.2 = BLOCK (AI典型特征)
+      max_monotony_length: 5              # 单调段 > 5章 = WARNING
+      min_jump_ratio: 0.1                 # 跳跃次数 < 总章数10% = WARNING
+
+    # v8.9: 显性连接词密度 (来源: 160万字对比)
+    # AI文 > 8/千字，人工文 < 5/千字
+    l10_conjunction_density:
+      enabled: true
+      warn_density_per_1k: 5.0            # > 5/千字 = WARNING
+      block_density_per_1k: 8.0           # > 8/千字 = BLOCK
+
     # v7.6: 代码层 L5/L6 专用配置 (style_detection_loop.py)
     l5_character_consistency:
       enabled: true
@@ -450,6 +507,30 @@ analysis:
       - "神秘尽头"
       - "超级神基因"
       - "末世：从加点开始无限进化"
+      - "末世之深渊召唤师"
+      - "末世魔神游戏"
+      - "我在末世种个田"
+      - "黑暗血时代"
+      # P1: 2026-07-11 分类审计新增（非末世频道书籍）
+      - "惊悚乐园"
+      - "我在精神病院学斩神"
+      - "我有一座冒险屋"
+      - "烂柯棋缘"
+      - "第九特区"
+      - "镇妖博物馆"
+      - "恐怖复苏"
+      - "深海余烬"
+      - "我真的长生不老"
+      - "星空职业者"
+      - "深渊之主"
+      - "全球变异"
+      - "斗罗"
+      - "黑暗末日"
+      - "我的末世领地"
+      - "蹉跎"
+      - "第一序列"
+      - "长夜余火"
+      - "末日乐园"
     # 已知精品的预设 genre（跳过关键词自动检测，防误分类）
     known_genre_map:
       "异兽迷城": "末世"
@@ -472,6 +553,7 @@ analysis:
       # P0: 最终9本审计 (Marvis正文验证)
       "深渊之主": "奇幻"
       "地球游戏场": "末世"
+      "全球变异": "末世"
       "全球变异，从灾厄降临开始": "末世"
       "我的女友是丧尸": "末世"
       "末世之深渊召唤师": "末世"
@@ -482,24 +564,150 @@ analysis:
       "黑暗王者": "末世"
       "神秘尽头": "末世"
       "蹉跎": "末世"
+      "黑暗末日": "末世"
+      "第一序列": "末世"
+      "长夜余火": "末世"
+      "末日乐园": "末世"
+      "我的末世领地": "末世"
+      # P1: 2026-07-11 分类审计 — 非末世频道书籍正确分类
+      "惊悚乐园": "游戏"
+      "我在精神病院学斩神": "都市"
+      "我有一座冒险屋": "悬疑"
+      "烂柯棋缘": "仙侠"
+      "第九特区": "末世"
+      "镇妖博物馆": "悬疑"
+      "恐怖复苏": "悬疑"
+      "深海余烬": "科幻"
+      "我真的长生不老": "都市"
+      "星空职业者": "奇幻"
+      "斗罗": "同人"
     # 🆕 作者豁免列表: 这些书跳过所有自动 FAIL/QUARANTINE
     # 工具的角色是辅助筛选，不是自动裁判；作者有权保护自己的参考书
     author_protected_books: []
+
+    # ── 分层质量体系 (v8.7: 三方AI审视后修订) ──
+    # 正反例双轨学习: 精品池(S/A/B+/B/B-) vs 反例池(C)
+    #
+    # 理论框架 (v8.7修正: 经三方AI审视，DPO类比过度延伸，改为更准确的定位):
+    #   - Contrastive Learning: do/dont卡片=正反例对比, 非参数优化
+    #   - Curriculum Learning (Bengio et al. 2009): S→A→B+→B→B-→C 课程顺序
+    #   - Weighted Importance Sampling (Precup et al. 2000, ICML): 质量加权采样
+    #   - Preference-based Data Selection: chosen/rejected数据选择, 非DPO参数优化
+    #   注: DPO (Rafailov 2023) 需成对偏好对+参数优化, 本系统仅做数据选择+检索注入
+    #
+    # 权重设计: 经验性阶梯衰减 (非单一指数函数)
+    #   S=1.0, A=0.7, B+=0.4, B=0.3, B-=0.2, C=0.0
+    #   采样倍数: round(weight*10) → S=10, A=7, B+=4, B=3, B-=2, C=0
+    #
+    # C级权重0.0: 不污染正样本池, 仅用于反模式提取(contrastive rejected)
+    # 分级依据: 加权Borda排名 + 外部排名(bt/webnovel8) + 节奏指标 + 商业评分
+    #   商业评分<50 → 自动归C级; borda后10% → C级候选
+    # 注: "开山之作"/"经典"标签不自动=S, 以数据为准
+    #
+    # v8.8修订依据: 三方AI(DeepSeek+Kimi+Doubao)审视 + 用户确认过滤"鼻祖效应"
+    #   v8.7→v8.8变更:
+    #   - 黑暗血时代 A→S: 三方全票, 文字质量够S (非靠鼻祖标签)
+    #   - 末世之深渊召唤师 S→A: 三方全票, 外部零验证, 原S级靠signing循环论证
+    #   - 神秘尽头 S→A: 三方全票, 仅292章短篇效应高估hook3
+    #   - 狩魔手记 B+→A: 豆瓣8.1, 文学性强, 多平台一致
+    #   - 第九特区 B-→B: 三方建议升级但仅升一级, 连升到A过于激进
+    #   - 第一序列(新增S): 289万字完结, 十万均订, 中国图书馆典藏, 文字+商业双顶级
+    #   - 长夜余火(新增S): 281万字完结, 白金大神乌贼, 文学深度+废土公路片
+    #   - 末日乐园(新增S): 800万字完结(2428章), 末世无限流标杆, 女频末世天花板
+    #   - 末日蟑螂维持B: 过滤"鼻祖效应", hook3=0.31节奏极弱, 不因历史地位升级
+    #   - 蹉跎维持C: 过滤"鼻祖效应", 商业46=D级, 2002年作品对AI无学习价值
+    #   核心原则: 文字质量优先, "鼻祖"/"经典"标签不自动=高质量
+    quality_tiers:
+      S:                         # 绝世神作, 白金代表 — 权重1.0, 正例核心
+        weight: 1.0
+        description: "多维度顶尖, AI学习的核心标杆"
+        books:
+          - "地球游戏场"              # borda#1, signing#1, diversity#3, 独立排名#2
+          - "末世大回炉"              # borda#3, pleasure_all=5.53(最高), 独立排名#1
+          - "异兽迷城"                # borda#4, bt#6, 各维度均衡, 无明显短板
+          - "黑暗血时代"              # v8.8: A→S升级, 三方全票, 商业72+A, hook3=2.46(第4)
+          - "第一序列"                # v8.8新增, 289万字完结, 十万均订, 中国图书馆典藏
+          - "长夜余火"                # v8.8新增, 281万字完结, 白金大神乌贼, 文学深度+废土
+          - "末日乐园"                # v8.8新增, 800万字完结(2428章), 末世无限流标杆, 女频末世天花板
+      A:                         # 质量上乘佳作 — 权重0.7, 正例补充
+        weight: 0.7
+        description: "优秀作品, 补充学习多样性"
+        books:
+          - "我的末世领地"            # borda#7, pleasure3=5.40(最高!)
+          - "从红月开始"              # borda#8, bt#2, webnovel8#2, hook3=2.88
+          - "世界末日从考试不及格开始"  # borda#9, bt#1, webnovel8#1, 外部#1
+          - "末世魔神游戏"            # v8.7: S→A降级, hook3=1.10偏低, zero_hook_10=2
+          - "末世召唤狂潮"            # borda#11, conflict3=0.88
+          - "末日拼图游戏"            # borda#12, hook3=2.21, conflict3=0.94
+          - "废土崛起"                # borda#13, bt#5, pleasure3=2.87
+          - "全球变异"                # borda#14, hook3=2.49(第3)
+          - "末世之深渊召唤师"        # v8.8: S→A降级, 外部零验证, signing循环论证
+          - "神秘尽头"                # v8.8: S→A降级, 仅292章短篇效应高估hook3
+          - "狩魔手记"                # v8.8: B+→A升级, 豆瓣8.1, 文学性强, 多平台一致
+      B_plus:                    # B+ 良好偏上 — 权重0.4
+        weight: 0.4
+        description: "中上质量, 有亮点但存在短板"
+        books:
+          - "全球进化"                # v8.7: A→B+降级, hook3=0.99, zero_hook_10=2
+          - "我在末世有套房"          # borda#17
+          - "黑暗文明"                # borda#18, diversity#1
+          - "恐慌沸腾"                # borda#19, bt#7
+      B:                          # B 良好, 书荒仙草 — 权重0.3
+        weight: 0.3
+        description: "中等质量, 提供题材多样性覆盖"
+        books:
+          - "我的女友是丧尸"          # borda#20
+          - "灾厄纪元"                # borda#21
+          - "黑暗王者"                # borda#22
+          - "重卡战车在末世"          # borda#23
+          - "末日蟑螂"                # borda#24, 过滤鼻祖效应维持B, hook3=0.31极弱
+          - "第九特区"                # v8.8: B-→B升级, 仅升一级不过激
+      B_minus:                    # B- 中等偏下 — 权重0.2
+        weight: 0.2
+        description: "中下质量, 节奏/商业有明显弱项"
+        books:
+          - "末世超级商人"            # borda#26, 各项指标偏低
+          - "我在末世种个田"          # borda#28
+          - "限制级末日症候"          # borda#29
+      C:                         # 反例/反面教材 — 权重0.0, 不进入正样本池
+        weight: 0.0
+        description: "反面教材, 用于反模式提取(contrastive rejected)"
+        books:
+          - "末世之三宫六院"          # 用户确认垃圾书 (无节奏数据)
+          - "末世精灵皇"              # 用户确认垃圾书 (无节奏数据)
+          - "蹉跎"                    # v8.7: B→C降级, 商业评分46=D, 过滤鼻祖效应维持C
+          - "黑暗末日"                # v8.7: B→C降级, 商业评分43=D, borda#30, 有节奏数据
+
+    # ── Borda维度权重 (v8.7新增) ──
+    # 问题: 原等权Borda存在两个结构性缺陷:
+    #   1. signing是内部LLM评分, 与commercial_score循环论证
+    #   2. diversity衡量题材覆盖而非质量, 不应作为质量指标
+    #   3. bt_rank和webnovel8高度相关, 同一信号被等权计两次
+    # 修复: 外部验证(bt+webnovel8)权重最高, 内部评分(signing+retention)降权
+    # 依据: DeepSeek(signing 0.7, bt/web 1.3) + Kimi(diversity非质量) + Doubao(60%内部过高)
+    borda_dimension_weights:
+      signing: 0.8              # 内部LLM评分, 降权(循环论证风险)
+      retention: 0.8            # 内部LLM留存预测, 与signing信息冗余
+      diversity: 0.4            # 非质量指标, 大幅降权(采样约束而非质量维度)
+      bt_rank: 1.5              # 外部热度排名, 升权(独立验证信号)
+      webnovel8: 1.5            # 外部多站排名, 升权(独立验证信号)
+      # 总权重 = 0.8+0.8+0.4+1.5+1.5 = 5.0 (保持5维度归一化)
 
     # ── 题材检测规则 (v7.5: 从 book_processor.py 迁移至 SSOT) ──
     # L2: 加权关键词 (weight=P(genre|keyword))
     genre_keywords:
       末世: {丧尸: 1.0, 末日: 0.9, 废土: 0.8, 灾变: 0.7, 异兽: 0.5, 兽潮: 0.5, 变异: 0.4, 生存: 0.2, 进化: 0.1, 觉醒: 0.15, 末世: 0.9}
-      科幻: {星舰: 1.0, 外星: 0.9, 银河: 0.8, 人工智能: 0.8, 太空: 0.7, 科幻: 0.9, 星际: 0.8, 飞船: 0.5, 光速: 0.4}
+      科幻: {星舰: 1.0, 外星: 0.9, 银河: 0.8, 人工智能: 0.8, 太空: 0.7, 科幻: 0.9, 星际: 0.8, 飞船: 0.5, 光速: 0.4, 深海: 0.5, 余烬: 0.5, 文明: 0.3}
       玄幻: {练气: 0.8, 斗气: 0.8, 魔法: 0.7, 武魂: 0.7, 玄幻: 0.5, 异界: 0.6, 召唤: 0.6, 魂环: 0.8}
-      仙侠: {金丹: 1.0, 元婴: 1.0, 修仙: 0.9, 飞升: 0.8, 渡劫: 0.8, 灵根: 0.7, 飞剑: 0.7, 仙侠: 0.9, 筑基: 0.8, 炼气: 0.7, 剑修: 0.7}
+      仙侠: {金丹: 1.0, 元婴: 1.0, 修仙: 0.9, 飞升: 0.8, 渡劫: 0.8, 灵根: 0.7, 飞剑: 0.7, 仙侠: 0.9, 筑基: 0.8, 炼气: 0.7, 剑修: 0.7, 道侣: 0.6, 宗门: 0.6, 棋缘: 0.8, 烂柯: 0.8}
       无限流: {主神: 1.0, 轮回: 0.8, 副本: 0.7, 无限流: 0.9, 穿梭: 0.5, 诸天: 0.5, 位面: 0.5}
       历史: {大明: 1.0, 明朝: 1.0, 崇祯: 1.0, 唐朝: 1.0, 三国: 1.0, 穿越: 0.15, 古代: 0.5, 帝国: 0.5, 皇帝: 0.6, 朝廷: 0.7, 大宋: 1.0, 清朝: 1.0}
-      都市: {都市: 0.9, 校花: 0.8, 总裁: 0.8, 重生: 0.15, 系统: 0.1, 上班: 0.7, 公司: 0.6, 现代: 0.6}
-      悬疑: {恐怖: 0.8, 诡异: 0.8, 鬼: 0.7, 诅咒: 0.7, 悬疑: 0.9, 推理: 0.8, 凶杀: 0.8, 刑警: 0.7}
+      都市: {都市: 0.9, 校花: 0.8, 总裁: 0.8, 重生: 0.15, 系统: 0.1, 上班: 0.7, 公司: 0.6, 现代: 0.6, 异能: 0.5, 超能力: 0.5, 精神病院: 0.7, 长生: 0.4}
+      悬疑: {恐怖: 0.8, 诡异: 0.8, 鬼: 0.7, 诅咒: 0.7, 悬疑: 0.9, 推理: 0.8, 凶杀: 0.8, 刑警: 0.7, 鬼屋: 0.9, 冒险屋: 0.9}
+      同人: {同人: 0.9, 斗罗: 0.8, 火影: 0.8, 海贼: 0.8, 龙珠: 0.8, 二次元: 0.7, 原著: 0.5, 穿越: 0.1}
       武侠: {武功: 0.8, 内力: 0.9, 江湖: 0.8, 刀法: 0.7, 剑法: 0.7, 武林: 0.9, 轻功: 0.8, 武侠: 0.9}
       洪荒: {盘古: 1.0, 鸿钧: 1.0, 三清: 1.0, 通天: 0.9, 太上: 0.9, 原始: 0.9, 昆仑: 0.8, 洪荒: 0.9, 圣人: 0.7, 封神: 0.8, 准提: 0.9, 接引: 0.9, 女娲: 0.9, 东皇: 0.8, 巫族: 0.8, 妖族: 0.7}
-      游戏: {网游: 1.0, 电竞: 0.9, 全息: 0.8, 副本: 0.5, BOSS: 0.6, NPC: 0.6, 等级: 0.3, 任务: 0.2}
+      游戏: {网游: 1.0, 电竞: 0.9, 全息: 0.8, 副本: 0.5, BOSS: 0.6, NPC: 0.6, 等级: 0.3, 任务: 0.2, 虚拟现实: 0.8, 游戏世界: 0.7, 惊悚乐园: 0.9}
       奇幻: {魔法: 1.0, 异世界: 0.9, 龙: 0.5, 精灵: 0.8, 矮人: 0.8, 魔兽: 0.7, 剑与魔法: 0.9}
     # L1: 书名关键词 → 直接题材映射 (优先级高于 L2)
     title_rules:
@@ -525,6 +733,7 @@ analysis:
       "赛博": "科幻"
       "机甲": "科幻"
       "银河": "科幻"
+      "斗罗": "同人"
       "武侠": "武侠"
       "武林": "武侠"
       "网游": "游戏"
@@ -574,8 +783,9 @@ analysis:
         pass_probability_low: 40         # 通过概率<40%: 红色预警
         pass_probability_medium: 60      # 通过概率<60%: 黄色预警
 
-  # ── AI写作味检测 v8.2 (ai_flavor_detector.py) ──
+  # ── AI写作味检测 v8.3 (ai_flavor_detector.py) ──
   # 检测正文是否存在AI写作痕迹，逆向拆解"去AI味指令"为检测规则
+  # v2 新增: 心理前缀冗余 + 连词剧透 + 情绪冗余
   ai_flavor_detection:
     enabled: true
     negative_rules:                      # 负面检测（禁止项）
@@ -595,6 +805,32 @@ analysis:
         - "她的嘴角"
         - "他看起来"
         - "她显得"
+      # v2: 心理前缀冗余 ("他心里想/他不禁感到"等隔阂代词)
+      mental_prefix:
+        enabled: true
+        warn_density_per_1k: 3.0         # >3处/千字 = WARNING
+        block_density_per_1k: 8.0        # >8处/千字 = BLOCK
+      # v2: 连词剧透 (反转/冲突时刻的"却/但是/然而"提前剧透)
+      conjunction_spoiler:
+        enabled: true
+        context_window: 50              # 检查连词前后N字是否有反转标记
+        warn_count: 2                   # >2处 = WARNING
+        block_count: 5                  # >5处 = BLOCK
+      # v2: 情绪冗余 ("复读机"式情绪形容词+动作+台词重复)
+      emotion_redundancy:
+        enabled: true
+        warn_count: 2                   # >2处/章 = WARNING
+        block_count: 5                  # >5处/章 = BLOCK
+      # v8.9: 对白占比检测 (来源: 160万字对比分析)
+      dialogue_ratio:
+        enabled: true
+        min_ratio: 0.05                 # < 5% = 疑似AI纯叙述
+        max_ratio: 0.65                 # > 65% = 疑似AI对话堆砌
+      # v8.9: 显性连接词全篇密度 (AI文 > 8/千字, 人工文 < 5/千字)
+      conjunction_density:
+        enabled: true
+        warn_density_per_1k: 5.0        # > 5/千字 = WARNING
+        block_density_per_1k: 8.0       # > 8/千字 = BLOCK
     positive_dimensions:                 # 正面评分维度
       dialogue_naturalness: true         # 对话口语化
       sensory_detail_density: true       # 感官细节密度
@@ -632,7 +868,7 @@ analysis:
 
   # ── LLM 端口 (rhythm_analyzer.py llm_verify) ──
   llm_port: 8000                        # 从 model_orchestration.models.main_model.port 同步
-  llm_parallel: 2                       # LLM评分并行worker数 (匹配 start_model.bat --parallel)
+  llm_parallel: 1                       # v16: 评分顺序执行，parallel=1 节省 KV cache 显存
 
   # ── 评分验证 (score_validator.py, P1启用) ──
   validation:
@@ -787,6 +1023,33 @@ character_arc:
   auto_check_every_n_chapters: 5     # 每 N 章自动检查弧光健康度
 
 # ============================================================
+# v8.3: 叙事质量扩展 — 命运变化评分 + 阻碍检测 + 情绪缓冲带
+# 模块: rhythm/rule_analyzer.py + rhythm/patterns.py + scoring/beat_detector.py
+# 来源: Kimi写作技巧建议量化
+# ============================================================
+narrative_quality:
+  # 命运变化评分 (量化"每章是否推动主角命运轨迹")
+  fate_change:
+    enabled: true
+    strong_threshold: 70                # ≥70: 强推动
+    moderate_threshold: 40              # ≥40: 中等推动
+    weak_threshold: 20                  # ≥20: 弱推动 (<20: 剧情停滞/水文风险)
+    stagnant_warning_streak: 3          # 连续N章 <20 → 触发"命运停滞警告"
+
+  # 6类阻碍检测 (与18爽点对偶)
+  obstacle_detection:
+    enabled: true
+    types: [enemy, rule, resource, identity, time, inner]
+
+  # 情绪缓冲带检测 (避免连续紧张或连续缓冲)
+  emotion_buffer:
+    enabled: true
+    high_threshold: 0.65                # 归一化后 ≥0.65 = 高紧张
+    low_threshold: 0.35                 # 归一化后 ≤0.35 = 低紧张
+    max_tension_streak: 5               # 连续紧张章数上限 (超过 = 读者疲劳风险)
+    max_buffer_streak: 2                # 连续缓冲章数上限 (超过 = 节奏拖沓风险)
+
+# ============================================================
 # P1.3: Style DNA — 风格基因提取 + Part E 增强
 # 模块: pipeline/style_dna.py
 # 五维量化: D1句法 / D2词汇 / D3节奏 / D4幽默 / D5视角
@@ -914,11 +1177,12 @@ nsfw_roleplay:
 api_server:
   host: "127.0.0.1"
   port: 8089                           # 后端服务端口；CLI --port 可覆盖
-  static_dir: "prototype"              # 前端静态文件目录（相对项目根）
+  static_dir: "frontend/dist"          # Vue 3 构建产物（npm run build 生成）
   static_mount: "/"                    # 静态文件挂载路径
   cors:
     allow_origins:                     # 同源部署时仍保留，防止直接跨站调用 API
       - "http://localhost:8089"
       - "http://127.0.0.1:8089"
-    allow_methods: ["GET", "POST", "OPTIONS"]
+      - "http://localhost:5173"           # Vite 开发服务器
+    allow_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
     allow_headers: ["*"]

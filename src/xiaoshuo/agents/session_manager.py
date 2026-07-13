@@ -400,17 +400,31 @@ class SessionManager:
     def detect_style(self, chapter: int) -> dict:
         """对指定章节执行 S4+++ 风格检测。
 
+        v9.0: 自动加载 AuthorProfile 风格指纹, 传入 L8 偏离度检测。
+
         Returns:
             {"verdict": "PASS"|"WARNING"|"FATAL", "flags": int, "summary": str}
         """
         try:
             from xiaoshuo.agents.style_detector import StyleDetector
+            from xiaoshuo.agents.author_profile import AuthorProfile
             path = self.get_chapter_path(chapter)
             if not path:
                 return {"verdict": "SKIP", "flags": 0, "summary": "章节文件不存在"}
             text = path.read_text(encoding="utf-8")
+
+            # v9.0: 加载作者指纹
+            author_fp = None
+            try:
+                profile = AuthorProfile()
+                fp = profile.style_fingerprint
+                if fp.get("avg_sentence_length", 0) > 0:
+                    author_fp = fp
+            except Exception:
+                pass  # 无作者档案时跳过 L8
+
             detector = StyleDetector()
-            result = detector.detect(text, chapter_num=chapter)
+            result = detector.detect(text, chapter_num=chapter, author_fingerprint=author_fp)
             return {
                 "verdict": result.verdict,
                 "flags": result.flags,

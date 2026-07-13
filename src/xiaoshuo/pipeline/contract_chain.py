@@ -190,9 +190,19 @@ class ChapterCommit:
         self.new_facts = []       # strings: facts established
         self.new_debts = []       # dicts: {summary, type, severity}
         self.resolved_debts = []  # ints: debt IDs resolved
+        # v8.6: 势力状态变更
+        self.faction_changes = []  # list of {faction_id, field, delta, reason}
 
     def audit(self):
-        """Extract facts and debts from chapter data."""
+        """Extract facts and debts from chapter data.
+
+        Note: This method appends to self.new_facts/new_debts. If called
+        multiple times, results will accumulate. Use _audit_done flag to
+        ensure idempotency.
+        """
+        if getattr(self, "_audit_done", False):
+            return self._cached_audit
+        self._audit_done = True
         # Fact extraction from rhythm metrics
         r = self.rhythm
         wc = int(r.get("wc", 0))
@@ -227,13 +237,59 @@ class ChapterCommit:
         if float(r.get("pleasure_intensity", 0)) > 3.0:
             self.resolved_debts.append("previous_emotion_buildup")
 
-        return {
+        # v8.6: 从章节文本提取势力状态变更
+        self._extract_faction_changes()
+
+        # v8.6: 根据势力变更生成势力债务 (统一入口，避免重复)
+        for change in self.faction_changes:
+            fac_id = change.get("faction_id", "")
+            field = change.get("field", "")
+            delta = change.get("delta", 0)
+            reason = change.get("reason", "")
+            debt_type = change.get("debt_type")
+
+            # 优先使用规则定义的 debt_type
+            if debt_type:
+                self.new_debts.append({
+                    "type": debt_type,
+                    "summary": f"{fac_id} — {reason} (第{self.chapter_num}章)",
+                    "severity": "HIGH" if delta < -0.15 else "MED",
+                    "faction_id": fac_id,
+                })
+            # 补充：基于变更幅度生成额外债务
+            elif field == "stability" and delta < -0.15:
+                self.new_debts.append({
+                    "type": "faction_internal_crisis",
+                    "summary": f"势力{fac_id}稳定度骤降({delta:+.2f}) — 后续需处理内部危机后果",
+                    "severity": "HIGH",
+                    "faction_id": fac_id,
+                })
+            elif field == "threat_level" and delta > 0.15:
+                self.new_debts.append({
+                    "type": "faction_external_threat",
+                    "summary": f"势力{fac_id}面临严重外部威胁(+{delta:.2f}) — 后续需应对入侵或冲突",
+                    "severity": "HIGH",
+                    "faction_id": fac_id,
+                })
+            elif field == "power_level" and delta < 0:
+                self.new_debts.append({
+                    "type": "faction_decline",
+                    "summary": f"势力{fac_id}实力下降({delta}) — 后续需处理衰弱后果",
+                    "severity": "MED",
+                    "faction_id": fac_id,
+                })
+
+        result = {
             "chapter": self.chapter_num,
             "wc": wc,
             "new_facts": self.new_facts,
             "new_debts": self.new_debts,
             "resolved": self.resolved_debts,
+            # v8.6: 势力状态变更
+            "faction_changes": self.faction_changes,
         }
+        self._cached_audit = result
+        return result
 
     def to_markdown(self):
         """Generate post-write audit as markdown."""
@@ -254,7 +310,114 @@ class ChapterCommit:
         if data["resolved"]:
             lines.append(f"**已兑现:** {', '.join(data['resolved'])}")
             lines.append("")
+        # v8.6: 势力状态变更
+        if data.get("faction_changes"):
+            lines.append("**势力状态变更:**")
+            for fc in data["faction_changes"]:
+                fac = fc.get("faction_id", "?")
+                field = fc.get("field", "")
+                delta = fc.get("delta", 0)
+                reason = fc.get("reason", "")
+                sign = "+" if delta >= 0 else ""
+                lines.append(f"  - {fac}.{field} {sign}{delta:.2f} ({reason})")
+            lines.append("")
         return lines
+
+    # ── v8.6: 势力状态变更提取 ──
+
+    def _extract_faction_changes(self):
+        """v8.6: 从章节文本中启发式提取势力状态变更。
+
+        通过关键词匹配检测章节中描述的势力状态变化，
+        生成结构化的 faction_changes 记录。
+
+        检测模式:
+        - 战争/冲突 → stability 下降, threat 上升
+        - 结盟/合作 → threat 下降, treasury 上升
+        - 内乱/政变 → stability 大幅下降
+        - 资源发现 → treasury 上升
+        - 首领死亡 → stability/morale 下降
+        """
+        if not self.text:
+            return
+
+        text = self.text
+
+        # 势力名称候选 (从文本中提取常见模式)
+        # 简化版：检测"XX势力"、"XX族"、"XX军"等模式
+        import re
+        faction_pattern = re.compile(
+            r'([\u4e00-\u9fff]{2,6}(?:势力|族|军|盟|帮|派|教|国|城|营|会))'
+        )
+        factions_found = set(faction_pattern.findall(text))
+
+        # 关键词 → 效果映射
+        change_rules = [
+            {
+                "keywords": ["开战", "宣战", "进攻", "入侵", "攻打", "出兵", "战争爆发"],
+                "field": "stability",
+                "delta": -0.15,
+                "reason": "战争爆发",
+                "debt_type": "faction_war",
+            },
+            {
+                "keywords": ["结盟", "联盟", "合作", "签订条约", "议和", "停战"],
+                "field": "threat_level",
+                "delta": -0.10,
+                "reason": "结盟/议和",
+                "debt_type": "faction_alliance",
+            },
+            {
+                "keywords": ["叛乱", "政变", "内战", "哗变", "造反", "兵变"],
+                "field": "stability",
+                "delta": -0.25,
+                "reason": "内部叛乱",
+                "debt_type": "faction_internal_crisis",
+            },
+            {
+                "keywords": ["首领死亡", "首领被杀", "族长陨落", "城主战死", "掌门身亡",
+                            "首领遇刺", "被斩杀"],
+                "field": "morale",
+                "delta": -0.20,
+                "reason": "首领死亡",
+                "debt_type": "faction_leadership_crisis",
+            },
+            {
+                "keywords": ["发现矿脉", "获得资源", "意外收获", "宝藏", "资源丰富"],
+                "field": "treasury",
+                "delta": 0.15,
+                "reason": "资源发现",
+                "debt_type": None,
+            },
+            {
+                "keywords": ["溃败", "惨败", "全军覆没", "大败", "惨遭屠杀"],
+                "field": "power_level",
+                "delta": -1,
+                "reason": "惨败",
+                "debt_type": "faction_decline",
+            },
+        ]
+
+        for rule in change_rules:
+            matched_kw = ""
+            for kw in rule["keywords"]:
+                if kw in text:
+                    matched_kw = kw
+                    break
+
+            if matched_kw:
+                # 对所有检测到的势力应用变更
+                for fac_name in factions_found:
+                    self.faction_changes.append({
+                        "faction_id": fac_name,
+                        "field": rule["field"],
+                        "delta": rule["delta"],
+                        "reason": rule["reason"],
+                        "keyword_matched": matched_kw,
+                        "debt_type": rule.get("debt_type"),
+                    })
+
+        # 注意：债务生成由 audit() 统一处理，这里只记录变更
 
 
 # ============================================================================
@@ -294,8 +457,21 @@ class DebtBoard:
             "debts": self.debts,
         }, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    def add_debt(self, chapter_num, debt_type, summary, severity="MED"):
-        """Add a new debt to the board."""
+    def add_debt(self, chapter_num, debt_type, summary, severity="MED",
+                 faction_id=None, target_faction_id=None):
+        """Add a new debt to the board.
+
+        v8.6: 新增势力债务支持。当 debt_type 以 'faction_' 开头时，
+        该债务关联到势力而非角色，用于追踪势力间的动态关系。
+
+        Args:
+            chapter_num: 产生债务的章节
+            debt_type: 债务类型（如 '伏笔', '角色弧' 或 'faction_war', 'faction_alliance'）
+            summary: 债务摘要
+            severity: 严重度 (LOW/MED/HIGH/CRITICAL)
+            faction_id: v8.6 新增 — 关联势力ID
+            target_faction_id: v8.6 新增 — 目标势力ID（用于势力间债务）
+        """
         debt = {
             "id": self._next_id,
             "origin_ch": chapter_num,
@@ -305,6 +481,10 @@ class DebtBoard:
             "status": "pending",
             "created_at": datetime.now().isoformat(),
             "resolved_at": None,
+            # v8.6: 势力债务扩展字段
+            "faction_id": faction_id,
+            "target_faction_id": target_faction_id,
+            "is_faction_debt": debt_type.startswith("faction_") if debt_type else False,
         }
         self.debts.append(debt)
         self._next_id += 1
@@ -334,6 +514,55 @@ class DebtBoard:
         return [d for d in self.get_pending()
                 if current_chapter - d["origin_ch"] > overdue_gap]
 
+    # v8.6: 势力债务专用方法
+
+    def get_faction_debts(self, faction_id=None, current_chapter=None):
+        """v8.6: 获取势力相关的债务。
+
+        Args:
+            faction_id: 筛选特定势力的债务；None 返回所有势力债务
+            current_chapter: 只返回该章之前的债务
+
+        Returns:
+            势力债务列表
+        """
+        result = [d for d in self.debts if d.get("is_faction_debt")]
+        if faction_id:
+            result = [d for d in result
+                      if d.get("faction_id") == faction_id
+                      or d.get("target_faction_id") == faction_id]
+        if current_chapter:
+            result = [d for d in result if d["origin_ch"] <= current_chapter]
+        return result
+
+    def add_faction_debt(self, chapter_num, debt_type, summary,
+                         faction_id, target_faction_id=None,
+                         severity="HIGH"):
+        """v8.6: 添加势力间债务（便捷方法）。
+
+        常用势力债务类型:
+        - faction_war: 战争状态（需后续章节处理战争后果）
+        - faction_alliance: 结盟承诺（需后续章节体现盟友互动）
+        - faction_debt: 资源/人情债务（需后续章节偿还）
+        - faction_betrayal: 背叛事件（需后续章节处理报复）
+        - faction_refugee: 难民问题（需后续章节处理安置）
+
+        Args:
+            chapter_num: 章节
+            debt_type: 必须以 'faction_' 开头
+            summary: 债务摘要
+            faction_id: 源势力ID
+            target_faction_id: 目标势力ID
+            severity: 默认 HIGH
+        """
+        if not debt_type.startswith("faction_"):
+            debt_type = f"faction_{debt_type}"
+        return self.add_debt(
+            chapter_num, debt_type, summary, severity,
+            faction_id=faction_id,
+            target_faction_id=target_faction_id,
+        )
+
     def _trim(self):
         """Prevent unlimited growth: archive old resolved debts."""
         resolved_old = [d for d in self.debts
@@ -349,12 +578,18 @@ class DebtBoard:
         by_type = defaultdict(int)
         for d in self.debts:
             by_type[d["type"]] += 1
+        # v8.6: 势力债务统计
+        faction_debts = [d for d in self.debts if d.get("is_faction_debt")]
+        faction_pending = [d for d in faction_debts if d["status"] == "pending"]
         return {
             "total": len(self.debts),
             "pending": pending,
             "resolved": resolved,
             "by_type": dict(by_type),
             "overdue_count": 0,
+            # v8.6: 势力债务统计
+            "faction_debts_total": len(faction_debts),
+            "faction_debts_pending": len(faction_pending),
         }
 
     def to_markdown(self, current_chapter=0):
@@ -372,7 +607,24 @@ class DebtBoard:
         if s["pending"] > 0:
             lines.append("**[待兑现]**")
             for d in self.get_pending()[:10]:
-                lines.append(f"  - [{d['severity']}] ch{d['origin_ch']}: {d['summary'][:60]}")
+                # v8.6: 标记势力债务
+                faction_tag = ""
+                if d.get("is_faction_debt"):
+                    fac = d.get("faction_id", "?")
+                    tgt = d.get("target_faction_id", "")
+                    faction_tag = f" [{fac}→{tgt}]" if tgt else f" [{fac}]"
+                lines.append(f"  - [{d['severity']}] ch{d['origin_ch']}{faction_tag}: {d['summary'][:60]}")
+            lines.append("")
+
+        # v8.6: 势力债务单独分区
+        faction_pending = [d for d in self.get_pending() if d.get("is_faction_debt")]
+        if faction_pending:
+            lines.append("**[势力动态债务]**")
+            for d in faction_pending[:10]:
+                fac = d.get("faction_id", "?")
+                tgt = d.get("target_faction_id", "")
+                arrow = f" → {tgt}" if tgt else ""
+                lines.append(f"  - [{d['severity']}] ch{d['origin_ch']} {fac}{arrow}: {d['summary'][:60]}")
             lines.append("")
         return lines
 

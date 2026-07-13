@@ -198,6 +198,108 @@ class BeatDetector:
             "total_chapters": self.total_chapters,
         }
 
+    # ── v2: 情绪缓冲带检测 ──
+    # 避免: 紧张→紧张→紧张 (读者疲劳) 或 缓冲→缓冲→缓冲 (节奏拖沓)
+    # 理想: 紧张(3章) → 缓冲(1章) → 紧张(2章) → 缓冲(1章)
+
+    @staticmethod
+    def detect_emotion_buffer(
+        emotion_values: list[float],
+        chapter_nums: list[int] | None = None,
+        high_threshold: float = 0.65,
+        low_threshold: float = 0.35,
+    ) -> dict:
+        """v2: 检测紧张章节后是否有适当的"情绪缓冲"。
+
+        Args:
+            emotion_values: 每章情绪强度列表 (0-1 或 0-10，自动归一化)
+            chapter_nums: 章节号列表 (可选，默认 1..N)
+            high_threshold: 高紧张阈值 (归一化后)
+            low_threshold: 低紧张阈值 (归一化后)
+
+        Returns:
+            {
+                "pattern": [...],           # 每章标签 "high"/"low"/"mid"
+                "max_tension_streak": int,  # 最长连续紧张章数
+                "max_buffer_streak": int,   # 最长连续缓冲章数
+                "warnings": [str],          # 问题列表
+                "ideal_pattern": bool,      # 是否符合理想紧张-缓冲交替
+            }
+        """
+        if not emotion_values:
+            return {"pattern": [], "max_tension_streak": 0, "max_buffer_streak": 0,
+                    "warnings": ["无数据"], "ideal_pattern": False}
+
+        # 归一化到 0-1
+        vals = np.array(emotion_values, dtype=float)
+        vmin, vmax = vals.min(), vals.max()
+        if vmax > vmin:
+            vals_norm = (vals - vmin) / (vmax - vmin)
+        else:
+            vals_norm = np.zeros_like(vals)
+
+        # 分类
+        pattern = []
+        for v in vals_norm:
+            if v >= high_threshold:
+                pattern.append("high")
+            elif v <= low_threshold:
+                pattern.append("low")
+            else:
+                pattern.append("mid")
+
+        # 连续段检测
+        max_tension = 0
+        max_buffer = 0
+        current_tension = 0
+        current_buffer = 0
+        tension_warned = False  # 每个连续段只警告一次
+        buffer_warned = False
+        warnings = []
+
+        chs = chapter_nums or list(range(1, len(pattern) + 1))
+
+        for i, p in enumerate(pattern):
+            if p == "high":
+                current_tension += 1
+                current_buffer = 0
+                buffer_warned = False  # 缓冲段结束，重置警告标志
+                max_tension = max(max_tension, current_tension)
+            elif p == "low":
+                current_buffer += 1
+                current_tension = 0
+                tension_warned = False  # 紧张段结束，重置警告标志
+                max_buffer = max(max_buffer, current_buffer)
+            else:
+                # mid 不打断连续计数
+                pass
+
+            # 紧张过长警告 (>=4 章无缓冲) — 每个连续段只警告一次
+            if current_tension >= 4 and not tension_warned:
+                warnings.append(
+                    f"第{chs[max(0, i-current_tension+1)]}-{chs[i]}章连续{current_tension}章高紧张，"
+                    "读者可能疲劳，建议插入缓冲章节"
+                )
+                tension_warned = True
+            # 缓冲过长警告 (>=3 章无紧张) — 每个连续段只警告一次
+            if current_buffer >= 3 and not buffer_warned:
+                warnings.append(
+                    f"第{chs[max(0, i-current_buffer+1)]}-{chs[i]}章连续{current_buffer}章低紧张，"
+                    "节奏拖沓，建议推进冲突"
+                )
+                buffer_warned = True
+
+        # 理想模式: 不存在过长连续紧张或缓冲
+        ideal = max_tension <= 5 and max_buffer <= 2
+
+        return {
+            "pattern": pattern,
+            "max_tension_streak": max_tension,
+            "max_buffer_streak": max_buffer,
+            "warnings": warnings,
+            "ideal_pattern": ideal,
+        }
+
     def _find_column(self, df, candidates: list[str]) -> str | None:
         """在 DataFrame 中查找匹配的列名。"""
         for c in candidates:

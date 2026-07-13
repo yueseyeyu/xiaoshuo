@@ -23,6 +23,18 @@ from pathlib import Path
 
 from xiaoshuo import PROJECT_ROOT
 from xiaoshuo.pipeline.paths import rhythm_dir as _rhythm_dir
+from xiaoshuo.pipeline.rhythm.patterns import (
+    PLEASURE_STRATEGY, PLEASURE_RESOURCE, PLEASURE_SOCIAL,
+    PLEASURE_BACKFIRE, PLEASURE_TRAP_MASTER, PLEASURE_KNOWLEDGE_GAP,
+    PLEASURE_HIDDEN_VALUE, PLEASURE_IDENTITY_REVEAL, PLEASURE_FORESHADOW_PAYOFF,
+    PLEASURE_TIMING, PLEASURE_FACE_SLAP, PLEASURE_LEVEL_UP, PLEASURE_CRUSH,
+    PLEASURE_COMEBACK, PLEASURE_HIDDEN, PLEASURE_GENERAL,
+    PLEASURE_BOND, PLEASURE_COGNITIVE, PLEASURE_SACRIFICE,
+    CONFLICT_PSYCHOLOGICAL, CONFLICT_MORAL, CONFLICT_ENVIRONMENT,
+    CONFLICT_SOCIAL, CONFLICT_SUSPENSE,
+    CLIFFHANGER, DIALOGUE_PAT, NEGATIVE,
+    ANTI_TROPE, EMOTION_HIGH, EMOTION_LOW,
+)
 # PROJECT_ROOT imported from src.xiaoshuo
 
 
@@ -135,15 +147,45 @@ def audit_book(name, rows, genre_stats):
     elif avg_wc > 10000:
         issues.append(f"平均章节字数{avg_wc:.0f}>10000，章节切分可能合并了多章")
 
-    # ── Check 6: Readability extremes ──
+    # ── Check 6: Readability extremes (v2: 0-1 range) ──
     checks["readability"] = {
         "avg": round(avg_readability, 4),
-        "pass": -1.0 <= avg_readability <= 2.0,
+        "pass": 0.0 <= avg_readability <= 1.0,
     }
-    if avg_readability > 2.0:
-        issues.append(f"可读性{avg_readability:.3f}>2.0，异常偏高")
-    elif avg_readability < -1.0:
-        issues.append(f"可读性{avg_readability:.3f}<-1.0，异常偏低")
+    if avg_readability > 1.0:
+        issues.append(f"可读性{avg_readability:.3f}>1.0，异常偏高")
+    elif avg_readability < 0.0:
+        issues.append(f"可读性{avg_readability:.3f}<0.0，异常偏低")
+
+    # ── Check 7: Regex coverage audit (v2: new) ──
+    # Check if any major regex pattern category has zero hits across all chapters
+    pleasure_sub_cols = ["face_slap_count", "level_up_count", "crush_count", "comeback_count",
+                         "hidden_count", "general_count", "bond_count", "cognitive_count",
+                         "sacrifice_count", "strategy_count", "resource_count", "social_count",
+                         "backfire_count", "trap_master_count", "knowledge_gap_count",
+                         "hidden_value_count", "identity_reveal_count", "foreshadow_payoff_count"]
+    zero_sub_types = []
+    for col in pleasure_sub_cols:
+        total_hits = sum(_safe_int(r.get(col, 0)) for r in rows)
+        if total_hits == 0:
+            sub_name = col.replace("_count", "")
+            zero_sub_types.append(sub_name)
+    checks["regex_coverage"] = {
+        "zero_pleasure_subs": zero_sub_types,
+        "pass": len(zero_sub_types) <= 10,  # allow up to 10/18 unused subtypes
+    }
+    if len(zero_sub_types) > 10:
+        issues.append(f"{len(zero_sub_types)}/18 爽点子类型零命中: {', '.join(zero_sub_types[:5])}...")
+
+    # ── Check 8: ch_variability range (v2: new) ──
+    ch_vars = [_safe_float(r.get("ch_variability", 0)) for r in rows]
+    max_ch_var = max(ch_vars) if ch_vars else 0
+    checks["ch_variability_range"] = {
+        "max": round(max_ch_var, 3),
+        "pass": 0.0 <= max_ch_var <= 1.0,
+    }
+    if max_ch_var > 1.0:
+        issues.append(f"ch_variability 最大值{max_ch_var:.3f}>1.0，公式可能异常")
 
     # ── Overall status ──
     fail_count = sum(1 for c in checks.values() if not c.get("pass", True))

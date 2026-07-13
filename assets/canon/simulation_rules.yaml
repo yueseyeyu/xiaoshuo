@@ -1,0 +1,398 @@
+# ============================================================
+# simulation_rules.yaml — 世界推演引擎规则定义
+# ============================================================
+# 事件→状态变更映射规则，用于 WorldSimulator 的确定性推演。
+# 规则引擎处理常规决策，LLM 处理关键决策（混合推演模式）。
+#
+# 每条规则包含:
+#   name:       规则名称
+#   trigger:    触发条件 (event类型 + 条件列表)
+#   effects:    状态变更效果 (目标实体 + 字段 + 变化量)
+#   propagations: 影响传播 (级联效应)
+#   severity:   严重度 (low/medium/high/critical)
+#   llm_required: 是否需要 LLM 决策 (true=关键决策, false=规则自动处理)
+# ============================================================
+
+rules:
+  # ── 角色行为规则 ──
+
+  - name: "角色叛逃"
+    trigger:
+      event: "character_defected"
+      conditions:
+        - "character.faction_id == faction.id"
+        - "faction.morale < 0.4"
+    effects:
+      - target: faction
+        field: stability
+        delta: -0.2
+        reason: "成员叛逃动摇军心"
+      - target: faction
+        field: morale
+        delta: -0.15
+        reason: "叛逃引发恐慌"
+      - target: target_faction
+        field: intelligence
+        delta: 0.3
+        reason: "获得叛逃者情报"
+    propagations:
+      - "同势力角色忠诚度 -= 0.1"
+      - "敌对势力威胁感知 += 0.2"
+      - "同盟势力收到情报更新"
+    severity: high
+    llm_required: true
+
+  - name: "角色战死"
+    trigger:
+      event: "character_killed"
+      conditions:
+        - "character.health <= 0"
+    effects:
+      - target: character.faction
+        field: morale
+        delta: -0.25
+        reason: "同伴战死打击士气"
+      - target: character.faction
+        field: stability
+        delta: -0.1
+        reason: "核心成员损失"
+    propagations:
+      - "关系密切角色情绪 → 悲伤/愤怒"
+      - "敌对势力士气 += 0.15"
+      - "如果死者是首领，触发权力真空事件"
+    severity: critical
+    llm_required: true
+
+  - name: "角色突破"
+    trigger:
+      event: "character_breakthrough"
+      conditions:
+        - "character.training_rounds >= 3"
+    effects:
+      - target: character
+        field: power_level
+        delta: 1
+        reason: "实力突破"
+      - target: character.faction
+        field: morale
+        delta: 0.1
+        reason: "同伴突破提振士气"
+    propagations:
+      - "敌对势力威胁感知 += 0.15"
+      - "同盟势力信心 += 0.1"
+    severity: medium
+    llm_required: false
+
+  # ── 势力决策规则 ──
+
+  - name: "势力战争"
+    trigger:
+      event: "faction_war_declared"
+      conditions:
+        - "faction_a.threat_level > 0.6"
+        - "faction_b.threat_level > 0.6"
+    effects:
+      - target: faction_a
+        field: threat_level
+        delta: 0.3
+        reason: "战争状态升级"
+      - target: faction_a
+        field: morale
+        delta: -0.2
+        reason: "战争带来伤亡"
+      - target: faction_a
+        field: treasury
+        delta: -0.1
+        reason: "战争消耗财政"
+      - target: faction_b
+        field: threat_level
+        delta: 0.3
+        reason: "战争状态升级"
+      - target: faction_b
+        field: morale
+        delta: -0.2
+        reason: "战争带来伤亡"
+      - target: faction_b
+        field: treasury
+        delta: -0.1
+        reason: "战争消耗财政"
+    propagations:
+      - "参战势力成员被迫参战 (角色状态 → 战斗中)"
+      - "中立势力选择站队或观望"
+      - "贸易关系中断"
+      - "平民迁移 (地域人口变化)"
+    severity: critical
+    llm_required: true
+
+  - name: "势力结盟"
+    trigger:
+      event: "faction_alliance_formed"
+      conditions:
+        - "faction_a.relations[faction_b].type == neutral"
+    effects:
+      - target: faction_a
+        field: threat_level
+        delta: -0.15
+        reason: "盟友分担威胁"
+      - target: faction_b
+        field: threat_level
+        delta: -0.15
+        reason: "盟友分担威胁"
+      - target: faction_a
+        field: treasury
+        delta: 0.05
+        reason: "贸易互惠"
+      - target: faction_b
+        field: treasury
+        delta: 0.05
+        reason: "贸易互惠"
+    propagations:
+      - "双方成员关系改善"
+      - "敌对势力威胁感知 += 0.2"
+      - "贸易路线开放"
+    severity: high
+    llm_required: true
+
+  - name: "内部政变"
+    trigger:
+      event: "faction_internal_coup"
+      conditions:
+        - "faction.stability < 0.3"
+        - "faction.morale < 0.3"
+    effects:
+      - target: faction
+        field: stability
+        delta: 0.2
+        reason: "新政权建立初期稳定度回升"
+      - target: faction
+        field: morale
+        delta: -0.1
+        reason: "清洗引发恐惧"
+      - target: faction
+        field: power_level
+        delta: -1
+        reason: "内耗削弱实力"
+    propagations:
+      - "原首领势力被清洗"
+      - "敌对势力趁虚而入 (威胁 += 0.2)"
+      - "同盟关系可能断裂"
+    severity: critical
+    llm_required: true
+
+  - name: "资源发现"
+    trigger:
+      event: "resource_discovered"
+      conditions: []
+    effects:
+      - target: faction
+        field: treasury
+        delta: 0.2
+        reason: "新资源增加财政"
+      - target: faction
+        field: morale
+        delta: 0.1
+        reason: "资源发现提振士气"
+    propagations:
+      - "敌对势力威胁感知 += 0.1 (觊觎资源)"
+      - "中立势力关系改善 (贸易机会)"
+    severity: medium
+    llm_required: false
+
+  # ── 自然演化规则 (每章自动触发) ──
+
+  - name: "势力自然恢复"
+    trigger:
+      event: "turn_end"
+      conditions:
+        - "faction.stability < 0.5"
+        - "faction.threat_level < 0.5"
+    effects:
+      - target: faction
+        field: stability
+        delta: 0.02
+        reason: "和平时期自然恢复"
+      - target: faction
+        field: morale
+        delta: 0.02
+        reason: "和平时期士气恢复"
+    propagations: []
+    severity: low
+    llm_required: false
+
+  - name: "财政自然衰减"
+    trigger:
+      event: "turn_end"
+      conditions: []
+    effects:
+      - target: faction
+        field: treasury
+        delta: -0.01
+        reason: "日常维护消耗"
+    propagations: []
+    severity: low
+    llm_required: false
+
+  - name: "威胁自然消解"
+    trigger:
+      event: "turn_end"
+      conditions:
+        - "faction.threat_level > 0.3"
+    effects:
+      - target: faction
+        field: threat_level
+        delta: -0.01
+        reason: "时间推移威胁自然消解"
+    propagations: []
+    severity: low
+    llm_required: false
+
+  - name: "角色自然恢复"
+    trigger:
+      event: "turn_end"
+      conditions:
+        - "character.health < 1.0"
+        - "character.mood != 'combat'"
+    effects:
+      - target: character
+        field: health
+        delta: 0.05
+        reason: "休养恢复伤势"
+    propagations: []
+    severity: low
+    llm_required: false
+
+  # ── 环境事件规则 ──
+
+  - name: "自然灾害"
+    trigger:
+      event: "natural_disaster"
+      conditions: []
+    effects:
+      - target: all_factions
+        field: stability
+        delta: -0.1
+        reason: "灾害打击稳定"
+      - target: all_factions
+        field: treasury
+        delta: -0.1
+        reason: "灾后重建消耗"
+      - target: all_factions
+        field: morale
+        delta: -0.05
+        reason: "灾害影响士气"
+    propagations:
+      - "受灾严重区域角色健康 -= 0.1"
+      - "可能触发势力间互助或趁火打劫"
+    severity: high
+    llm_required: true
+
+  - name: "外部入侵"
+    trigger:
+      event: "external_invasion"
+      conditions: []
+    effects:
+      - target: all_factions
+        field: threat_level
+        delta: 0.2
+        reason: "外部威胁逼近"
+      - target: all_factions
+        field: morale
+        delta: -0.1
+        reason: "入侵恐慌"
+    propagations:
+      - "敌对势力可能暂时停战合作"
+      - "边境势力首当其冲"
+      - "可能触发紧急征召"
+    severity: critical
+    llm_required: true
+
+
+# ============================================================
+# 角色决策权重表 — 常规决策由规则引擎处理
+# ============================================================
+# 角色在每轮推演中选择行动的概率分布，受状态影响
+
+character_action_weights:
+  探索:
+    base_weight: 15
+    modifiers:
+      - condition: "character.mood == 'confident'"
+        multiplier: 1.5
+      - condition: "character.mood == 'fearful'"
+        multiplier: 0.5
+  训练:
+    base_weight: 15
+    modifiers:
+      - condition: "character.health > 0.7"
+        multiplier: 1.3
+  交涉:
+    base_weight: 12
+    modifiers:
+      - condition: "faction.threat_level > 0.6"
+        multiplier: 1.5
+  休整:
+    base_weight: 10
+    modifiers:
+      - condition: "character.health < 0.5"
+        multiplier: 3.0
+      - condition: "character.mood == 'weary'"
+        multiplier: 2.0
+  侦察:
+    base_weight: 12
+    modifiers:
+      - condition: "faction.threat_level > 0.5"
+        multiplier: 1.8
+  突袭:
+    base_weight: 8
+    modifiers:
+      - condition: "faction.relations[enemy].type == 'hostile'"
+        multiplier: 1.5
+      - condition: "character.mood == 'angry'"
+        multiplier: 1.8
+      - condition: "character.health < 0.4"
+        multiplier: 0.3
+  防御:
+    base_weight: 10
+    modifiers:
+      - condition: "faction.threat_level > 0.7"
+        multiplier: 2.0
+  结盟:
+    base_weight: 8
+    modifiers:
+      - condition: "faction.stability < 0.4"
+        multiplier: 1.8
+      - condition: "faction.threat_level > 0.6"
+        multiplier: 1.5
+
+
+# ============================================================
+# LLM 关键决策触发条件
+# ============================================================
+# 当满足以下条件时，推演引擎将调用 LLM 进行角色/势力决策
+# 而非使用随机规则
+
+llm_decision_triggers:
+  - name: "势力开战决策"
+    condition: "faction_a.threat_level > 0.6 and faction_b.threat_level > 0.6"
+    prompt_template: "势力开战"
+    description: "两个高威胁势力相遇，由LLM决定是否开战"
+
+  - name: "角色叛逃决策"
+    condition: "character.faction.morale < 0.3 and character.mood == 'angry'"
+    prompt_template: "角色叛逃"
+    description: "角色在低士气势力中且情绪愤怒，由LLM决定是否叛逃"
+
+  - name: "势力结盟决策"
+    condition: "faction_a.threat_level > 0.7 and faction_b.threat_level > 0.7"
+    prompt_template: "势力结盟"
+    description: "两个高威胁势力可能选择结盟共渡难关"
+
+  - name: "权力真空决策"
+    condition: "faction.stability < 0.2"
+    prompt_template: "权力真空"
+    description: "势力极度不稳定，由LLM决定政变或改革"
+
+  - name: "关键角色生死"
+    condition: "character.health < 0.2 and character.role in ['主角', '导师']"
+    prompt_template: "关键角色危机"
+    description: "关键角色重伤，由LLM决定生死走向"

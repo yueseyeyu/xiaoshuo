@@ -709,6 +709,395 @@ class RPSimulator:
 
         return result
 
+    # ── v8.6: WSE 联动 — 基于世界推演状态的角色推演 ──
+
+    def simulate_with_world_state(
+        self,
+        character: str,
+        scene: dict,
+        world_state: dict,
+        opponent: dict | None = None,
+        llm_call=None,
+    ) -> dict:
+        """v8.6: 基于世界推演状态的角色入戏推演。
+
+        在传统的 DNA + 场景 prompt 基础上，注入 WSE 的运行时状态：
+        - 角色的当前 health/mood/location
+        - 所属势力的 stability/morale/threat_level
+        - 近期推演事件
+
+        让角色推演不再是"静态DNA"，而是"动态状态驱动"。
+
+        Args:
+            character: 角色名
+            scene: 场景设定
+            world_state: WSE 世界状态 dict，包含:
+                - factions_state: [{id, name, stability, morale, threat_level, ...}]
+                - characters_state: [{name, health, mood, location, faction_id, ...}]
+                - snapshots: [{chapter, events: [...]}]
+            opponent: 对手设定（可选）
+            llm_call: LLM 调用函数
+
+        Returns:
+            {"prompt": "...", "response": {...}, "world_state_snapshot": str, "error": None}
+        """
+        dna = self.build_dna_from_canon(character)
+        if "error" in dna:
+            return {"error": dna["error"], "prompt": None, "response": None}
+
+        # 从 world_state 提取该角色的运行时状态
+        char_runtime = None
+        chars_state = world_state.get("characters_state", [])
+        for cs in chars_state:
+            if cs.get("name") == character:
+                char_runtime = cs
+                break
+
+        # 从 world_state 提取所属势力状态
+        faction_runtime = None
+        if char_runtime and char_runtime.get("faction_id"):
+            fac_id = char_runtime["faction_id"]
+            for fs in world_state.get("factions_state", []):
+                if fs.get("id") == fac_id:
+                    faction_runtime = fs
+                    break
+
+        # 提取近期事件
+        recent_events: list[str] = []
+        for snap in world_state.get("snapshots", [])[-3:]:  # 最近3个快照
+            for ev in snap.get("events", [])[-5:]:  # 每个快照取5条
+                ev_desc = ev.get("description", "")
+                if ev_desc:
+                    recent_events.append(f"- [第{ev.get('chapter', 0)}章] {ev_desc}")
+
+        # 构建运行时状态上下文
+        runtime_parts: list[str] = []
+        if char_runtime:
+            health = char_runtime.get("health", 1.0)
+            mood = char_runtime.get("mood", "normal")
+            location = char_runtime.get("location", "未知")
+            mood_cn = {
+                "normal": "平静", "confident": "自信", "weary": "疲惫",
+                "fearful": "恐惧", "angry": "愤怒",
+            }.get(mood, mood)
+            runtime_parts.append(
+                f"[角色运行时状态]\n"
+                f"- 生命值: {health:.0%}\n"
+                f"- 当前情绪: {mood_cn}\n"
+                f"- 所在位置: {location}"
+            )
+            if health < 0.3:
+                runtime_parts.append("- ⚠️ 角色重伤未愈，行动力和判断力下降")
+            if mood == "angry":
+                runtime_parts.append("- ⚠️ 角色处于愤怒状态，言行可能偏激")
+            if mood == "fearful":
+                runtime_parts.append("- ⚠️ 角色处于恐惧状态，倾向于回避或逃跑")
+
+        if faction_runtime:
+            stability = faction_runtime.get("stability", 0.5)
+            morale = faction_runtime.get("morale", 0.5)
+            threat = faction_runtime.get("threat_level", 0.3)
+            fac_name = faction_runtime.get("name", "所属势力")
+            runtime_parts.append(
+                f"[势力运行时状态 — {fac_name}]\n"
+                f"- 稳定度: {stability:.0%}\n"
+                f"- 士气: {morale:.0%}\n"
+                f"- 外部威胁: {threat:.0%}"
+            )
+            if stability < 0.3:
+                runtime_parts.append("- ⚠️ 势力内部不稳，角色可能面临站队压力")
+            if threat > 0.7:
+                runtime_parts.append("- ⚠️ 外部威胁严重，角色需警惕入侵")
+            if morale < 0.3:
+                runtime_parts.append("- ⚠️ 势力士气低落，角色可能动摇")
+
+        if recent_events:
+            runtime_parts.append(
+                "[近期世界事件]\n" + "\n".join(recent_events[-10:])
+            )
+
+        # 构建 prompt
+        base_prompt = self.build_prompt(dna, scene, opponent)
+        runtime_context = "\n\n".join(runtime_parts)
+
+        if runtime_context:
+            # 将运行时状态插入到 [记忆加载] 之后、[输出要求] 之前
+            full_prompt = base_prompt.replace(
+                "[输出要求]",
+                f"{runtime_context}\n\n[输出要求]\n"
+                "注意：你的反应必须与上述运行时状态一致。"
+                "如果角色受伤，体现伤痛影响；如果势力不稳，体现焦虑或忠诚。"
+            )
+        else:
+            full_prompt = base_prompt
+
+        if llm_call is None:
+            return {
+                "prompt": full_prompt,
+                "response": None,
+                "world_state_snapshot": runtime_context,
+                "error": None,
+            }
+
+        try:
+            raw_response = llm_call(full_prompt)
+            parsed = self.parse_response(raw_response)
+            return {
+                "prompt": full_prompt,
+                "response": parsed,
+                "world_state_snapshot": runtime_context,
+                "error": None,
+            }
+        except Exception as e:
+            return {
+                "prompt": full_prompt,
+                "response": None,
+                "world_state_snapshot": runtime_context,
+                "error": str(e),
+            }
+
+    # ── v2: 角色软肋暴露测试 (基于追读率提升建议) ──
+
+    def simulate_vulnerability_exposure(
+        self,
+        character: str,
+        scene_stakes: str,
+        pressure_level: str = "high",
+        llm_call=None,
+    ) -> dict:
+        """v2: 软肋暴露测试 — 给定高压场景，角色是否会/何时暴露脆弱面。
+
+        基于扩展后的 Canon 角色 Schema（vulnerabilities/trauma_points/emotional_triggers），
+        推演角色在高压场景下如何暴露软肋，产生立体感。
+
+        Args:
+            character: 角色名
+            scene_stakes: 场景赌注描述, 如 "被敌人围困，弹药耗尽，同伴重伤"
+            pressure_level: 压力等级 "low" / "medium" / "high" / "extreme"
+            llm_call: LLM 调用函数
+
+        Returns:
+            {
+                "character": str,
+                "scene_stakes": str,
+                "pressure_level": str,
+                "vulnerabilities": [...],
+                "trauma_points": [...],
+                "emotional_triggers": {...},
+                "likely_exposure": str,       # 最可能暴露的软肋
+                "exposure_trigger": str,      # 触发条件
+                "behavioral_prediction": str, # 行为预测
+                "prompt": str,
+                "response": dict | None,
+            }
+        """
+        dna = self.build_dna_from_canon(character)
+        if "error" in dna:
+            return {"error": dna["error"]}
+
+        # 从 Canon 提取软肋信息
+        vulnerabilities = dna.get("vulnerabilities", [])
+        trauma_points = dna.get("psychological_model", {}).get("core_fear", "")
+        emotional_triggers = dna.get("psychological_model", {}).get("defense_mechanism", "")
+
+        # 压力等级映射
+        pressure_map = {
+            "low": "日常压力，角色可以正常应对",
+            "medium": "中等压力，角色开始紧张但不失态",
+            "high": "高压场景，角色可能暴露弱点或情绪失控",
+            "extreme": "极端压力，角色面临崩溃边缘，软肋全面暴露",
+        }
+        pressure_desc = pressure_map.get(pressure_level, pressure_map["high"])
+
+        # 构建软肋暴露推演 prompt
+        prompt_parts = [
+            f"[角色软肋暴露测试]",
+            f"",
+            f"角色: {character}",
+            f"DNA核心恐惧: {trauma_points or '未设定'}",
+            f"防御机制: {emotional_triggers or '未设定'}",
+            f"",
+            f"[场景赌注]",
+            f"{scene_stakes}",
+            f"",
+            f"[压力等级]",
+            f"{pressure_desc}",
+            f"",
+            f"[推演要求]",
+            f"1. 基于角色的核心恐惧和防御机制，推演角色在此场景下的反应",
+            f"2. 判断角色是否会暴露软肋，以及暴露的方式",
+            f"3. 如果暴露，描述具体行为表现（不要只说'他崩溃了'，要写具体动作）",
+            f"4. 评估这对剧情的推动价值（暴露软肋是否让角色更立体）",
+            f"",
+            f"[输出格式]",
+            f"likely_exposure: <最可能暴露的软肋>",
+            f"exposure_trigger: <什么具体事件触发了暴露>",
+            f"behavioral_prediction: <行为预测，含具体动作>",
+            f"narrative_value: <对剧情的推动价值评估>",
+        ]
+
+        prompt = "\n".join(prompt_parts)
+
+        result = {
+            "character": character,
+            "scene_stakes": scene_stakes,
+            "pressure_level": pressure_level,
+            "vulnerabilities": vulnerabilities,
+            "trauma_points": trauma_points,
+            "emotional_triggers": emotional_triggers,
+            "likely_exposure": "",
+            "exposure_trigger": "",
+            "behavioral_prediction": "",
+            "prompt": prompt,
+            "response": None,
+        }
+
+        if llm_call is None:
+            return result
+
+        try:
+            raw_response = llm_call(prompt)
+            # 简单解析
+            for line in raw_response.split("\n"):
+                line = line.strip()
+                for field in ["likely_exposure", "exposure_trigger",
+                              "behavioral_prediction", "narrative_value"]:
+                    if line.startswith(f"{field}:"):
+                        result[field] = line.split(":", 1)[1].strip()
+            result["response"] = raw_response
+        except Exception as e:
+            result["error"] = str(e)
+
+        return result
+
+    # ── v3: 潜台词推演 (基于建议文件"冰山法则→对话潜台词检测") ──
+
+    def simulate_subtext(
+        self,
+        character: str,
+        scene: dict,
+        dialogue_context: str = "",
+        hidden_motives: list[str] | None = None,
+        llm_call=None,
+    ) -> dict:
+        """v3: 潜台词推演 — 给定角色和场景，推演角色台词下的潜台词。
+
+        基于"冰山法则"：好的对话只有1/3浮在水面上（说出口的话），
+        2/3藏在水下（潜台词、隐藏动机、情绪错位）。
+
+        与 simulate_vulnerability_exposure 的区别：
+        - 软肋暴露：关注角色在高压下如何"暴露弱点"
+        - 潜台词推演：关注角色在对话中如何"隐藏真实意图"
+
+        Args:
+            character: 角色名（需在 characters.md 中定义）
+            scene: 场景设定, 如 {"location": "宴会", "goal": "试探对方底线"}
+            dialogue_context: 已有对话上下文（前几轮对话内容）
+            hidden_motives: 角色隐藏动机列表, 如 ["不想暴露身份", "试探对方是否叛徒"]
+            llm_call: LLM 调用函数
+
+        Returns:
+            {
+                "character": str,
+                "scene": dict,
+                "hidden_motives": [...],
+                "surface_dialogue": str,    # 表面台词
+                "subtext": str,             # 潜台词（角色真正想说的话）
+                "emotion_gap": str,         # 情绪错位（表面情绪 vs 真实情绪）
+                "iceberg_ratio": str,       # 冰山比 (潜台词深度评估)
+                "alternative_lines": [...], # 不同潜台词深度的台词变体
+                "prompt": str,
+                "response": dict | None,
+            }
+        """
+        dna = self.build_dna_from_canon(character)
+        if "error" in dna:
+            return {"error": dna["error"]}
+
+        hidden_motives = hidden_motives or []
+        core_fear = dna.get("psychological_model", {}).get("core_fear", "未设定")
+        defense = dna.get("psychological_model", {}).get("defense_mechanism", "未设定")
+        surface_desire = dna.get("psychological_model", {}).get("current_desire", {}).get("surface", "未设定")
+        deep_desire = dna.get("psychological_model", {}).get("current_desire", {}).get("deep", "未设定")
+
+        prompt_parts = [
+            f"[角色潜台词推演]",
+            f"",
+            f"角色: {character}",
+            f"核心恐惧: {core_fear}",
+            f"防御机制: {defense}",
+            f"表层欲望: {surface_desire}",
+            f"深层欲望: {deep_desire}",
+            f"",
+            f"[隐藏动机]",
+            "\n".join(f"- {m}" for m in hidden_motives) if hidden_motives else "- (未指定, 请根据角色DNA推演)",
+            f"",
+            f"[场景]",
+            f"地点: {scene.get('location', '未指定')}",
+            f"目标: {scene.get('goal', '未指定')}",
+            f"对手: {scene.get('opponent', '未指定')}",
+            f"",
+            f"[已有对话上下文]",
+            f"{dialogue_context or '(无, 这是开场第一句)'}",
+            f"",
+            f"[推演要求]",
+            f"基于冰山法则，推演角色在这个场景中的对话潜台词：",
+            f"1. 表面台词: 角色实际说出口的话（符合角色语音指纹）",
+            f"2. 潜台词: 角色真正想说但没说的话（基于隐藏动机和深层欲望）",
+            f"3. 情绪错位: 表面情绪 vs 真实情绪的差距（如表面平静但内心愤怒）",
+            f"4. 冰山比: 评估潜台词深度 (1:1=直白, 1:3=良好, 1:5+=极致冰山)",
+            f"5. 提供3个不同潜台词深度的台词变体: 直白版/含蓄版/极致冰山版",
+            f"",
+            f"[输出格式]",
+            f"surface_dialogue: <表面台词>",
+            f"subtext: <潜台词>",
+            f"emotion_gap: <表面情绪> vs <真实情绪>",
+            f"iceberg_ratio: <冰山比评估>",
+            f"alternative_lines:",
+            f"  直白版: <台词>",
+            f"  含蓄版: <台词>",
+            f"  极致冰山版: <台词>",
+        ]
+
+        prompt = "\n".join(prompt_parts)
+
+        result = {
+            "character": character,
+            "scene": scene,
+            "hidden_motives": hidden_motives,
+            "surface_dialogue": "",
+            "subtext": "",
+            "emotion_gap": "",
+            "iceberg_ratio": "",
+            "alternative_lines": [],
+            "prompt": prompt,
+            "response": None,
+        }
+
+        if llm_call is None:
+            return result
+
+        try:
+            raw_response = llm_call(prompt)
+            # 解析响应
+            current_section = None
+            for line in raw_response.split("\n"):
+                line = line.strip()
+                for field in ["surface_dialogue", "subtext", "emotion_gap", "iceberg_ratio"]:
+                    if line.startswith(f"{field}:"):
+                        result[field] = line.split(":", 1)[1].strip()
+                        break
+                if line.startswith("alternative_lines:"):
+                    current_section = "alt"
+                    continue
+                if current_section == "alt" and line:
+                    result["alternative_lines"].append(line)
+            result["response"] = raw_response
+        except Exception as e:
+            result["error"] = str(e)
+
+        return result
+
     # ── 内部工具 ──
 
     def _parse_md_sections(self, text: str) -> dict:

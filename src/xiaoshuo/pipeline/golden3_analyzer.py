@@ -4,12 +4,22 @@ golden3_analyzer.py — 黄金三章专项分析器 (P1.1)
 =================================================
 来源: 建议文件 "黄金三章 → 新增专项检测模块"
 
-五维检测 (G1-G5):
+七维检测 (G1-G7):
   G1 高能钩子       — 第1章前500字是否有冲突/悬念/反常 (3秒法则)
   G2 人设清晰度     — 主角名字、目标、缺陷是否在前3章确立
   G3 核心矛盾       — "A wants B but C" 冲突结构是否明确
   G4 铺垫密度       — 伏笔数量 / 章节数 >= 阈值
   G5 情绪曲线       — 前3章是否有明显的情绪起伏
+  G6 市场反馈       — 第3章是否有外部人群反应 (围观/评论/热搜/弹幕)
+  G7 关系绑定       — 是否有强关系绑定 (前任/清冷/全网/恋综/综艺)
+  G8 预期兑现       — 书名/标签关键词在前3章是否有对应内容兑现 (v3)
+  G9 主角保护       — 虐主检测: 前3章负面事件密度+金手指延迟+能力对冲 (v4)
+
+v8.8 新增 G6/G7:
+  来源: 建议文件 "番茄首秀存活预测" + "市场死亡结构检测"
+  价值: 将市场维度 (人群反馈/关系绑定) 纳入黄金三章评估
+  G6 合并了 survival_predictor R2 (三章反馈) + market_death_detector D2 (系统无反应)
+  G7 来自 survival_predictor R5 (强关系绑定)
 
 设计原则:
   - 零 LLM 依赖: 全部规则/统计检测
@@ -76,6 +86,34 @@ INFO_MARKERS = re.compile(
     r'(?:发现|揭示|得知|明白|意识到|原来|真相|秘密|'
     r'新|突然|意外|浮现|浮现|浮现|显示|弹出|解锁|觉醒)'
 )
+
+# ── G1 v9.0: 开篇共鸣事件类型 (来源: "4个追读技巧" — 开篇事件共鸣) ──
+# 检测前500字中的共鸣类型, 用于判断"筛选目标读者"的机制
+RESONANCE_CAREER = re.compile(
+    r'先立业|事业|搞钱|赚钱|出人头地|升职|加薪|创业|'
+    r'不想.*打工|辞职|自由|独立|靠自己'
+)
+RESONANCE_REVENGE = re.compile(
+    r'复仇|报仇|血仇|雪恨|讨回|清算|以牙还牙|'
+    r'灭门|被害|冤枉|陷害|背叛.*代价'
+)
+RESONANCE_UNDERDOG = re.compile(
+    r'逆袭|翻盘|不甘|被看不起|被轻视|被嘲笑|被羞辱|'
+    r'废物|废柴|没用|不行|配不上|就这|也就这样|'
+    r'吊车尾|垫底|倒数|最差'
+)
+RESONANCE_IDENTITY = re.compile(
+    r'身份|不配|没资格|庶出|私生|低等|下等|卑贱|'
+    r'伪装|隐瞒.*身份|暴露.*身份|被发现|被认出|'
+    r'谁让他|凭什么.*他|不配.*存在'
+)
+
+RESONANCE_PATTERNS = [
+    ("事业型", RESONANCE_CAREER),
+    ("复仇型", RESONANCE_REVENGE),
+    ("逆袭型", RESONANCE_UNDERDOG),
+    ("身份冲突型", RESONANCE_IDENTITY),
+]
 
 
 # ── G2: 人设清晰度检测词表 ──
@@ -192,6 +230,7 @@ class Golden3Report:
     failed_count: int = 0
     summary: str = ""
     benchmark_comparison: dict | None = None  # 与爆款对比
+    genre_trend: str = ""        # v8.8: 题材趋势 (hot/normal/declining)
 
     def add(self, dim: Golden3Dimension):
         self.dimensions.append(dim)
@@ -209,11 +248,15 @@ class Golden3Report:
 
 # ── 各维度权重 (用于加权总分) ──
 DIM_WEIGHTS = {
-    "G1": 0.25,  # 高能钩子 — 最重要, 决定读者是否继续
-    "G2": 0.20,  # 人设清晰度 — 前3章必须建立角色认知
-    "G3": 0.25,  # 核心矛盾 — 故事驱动力
-    "G4": 0.15,  # 铺垫密度 — 长线吸引力
-    "G5": 0.15,  # 情绪曲线 — 阅读体验
+    "G1": 0.18,  # 高能钩子 — 最重要, 决定读者是否继续
+    "G2": 0.14,  # 人设清晰度 — 前3章必须建立角色认知
+    "G3": 0.18,  # 核心矛盾 — 故事驱动力
+    "G4": 0.10,  # 铺垫密度 — 长线吸引力
+    "G5": 0.10,  # 情绪曲线 — 阅读体验
+    "G6": 0.05,  # 市场反馈 — 人群反应决定代入感 (v8.8)
+    "G7": 0.05,  # 关系绑定 — 强关系驱动冲突 (v8.8)
+    "G8": 0.08,  # 预期兑现 — 书名/标签承诺必须前3章兑现 (v3)
+    "G9": 0.12,  # 主角保护 — 虐主检测, 直接关联番茄首秀存活率 (v4)
 }
 
 
@@ -302,6 +345,22 @@ def check_high_energy_hook(ch1_text: str) -> Golden3Dimension:
         score -= 1.0
         dim.issues.append("前500字完全无钩子信号")
         dim.suggestions.append("建议: 增加冲突、悬念或异常事件, 提升开篇吸引力")
+
+    # 5. v9.0: 开篇共鸣事件类型检测 (来源: "4个追读技巧")
+    resonance_types = []
+    for rtype, rpat in RESONANCE_PATTERNS:
+        if rpat.search(opening_500):
+            resonance_types.append(rtype)
+    if resonance_types:
+        dim.details["共鸣类型"] = "+".join(resonance_types)
+        score += 1.0  # 有共鸣事件加分
+    else:
+        dim.details["共鸣类型"] = "未检测到"
+        if ch1_text and _count_chinese(ch1_text) >= 500:
+            dim.suggestions.append(
+                "建议: 前500字加入共鸣事件 (事业型/复仇型/逆袭型/身份冲突型), "
+                "筛选目标读者并建立代入感"
+            )
 
     score = max(0, min(10, score))
     dim.score = round(score, 1)
@@ -730,22 +789,451 @@ def check_emotional_curve(chapters: list[str]) -> Golden3Dimension:
     return dim
 
 
+# ── G6: 市场反馈检测 (v8.8) ──
+# 来源: survival_predictor R2 (三章反馈) + market_death_detector D2 (系统无反应)
+# 检测第3章是否有外部人群反应, 以及系统触发后是否有反应
+
+EXTERNAL_FEEDBACK_RE = re.compile(
+    r"围观|围住|人群|众人|路人|旁观|"
+    r"评论|弹幕|热搜|热议|微博|朋友圈|短视频|"
+    r"震惊|哗然|沸腾|炸锅|喧哗|骚动|议论纷纷|"
+    r"记者|媒体|新闻|报道|采访|直播|摄像头|"
+    r"全网|网络|网友|粉丝|黑粉|水军"
+)
+
+SYSTEM_TRIGGER_RE = re.compile(
+    r"系统|面板|属性|技能|升级|进化|"
+    r"叮|恭喜|获得|解锁|触发|激活|"
+    r"经验值|等级提升|突破|进阶"
+)
+
+
+def check_market_feedback(chapters: list[str]) -> Golden3Dimension:
+    """G6: 市场反馈 — 第3章是否有外部人群反应。
+
+    检测项:
+      - 第3章外部反馈信号 (围观/评论/热搜/弹幕)
+      - 系统触发后是否有人群反应 (防止"系统无反应"死亡结构)
+    """
+    dim = Golden3Dimension(
+        dimension="G6",
+        name="市场反馈",
+        threshold=5.0,
+    )
+
+    if not chapters or _count_chinese("".join(chapters)) < 500:
+        dim.score = 3.0
+        dim.issues.append("前3章总文本过短")
+        dim.passed = dim.score >= dim.threshold
+        return dim
+
+    score = 5.0
+
+    # 1. 第3章外部反馈
+    ch3 = chapters[2] if len(chapters) >= 3 else ""
+    if ch3:
+        feedback_hits = EXTERNAL_FEEDBACK_RE.findall(ch3)
+        dim.details["ch3反馈信号数"] = len(feedback_hits)
+
+        if len(feedback_hits) >= 2:
+            score += 3.0
+            dim.details["ch3反馈"] = "丰富"
+        elif len(feedback_hits) >= 1:
+            score += 1.5
+            dim.details["ch3反馈"] = "有"
+        else:
+            score -= 2.0
+            dim.issues.append("第3章无外部人群反应 (围观/评论/热搜/弹幕)")
+            dim.suggestions.append("建议: 第3章安排外部反馈 (围观震惊/弹幕刷屏/热搜炸裂), 避免主角自嗨")
+    else:
+        dim.issues.append("无第3章文本, 无法检测市场反馈")
+
+    # 2. 系统触发后是否有反应 (D2 死亡结构检测)
+    system_chapter = None
+    for i, ch in enumerate(chapters):
+        if SYSTEM_TRIGGER_RE.search(ch):
+            system_chapter = i
+            break
+
+    if system_chapter is not None:
+        has_reaction = False
+        for i in range(system_chapter, len(chapters)):
+            if EXTERNAL_FEEDBACK_RE.search(chapters[i]):
+                has_reaction = True
+                break
+
+        if has_reaction:
+            score += 1.0
+            dim.details["系统反应"] = "系统触发后有人群反应"
+        else:
+            score -= 2.0
+            dim.issues.append(f"系统在第{system_chapter + 1}章触发后无人群反应 (市场死亡结构)")
+            dim.suggestions.append("建议: 系统触发后必须有人群反应, 读者需要看到世界的反馈")
+
+    score = max(0, min(10, score))
+    dim.score = round(score, 1)
+    dim.passed = dim.score >= dim.threshold
+    return dim
+
+
+# ── G7: 关系绑定检测 (v8.8) ──
+# 来源: survival_predictor R5 (强关系绑定)
+# 检测是否有强关系绑定 (前任/清冷/全网/恋综/综艺等短剧化冲突点)
+
+RELATIONSHIP_KEYWORDS = [
+    "前任", "清冷", "全网", "爆火", "恋综", "综艺",
+    "军婚", "空间", "虐渣", "闺蜜", "宿敌", "青梅",
+    "背叛", "复仇", "打脸", "热议", "热搜", "弹幕",
+    "围观", "评论", "直播",
+]
+
+
+def check_relationship_binding(
+    chapters: list[str],
+    title: str = "",
+    tags: list[str] | None = None,
+) -> Golden3Dimension:
+    """G7: 关系绑定 — 是否有强关系绑定 (短剧化冲突点)。
+
+    检测项:
+      - 书名/标签中的关系绑定关键词
+      - 前2章正文中的关系绑定关键词
+    """
+    dim = Golden3Dimension(
+        dimension="G7",
+        name="关系绑定",
+        threshold=5.0,
+    )
+
+    tags = tags or []
+    combined = title + " " + " ".join(tags)
+    ch_text = "".join(chapters[:2]) if len(chapters) >= 2 else "".join(chapters)
+    all_text = combined + " " + ch_text
+
+    hits = sum(1 for kw in RELATIONSHIP_KEYWORDS if kw in all_text)
+    dim.details["关系绑定词数"] = hits
+
+    # 书名/标签中的绑定 (权重更高)
+    title_hits = sum(1 for kw in RELATIONSHIP_KEYWORDS if kw in combined)
+    dim.details["书名标签绑定"] = title_hits
+
+    if hits >= 3:
+        score = 8.0
+        dim.details["绑定强度"] = "强"
+    elif hits >= 2:
+        score = 6.5
+        dim.details["绑定强度"] = "中"
+    elif hits >= 1:
+        score = 5.0
+        dim.details["绑定强度"] = "弱"
+    else:
+        score = 3.0
+        dim.issues.append("无强关系绑定 (前任/清冷/全网/恋综/综艺等)")
+        dim.suggestions.append("建议: 加入强关系绑定提升短剧化冲突, 如前任/清冷人设/全网关注")
+
+    if title_hits >= 1:
+        score += 1.0
+        dim.details["书名绑定"] = "已检测到"
+
+    score = max(0, min(10, score))
+    dim.score = round(score, 1)
+    dim.passed = dim.score >= dim.threshold
+    return dim
+
+
+# ── G8: 预期兑现检测 (v3, 建议文件"书名与正文的预期管理"落地) ──
+
+# 书名/标签高频关键词 → 前3章应该出现的对应内容信号
+PROMISE_SIGNAL_MAP = {
+    "重生": [r'重生|醒来|回到|再一次|上一世|前世'],
+    "穿越": [r'穿越|异世界|醒来|不同|另一个世界'],
+    "系统": [r'系统|面板|任务|奖励|叮|绑定'],
+    "修仙": [r'修炼|灵气|境界|筑基|金丹|元婴'],
+    "末日": [r'末日|丧尸|变异|废墟|末世|灾难'],
+    "赘婿": [r'赘婿|入赘|岳父|岳母|妻子|上门'],
+    "战神": [r'战神|将军|兵王|退伍|军团|战场'],
+    "都市": [r'都市|城市|公司|总裁|白领|街道'],
+    "悬疑": [r'案件|凶杀|侦探|线索|推理|真相'],
+    "无限流": [r'副本|规则|任务|通关|玩家|无限'],
+    "快穿": [r'世界|任务|穿越|快穿|系统|主角'],
+    "高武": [r'武道|灵力|武者|武馆|功法'],
+    "异能": [r'异能|超能力|觉醒|变异|能力者'],
+    "直播": [r'直播|弹幕|观众|打赏|主播'],
+    "年代": [r'年代|七十|八十|六十|知青|供销社'],
+}
+
+# 书名/标签关键词提取 (去掉常见修饰词后)
+_MODIFIER_WORDS = {'之', '的', '和', '与', '在', '了', '我', '他', '她', '最', '大', '小', '新', '老'}
+
+
+def check_promise_fulfillment(
+    chapters: list[str],
+    title: str = "",
+    tags: list[str] | None = None,
+) -> Golden3Dimension:
+    """G8: 预期兑现 — 书名/标签中的关键词在前3章是否有对应内容。
+
+    检测项:
+      - 从书名/标签提取关键词 (如"重生之XX" → "重生")
+      - 检查前3章正文中是否有对应信号词
+      - 兑现率 = 命中关键词 / 总关键词
+    """
+    dim = Golden3Dimension(
+        dimension="G8",
+        name="预期兑现",
+        threshold=6.0,
+    )
+
+    tags = tags or []
+    combined = title + " " + " ".join(tags)
+    ch_text = "".join(chapters)
+
+    # 提取书名/标签中的承诺关键词
+    promised_keywords = []
+    for keyword, patterns in PROMISE_SIGNAL_MAP.items():
+        if keyword in combined:
+            promised_keywords.append(keyword)
+
+    dim.details["书名标签关键词"] = promised_keywords
+
+    if not promised_keywords:
+        # 书名/标签无明确题材关键词, 无法检测预期兑现
+        dim.score = 6.0
+        dim.details["说明"] = "书名/标签无明确题材关键词"
+        dim.passed = True
+        return dim
+
+    # 检查前3章正文中是否有对应信号词
+    fulfilled = []
+    unfulfilled = []
+    for keyword in promised_keywords:
+        patterns = PROMISE_SIGNAL_MAP[keyword]
+        found = any(re.search(p, ch_text) for p in patterns)
+        if found:
+            fulfilled.append(keyword)
+        else:
+            unfulfilled.append(keyword)
+
+    fulfillment_rate = len(fulfilled) / len(promised_keywords) if promised_keywords else 0.0
+    dim.details["兑现率"] = round(fulfillment_rate, 2)
+    dim.details["已兑现"] = fulfilled
+    dim.details["未兑现"] = unfulfilled
+
+    if fulfillment_rate >= 1.0:
+        score = 9.0
+    elif fulfillment_rate >= 0.66:
+        score = 7.0
+    elif fulfillment_rate >= 0.33:
+        score = 4.5
+        dim.issues.append(f"部分预期未兑现: {', '.join(unfulfilled)} — 读者因书名/标签入坑但前3章找不到对应内容")
+        dim.suggestions.append(f"建议: 在前3章加入与 {', '.join(unfulfilled)} 相关的场景或设定")
+    else:
+        score = 2.0
+        dim.issues.append(f"预期严重未兑现: {', '.join(unfulfilled)} — 书名/标签与正文脱节")
+        dim.suggestions.append("建议: 前3章必须兑现书名/标签的核心承诺, 否则读者会差评弃书")
+
+    dim.score = round(max(0, min(10, score)), 1)
+    dim.passed = dim.score >= dim.threshold
+    return dim
+
+
+# ── G9: 主角保护 (虐主检测, v4) ──
+
+# 虐待信号: 主角在开篇遭受的负面事件
+ABUSE_SIGNALS = {
+    "身体伤害": [
+        re.compile(r'被打|被揍|重伤|吐血|残废|断腿|断手|瞎眼'),
+        re.compile(r'鞭打|烙印|酷刑|折磨|虐待'),
+    ],
+    "精神羞辱": [
+        re.compile(r'羞辱|嘲讽|嘲笑|鄙视|蔑视|践踏'),
+        re.compile(r'退婚|休妻|逐出师门|废除修为|剥夺身份'),
+    ],
+    "社会性死亡": [
+        re.compile(r'全网黑|人人喊打|众叛亲离|身败名裂'),
+        re.compile(r'背锅|陷害|冤枉|污蔑|背刺'),
+    ],
+    "资源剥夺": [
+        re.compile(r'被抢|被夺|失去|剥夺|没收|充公'),
+        re.compile(r'破产|负债|穷困潦倒|一无所有'),
+    ],
+    "关系破碎": [
+        re.compile(r'背叛|欺骗|抛弃|离开|死亡|牺牲'),
+        re.compile(r'分手|离婚|决裂|反目|成仇'),
+    ],
+}
+
+# 能力信号: 主角展示金手指/实力, 对冲虐主分数
+POWER_SIGNALS = {
+    "金手指激活": [
+        re.compile(r'系统.*激活|获得.*能力|觉醒.*天赋|开启.*面板'),
+        re.compile(r'重生.*记忆|穿越.*知识|获得.*传承|得到.*宝物'),
+    ],
+    "能力展示": [
+        re.compile(r'一拳|一剑|一招|一眼|一掌'),
+        re.compile(r'秒杀|碾压|击败|战胜|压制'),
+        re.compile(r'震惊|骇然|不可思议|怎么可能'),
+    ],
+    "身份揭示": [
+        re.compile(r'原来.*是|竟然.*是|没想到.*是'),
+        re.compile(r'隐藏.*身份|真实.*身份|背后.*势力'),
+    ],
+}
+
+
+def check_protagonist_abuse(chapters: list[str]) -> Golden3Dimension:
+    """G9: 主角保护 — 检测开篇虐主程度。
+
+    核心假设: 番茄首秀存活作品中, 前3章主角负面事件密度不应过高,
+    且金手指/能力展示应尽早出现 (第1章或第2章)。
+
+    评分逻辑:
+      - 每个虐待信号 +1 分 (abuse_score)
+      - 每个能力信号 -2 分 (power_score, 对冲)
+      - 净分 = abuse_score - power_score * 2
+      - 净分 > 5 且 power_score < 2 → 严重虐主 (低分)
+      - 净分 3-5 且 power_score < 2 → 轻度虐主
+      - 金手指第1章未出现 → 额外扣分
+    """
+    dim = Golden3Dimension(
+        dimension="G9",
+        name="主角保护",
+        threshold=6.0,
+    )
+
+    ch_text = "".join(chapters)
+    chinese = _count_chinese(ch_text)
+    if chinese < 100:
+        dim.score = 2.0
+        dim.issues.append("文本过短, 无法有效分析虐主程度")
+        dim.passed = dim.score >= dim.threshold
+        return dim
+
+    abuse_score = 0
+    power_score = 0
+    abuse_details: list[dict] = []
+    power_details: list[dict] = []
+
+    for i, ch in enumerate(chapters[:3]):
+        if not ch:
+            continue
+        for category, patterns in ABUSE_SIGNALS.items():
+            for pat in patterns:
+                for m in pat.finditer(ch):
+                    abuse_score += 1
+                    abuse_details.append({
+                        "chapter": i + 1,
+                        "category": category,
+                        "text": m.group(),
+                    })
+        for category, patterns in POWER_SIGNALS.items():
+            for pat in patterns:
+                for m in pat.finditer(ch):
+                    power_score += 1
+                    power_details.append({
+                        "chapter": i + 1,
+                        "category": category,
+                        "text": m.group(),
+                    })
+
+    net_score = abuse_score - power_score * 2
+
+    # 金手指延迟检测
+    golden_finger_chapter = None
+    for i, ch in enumerate(chapters[:3]):
+        if not ch:
+            continue
+        if any(pat.search(ch) for patterns in POWER_SIGNALS.values() for pat in patterns):
+            golden_finger_chapter = i + 1
+            break
+
+    dim.details["虐待信号数"] = abuse_score
+    dim.details["能力信号数"] = power_score
+    dim.details["净虐主分"] = net_score
+    dim.details["金手指章节"] = golden_finger_chapter or "未出现"
+    dim.details["虐待分类"] = {}
+    for d in abuse_details:
+        cat = d["category"]
+        dim.details["虐待分类"][cat] = dim.details["虐待分类"].get(cat, 0) + 1
+
+    # 评分 (0-10, 越高越好)
+    if net_score > 5 or (net_score > 3 and not golden_finger_chapter):
+        score = 2.0  # 严重虐主
+        dim.issues.append(f"严重虐主: 净虐主分 {net_score} (虐待 {abuse_score} vs 能力 {power_score})")
+        dim.suggestions.append(
+            "建议: 将至少2个负面事件转化为'表面吃亏实则收获'，"
+            "如被退婚但激活系统、被打但觉醒血脉"
+        )
+    elif net_score > 3 or not golden_finger_chapter:
+        score = 4.5  # 轻度虐主
+        if net_score > 3:
+            dim.issues.append(f"轻度虐主: 净虐主分 {net_score}")
+            dim.suggestions.append("建议: 增加主角的反击/能力展示场景，平衡负面事件")
+        if not golden_finger_chapter:
+            dim.issues.append("金手指延迟: 前3章未出现能力展示")
+            dim.suggestions.append("建议: 第1章就让主角获得/展示某种能力（哪怕很弱）")
+    elif net_score > 0:
+        score = 7.0  # 有虐有爽, 基本平衡
+        dim.issues.append(f"虐爽平衡: 净虐主分 {net_score} (有负面但有对冲)")
+    else:
+        score = 9.0  # 无虐主或纯爽文
+
+    # 金手指延迟额外扣分
+    if golden_finger_chapter and golden_finger_chapter == 1:
+        score = min(score + 1.0, 10.0)  # 第1章就有金手指, 加分
+    elif not golden_finger_chapter:
+        score = max(score - 1.0, 0.0)  # 无金手指, 额外扣分
+
+    dim.score = round(score, 1)
+    dim.passed = dim.score >= dim.threshold
+    return dim
+
+
+# ── 题材趋势 (v8.8 元数据, 非评分维度) ──
+
+HOT_GENRES_2026: set[str] = {
+    "都市", "脑洞都市", "系统流", "都市脑洞",
+    "年代重生", "重生", "战神", "赘婿",
+    "快穿", "大女主", "悬疑", "无限流",
+    "高武", "异能", "历史", "穿越",
+    "同人", "模拟器", "直播", "灵异",
+}
+
+
+def _check_genre_trend(genre: str) -> str:
+    """检测题材趋势, 返回 hot/normal/declining。"""
+    if not genre:
+        return "unknown"
+    if genre in HOT_GENRES_2026:
+        return "hot"
+    for hot in HOT_GENRES_2026:
+        if hot in genre or genre in hot:
+            return "hot"
+    return "normal"
+
+
 # ── 主入口 ──
 
 def analyze_golden3(
     chapters: list[str],
     canon: dict | None = None,
     benchmarks: dict | None = None,
+    genre: str = "",
+    title: str = "",
+    tags: list[str] | None = None,
 ) -> Golden3Report:
     """执行黄金三章五维分析。
 
     Args:
-        chapters: 前3章正文列表 (至少1章, 建议3章)
-        canon: 可选 Canon 数据 (characters, timeline, foreshadowing, novel_outline)
-        benchmarks: 可选 爆款基准数据 (用于对比分析)
+    chapters: 前3章正文列表 (至少1章, 建议3章)
+      canon: 可选 Canon 数据 (characters, timeline, foreshadowing, novel_outline)
+      benchmarks: 可选 爆款基准数据 (用于对比分析)
+      genre: 可选 题材标签 (用于题材趋势元数据)
+      title: 可选 书名 (用于关系绑定检测)
+      tags: 可选 标签列表 (用于关系绑定检测)
 
     Returns:
-        Golden3Report 包含5个维度的评分和建议
+        Golden3Report 包含7个维度的评分和建议
     """
     report = Golden3Report()
 
@@ -781,6 +1269,25 @@ def analyze_golden3(
     # G5: 情绪曲线 (前3章)
     g5 = check_emotional_curve(chapters)
     report.add(g5)
+
+    # G6: 市场反馈 (前3章, v8.8)
+    g6 = check_market_feedback(chapters)
+    report.add(g6)
+
+    # G7: 关系绑定 (前3章 + 书名/标签, v8.8)
+    g7 = check_relationship_binding(chapters, title, tags or [])
+    report.add(g7)
+
+    # G8: 预期兑现 (前3章 vs 书名/标签, v3)
+    g8 = check_promise_fulfillment(chapters, title, tags or [])
+    report.add(g8)
+
+    # G9: 主角保护 (前3章, v4)
+    g9 = check_protagonist_abuse(chapters)
+    report.add(g9)
+
+    # v8.8: 题材趋势元数据
+    report.genre_trend = _check_genre_trend(genre)
 
     # 加权总分
     total = 0.0
@@ -847,7 +1354,7 @@ def _generate_summary(report: Golden3Report) -> str:
         "  黄金三章分析报告 (Golden3 Analyzer)",
         f"{'=' * 60}",
         f"  综合评分: {report.total_score:.1f}/10  评级: {report.grade}",
-        f"  通过: {report.passed_count}/5  不通过: {report.failed_count}/5",
+        f"  通过: {report.passed_count}/7  不通过: {report.failed_count}/7",
         f"{'─' * 60}",
     ]
 
@@ -868,6 +1375,11 @@ def _generate_summary(report: Golden3Report) -> str:
             if isinstance(val, dict):
                 lines.append(f"    {key}: 作者 {val.get('author', '?')} vs 爆款 {val.get('benchmark', '?')} (差距 {val.get('gap', '?')})")
 
+    if report.genre_trend:
+        lines.append(f"{'─' * 60}")
+        trend_label = {"hot": "热门", "normal": "普通", "declining": "下行", "unknown": "未知"}
+        lines.append(f"  题材趋势: {trend_label.get(report.genre_trend, report.genre_trend)}")
+
     lines.append(f"{'=' * 60}")
     return "\n".join(lines)
 
@@ -877,6 +1389,9 @@ def _generate_summary(report: Golden3Report) -> str:
 def golden3_as_s3_precheck(
     chapters: list[str],
     canon: dict | None = None,
+    genre: str = "",
+    title: str = "",
+    tags: list[str] | None = None,
 ) -> dict:
     """作为 S3 评审前置检查, 返回结构化结果供 S3 流程使用。
 
@@ -887,8 +1402,9 @@ def golden3_as_s3_precheck(
           - weighted_score: float
           - dimension_scores: dict[str, float]
           - top_issues: list[str] — 按严重度排序的问题
+          - genre_trend: str — 题材趋势 (hot/normal/declining)
     """
-    report = analyze_golden3(chapters, canon)
+    report = analyze_golden3(chapters, canon, genre=genre, title=title, tags=tags)
 
     # 判断是否阻断
     block_reasons = []
@@ -919,5 +1435,6 @@ def golden3_as_s3_precheck(
         "grade": report.grade,
         "dimension_scores": {dim.dimension: dim.score for dim in report.dimensions},
         "top_issues": top_issues,
+        "genre_trend": report.genre_trend,
         "report": report,
     }

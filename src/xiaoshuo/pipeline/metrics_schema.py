@@ -22,7 +22,7 @@ metrics_schema.py — 节奏指标数据模型 (类型安全层)
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
-from typing import Any
+from typing import Any, ClassVar
 
 
 @dataclass
@@ -167,8 +167,9 @@ class ChapterMetrics:
         return cls(**kwargs)
 
     # ── CSV 列名 (与 rhythm_analyzer.fields 列表完全一致) ──
+    # ClassVar: 不被 dataclass 当作实例字段，可作为类属性访问
 
-    CSV_FIELDS: list[str] = field(default_factory=lambda: [
+    CSV_FIELDS: ClassVar[list[str]] = [
         "ch_num", "ch_hash", "wc", "para_count", "avg_para_len", "dialogue_ratio",
         "excl_density", "pos_density", "neg_density", "conflict_density", "hook_density",
         "slap_count", "level_count", "crush_count", "comeback_count", "hidden_count",
@@ -183,7 +184,8 @@ class ChapterMetrics:
         "ch_variability",
         "anti_trope", "anti_trope_count", "emotion_valence", "emotion_burnout",
         "high_emotion_count", "burnout_count",
-    ], repr=False)
+        "survival_gain_count",
+    ]
 
 
 # ============================================================

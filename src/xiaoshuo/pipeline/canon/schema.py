@@ -5,7 +5,11 @@ canon.schema — 6 个 canon 文件的数据结构定义
 v7.6: 轻量类型校验（不依赖 Pydantic），与 infra/schemas.py 风格一致。
 """
 
-from typing import Any
+import logging
+from datetime import datetime
+from typing import Any, Optional
+
+_logger = logging.getLogger(__name__)
 
 
 # ── 6 个 canon 文件的 Schema ──
@@ -17,6 +21,16 @@ CHARACTERS_SCHEMA = {
         "personality": str,
         "ability": str,
         "arc": str,  # 角色弧线
+        # v2: 角色软肋扩展 (基于追读率提升建议)
+        "vulnerabilities": [str],   # 软肋/弱点列表
+        "trauma_points": [str],     # 创伤点 (驱动行为)
+        "regrets": [str],           # 遗憾列表
+        "emotional_triggers": dict,  # 触发器 -> 反应映射, 如 {"被质疑实力": "暴怒"}
+        "hidden_desires": [str],    # 隐藏欲望 (表面目标之下)
+        # v3: 人物小传扩展 (基于建议文件"人物小传三要素")
+        "contrast_traits": [str],   # 反差萌: 高冷但喜欢可爱小动物
+        "habits": [str],            # 习惯: 压力大时暴食/口头禅
+        "origin_environment": str,  # 原生环境 (家庭/社会)
     },
     "core_companions": [  # 核心同伴列表
         {
@@ -26,6 +40,16 @@ CHARACTERS_SCHEMA = {
             "ability": str,
             "role": str,  # 在故事中的角色
             "key_conflict": str,  # 与主角的核心冲突/张力
+            # v2: 角色软肋扩展
+            "vulnerabilities": [str],
+            "trauma_points": [str],
+            "regrets": [str],
+            "emotional_triggers": dict,
+            "hidden_desires": [str],
+            # v3: 人物小传扩展
+            "contrast_traits": [str],
+            "habits": [str],
+            "origin_environment": str,
         }
     ],
     "antagonists": [
@@ -35,6 +59,14 @@ CHARACTERS_SCHEMA = {
             "motivation": str,
             "threat_level": str,  # 前期/中期/后期
             "key_conflict": str,
+            # v2: 角色软肋扩展
+            "vulnerabilities": [str],   # 反派的软肋 = 主角可利用的突破口
+            "trauma_points": [str],     # 反派的创伤 (让反派不扁平)
+            "hidden_desires": [str],    # 反派的隐藏动机
+            # v3: 人物小传扩展
+            "contrast_traits": [str],
+            "habits": [str],
+            "origin_environment": str,
         }
     ],
     "supporting": [
@@ -326,3 +358,237 @@ def validate_canon(name: str, data: dict) -> list[str]:
     if name not in CANON_SCHEMAS:
         return [f"Unknown canon name: {name}"]
     return _validate_type(data, CANON_SCHEMAS[name], f"canon.{name}")
+
+
+# ── v8.8: 双时间机制 (Dual-Time Mechanism) ──
+# 来源: 建议文件 "双时间机制 → Canon 设定管线的版本控制"
+#
+# 解决问题: Canon 是静态快照, 设定变更后旧版本仍可能被引用 (设定漂移)
+# 解决方案: 每条设定记录两个时间戳:
+#   - value_time: (生效章节, 失效章节) — 该设定在故事中的有效范围
+#   - transaction_time: 写入系统的时间 — 用于判断哪个版本是最新的
+#
+# 典型场景:
+#   主角境界从筑基→金丹, 第150章开始生效
+#   → 旧版: value_time=(1, 150), transaction_time=2026-06-01
+#   → 新版: value_time=(150, None), transaction_time=2026-07-05
+#   查询第100章 → 返回旧版 (筑基)
+#   查询第200章 → 返回新版 (金丹)
+
+
+class CanonEntry:
+    """带双时间戳的 Canon 设定条目。
+
+    Attributes:
+        key: 设定唯一标识 (如 "protagonist.ability", "rules.power_system.name")
+        content: 设定内容 (可以是字符串或嵌套 dict)
+        value_time: (生效章节, 失效章节) — None 表示无上限
+        transaction_time: 写入系统的时间戳
+        source: 来源 ("world.md" / "对话修改" / "AI推断" / "manual")
+    """
+
+    __slots__ = ("key", "content", "value_time", "transaction_time", "source")
+
+    def __init__(
+        self,
+        key: str,
+        content: Any,
+        value_time: tuple[int, Optional[int]] = (1, None),
+        transaction_time: Optional[str] = None,
+        source: str = "manual",
+    ):
+        self.key = key
+        self.content = content
+        self.value_time = value_time
+        self.transaction_time = transaction_time or datetime.now().isoformat(timespec="seconds")
+        self.source = source
+
+    def is_active_at(self, chapter: int) -> bool:
+        """查询该设定在指定章节是否有效。
+
+        Args:
+            chapter: 章节号
+
+        Returns:
+            True 如果 chapter 在 value_time 范围内
+        """
+        start, end = self.value_time
+        if start is not None and chapter < start:
+            return False
+        if end is not None and chapter >= end:
+            return False
+        return True
+
+    def to_dict(self) -> dict:
+        """序列化为字典 (用于 JSON 持久化)。"""
+        return {
+            "key": self.key,
+            "content": self.content,
+            "value_time": list(self.value_time),
+            "transaction_time": self.transaction_time,
+            "source": self.source,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "CanonEntry":
+        """从字典反序列化。"""
+        vt = data.get("value_time", [1, None])
+        return cls(
+            key=data["key"],
+            content=data.get("content"),
+            value_time=(vt[0], vt[1] if len(vt) > 1 else None),
+            transaction_time=data.get("transaction_time"),
+            source=data.get("source", "manual"),
+        )
+
+    def __repr__(self) -> str:
+        start, end = self.value_time
+        end_str = str(end) if end is not None else "∞"
+        return (
+            f"<CanonEntry key={self.key} "
+            f"value_time=[{start},{end_str}] "
+            f"tx={self.transaction_time[:10]}>"
+        )
+
+
+class CanonVersionStore:
+    """Canon 设定版本存储 — 管理同一设定的多个版本。
+
+    核心功能:
+      1. add(entry) — 添加新版本 (不覆盖旧版本)
+      2. get_active_at(key, chapter) — 查询某章节时有效的设定
+      3. get_latest(key) — 按 transaction_time 获取最新版本
+      4. list_active_at(chapter) — 列出某章节所有有效设定
+
+    与 consistency_checker 的整合:
+      checker 查询 canon 时, 先经过 version_store 过滤,
+      只返回当前章节有效的设定, 避免引用已过期的旧设定。
+    """
+
+    def __init__(self):
+        # key -> list[CanonEntry] (按 transaction_time 升序)
+        self._store: dict[str, list[CanonEntry]] = {}
+
+    def add(self, entry: CanonEntry):
+        """添加一个设定版本。
+
+        如果新版本的 value_time 与已有版本重叠,
+        旧版本的失效章节会自动调整为新版本的生效章节。
+        """
+        if entry.key not in self._store:
+            self._store[entry.key] = []
+
+        # 自动调整旧版本的失效时间 (如果新旧重叠)
+        new_start = entry.value_time[0]
+        for old in self._store[entry.key]:
+            old_start, old_end = old.value_time
+            if new_start is not None and old_start < new_start:
+                if old_end is None:
+                    # 旧版本无上限 → 截断到 new_start
+                    old.value_time = (old_start, new_start)
+                elif old_end > new_start:
+                    # 旧版本有上限但仍与新版本重叠 → 截断
+                    old.value_time = (old_start, new_start)
+                    _logger.warning(
+                        "[canon] 设定 %s 版本重叠已修正: "
+                        "old=[%s,%s] → [%s,%s]",
+                        entry.key, old_start, old_end, old_start, new_start,
+                    )
+
+        self._store[entry.key].append(entry)
+        # 按 transaction_time 排序
+        self._store[entry.key].sort(key=lambda e: e.transaction_time)
+
+    def get_active_at(self, key: str, chapter: int) -> Optional[CanonEntry]:
+        """查询某章节时有效的设定版本。
+
+        如果多个版本都有效 (不应该发生, 但防御性处理),
+        返回 transaction_time 最新的那个。
+        """
+        entries = self._store.get(key, [])
+        active = [e for e in entries if e.is_active_at(chapter)]
+        if not active:
+            return None
+        # entries 已按 transaction_time 升序排列, 取最后一个 = 最新版本
+        return active[-1]
+
+    def get_latest(self, key: str) -> Optional[CanonEntry]:
+        """获取某设定的最新版本 (按 transaction_time)。"""
+        entries = self._store.get(key, [])
+        if not entries:
+            return None
+        return entries[-1]
+
+    def list_active_at(self, chapter: int) -> list[CanonEntry]:
+        """列出某章节所有有效设定。"""
+        result = []
+        for key, entries in self._store.items():
+            active = [e for e in entries if e.is_active_at(chapter)]
+            if active:
+                result.append(active[-1])
+        return result
+
+    def list_all_keys(self) -> list[str]:
+        """列出所有设定 key。"""
+        return list(self._store.keys())
+
+    def get_version_history(self, key: str) -> list[CanonEntry]:
+        """获取某设定的完整版本历史。"""
+        return list(self._store.get(key, []))
+
+    def to_dict(self) -> dict:
+        """序列化为字典 (用于 JSON 持久化)。"""
+        return {
+            key: [e.to_dict() for e in entries]
+            for key, entries in self._store.items()
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "CanonVersionStore":
+        """从字典反序列化。"""
+        store = cls()
+        for key, entry_list in data.items():
+            for entry_data in entry_list:
+                store.add(CanonEntry.from_dict(entry_data))
+        return store
+
+    def save_to_file(self, path):
+        """保存到 JSON 文件。
+
+        Args:
+            path: 文件路径 (str 或 Path)
+        """
+        from pathlib import Path
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        import json
+        p.write_text(
+            json.dumps(self.to_dict(), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    @classmethod
+    def load_from_file(cls, path) -> "CanonVersionStore":
+        """从 JSON 文件加载。
+
+        Args:
+            path: 文件路径 (str 或 Path)
+
+        Returns:
+            CanonVersionStore 实例, 文件不存在时返回空存储
+        """
+        from pathlib import Path
+        import json
+        p = Path(path)
+        if not p.exists():
+            return cls()
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            return cls.from_dict(data)
+        except (json.JSONDecodeError, OSError) as e:
+            _logger.warning("[canon] 版本存储加载失败 (%s): %s", p, e)
+            return cls()
+
+    def __repr__(self) -> str:
+        total = sum(len(v) for v in self._store.values())
+        return f"<CanonVersionStore keys={len(self._store)} entries={total}>"

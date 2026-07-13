@@ -40,7 +40,7 @@ import re
 from pathlib import Path
 from xiaoshuo import PROJECT_ROOT
 from xiaoshuo.infra.logging_config import get_logger
-from xiaoshuo.infra.config_manager import get_config
+from xiaoshuo.infra.config_manager import get_config, get_config_section
 
 import yaml
 
@@ -146,6 +146,14 @@ class ModelServer:
 
         返回: True=启动成功, False=启动失败
         """
+        # v8.3: 检查 auto_start 开关，防止 AI 未经用户确认就启动模型
+        orch_cfg = get_config_section("model_orchestration", default={})
+        if not orch_cfg.get("auto_start", False):
+            print("[BLOCKED] 模型自动启动已被禁用 (config.yaml: "
+                  "model_orchestration.auto_start=false)。"
+                  "请用户手动运行 scripts\\start_model.bat 启动模型。")
+            return False
+
         # 前置检查：GGUF 文件是否存在
         if not self.gguf_path or not Path(self.gguf_path).exists():
             print(f"[FAIL] ModelServer({self.model_key}): GGUF 文件不存在: {self.gguf_path}")
@@ -409,6 +417,10 @@ class ModelOrchestrator:
         self.routing_table = self.config.get("routing_table", {})
         self.fallback_mode = self.config.get("fallback", "single_model")
 
+        # v8.7: 按任务分配 ctx 预算
+        # 来源: 建议文件 "上下文长度预算管理: 按任务分配 ctx"
+        self.task_ctx_budget = self.config.get("task_ctx_budget", {})
+
         # ── 创建 ModelServer 实例 ──
         self.servers: dict[str, ModelServer] = {}
         for key, cfg in self.config.get("models", {}).items():
@@ -476,6 +488,103 @@ class ModelOrchestrator:
             if server.is_running():
                 server.stop()
 
+    # ── ctx 预算管理 (v8.7) ──
+
+    @staticmethod
+    def _estimate_tokens(messages: list[dict]) -> int:
+        """粗略估算 messages 的 token 数。
+
+        中文约 1.5 字/token, 英文约 4 字符/token。
+        采用混合估算: 中文字符按 1.5:1, ASCII 按 4:1, 取较大值做保守估计。
+        """
+        total_chars = 0
+        total_cjk = 0
+        for msg in messages:
+            content = msg.get("content", "")
+            total_chars += len(content)
+            # 统计中日韩字符
+            total_cjk += sum(1 for c in content if '\u4e00' <= c <= '\u9fff'
+                             or '\u3040' <= c <= '\u30ff'  # 日文假名
+                             or '\uac00' <= c <= '\ud7af')  # 韩文
+        # 保守估算: 中文 1.5 字/token, 英文 4 字符/token
+        cjk_tokens = total_cjk / 1.5 if total_cjk > 0 else 0
+        ascii_tokens = (total_chars - total_cjk) / 4.0
+        # 加上每条消息的结构开销 (~4 token: role + delimiters)
+        overhead = len(messages) * 4
+        return int(cjk_tokens + ascii_tokens + overhead)
+
+    def _get_ctx_budget(self, task_type: str) -> int:
+        """获取 task_type 的 ctx 预算 (prompt + max_tokens 总和)。
+
+        从 config.yaml task_ctx_budget 读取, 未配置则用 _default。
+        """
+        budget = self.task_ctx_budget.get(task_type)
+        if budget is None:
+            budget = self.task_ctx_budget.get("_default", 6144)
+        return int(budget)
+
+    def _trim_to_budget(
+        self, messages: list[dict], prompt_budget: int
+    ) -> list[dict]:
+        """当 messages 估算 token 数超过 prompt_budget 时, 裁剪最早的消息。
+
+        保留策略:
+        - 始终保留 system 消息 (第一条或所有 role=system)
+        - 始终保留最后一条 user 消息
+        - 中间消息从最早的开始裁剪
+        """
+        estimated = self._estimate_tokens(messages)
+        if estimated <= prompt_budget:
+            return messages  # 未超限, 无需裁剪
+
+        _logger.info(
+            "[ctx-budget] 估算 %d token > 预算 %d, 开始裁剪",
+            estimated, prompt_budget,
+        )
+
+        # 分离 system 消息和其他消息
+        system_msgs = [m for m in messages if m.get("role") == "system"]
+        non_system = [m for m in messages if m.get("role") != "system"]
+
+        # 如果只有 system + 1 条非 system, 无法裁剪
+        if len(non_system) <= 1:
+            _logger.warning(
+                "[ctx-budget] 消息不足无法裁剪 (system=%d, non_system=%d), "
+                "原始发送 (%d token)",
+                len(system_msgs), len(non_system), estimated,
+            )
+            return messages
+
+        # 保留最后一条非 system 消息, 从前面的非 system 消息开始裁剪
+        preserved = system_msgs + [non_system[-1]]
+        preserved_tokens = self._estimate_tokens(preserved)
+        remaining_budget = prompt_budget - preserved_tokens
+
+        if remaining_budget <= 0:
+            # 连保留部分都超限了, 只发 system + 最后一条
+            _logger.warning(
+                "[ctx-budget] 保留部分已超限 (%d > %d), 仅发送 system + 最后一条",
+                preserved_tokens, prompt_budget,
+            )
+            return preserved
+
+        # 从后往前添加非 system 消息 (保留最近的上下文)
+        result_non_system = [non_system[-1]]
+        for msg in reversed(non_system[:-1]):
+            msg_tokens = self._estimate_tokens([msg])
+            if remaining_budget - msg_tokens < 0:
+                break
+            result_non_system.insert(0, msg)
+            remaining_budget -= msg_tokens
+
+        trimmed = system_msgs + result_non_system
+        final_est = self._estimate_tokens(trimmed)
+        _logger.info(
+            "[ctx-budget] 裁剪完成: %d → %d token (保留 %d/%d 条非 system 消息)",
+            estimated, final_est, len(result_non_system), len(non_system),
+        )
+        return trimmed
+
     # ── 请求路由 ──
 
     def chat(
@@ -503,6 +612,19 @@ class ModelOrchestrator:
         Returns:
             同 ModelServer.chat() 的返回值格式
         """
+        # v8.7: 按任务裁剪 ctx 预算
+        ctx_budget = self._get_ctx_budget(task_type)
+        prompt_budget = ctx_budget - max_tokens
+        if prompt_budget < 512:
+            # max_tokens 占满了预算, 只保留最低 prompt 空间
+            _logger.warning(
+                "[ctx-budget] task=%s max_tokens=%d >= budget=%d, "
+                "prompt 空间不足, 降级为最低 512",
+                task_type, max_tokens, ctx_budget,
+            )
+            prompt_budget = 512
+        messages = self._trim_to_budget(messages, prompt_budget)
+
         # ── 查路由表 ──
         target_key = self.routing_table.get(task_type, "main_model")
         target = self.servers.get(target_key)

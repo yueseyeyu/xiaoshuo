@@ -15,8 +15,8 @@ provider:
 
 - 根目录: d:\Code\xiaoshuo\ · 参考: DESIGN.md · 模型库: D:\DaMoXing\
 - 环境: conda llm-shared (D:\miniconda3\envs\llm-shared) · 硬件: RTX 5060 8GB
-- 关键决策: MTP已排除(Dense -42%) · 正文100%手写 · Qwen3.5-9B单模型(4.41/5) · R1备份 · P0完成
-- 模型端口: 主模型:8000 · WebNovel专家:8001 · 逻辑警察候选:8002
+- 关键决策: MTP已排除(Dense -42%) · AI生成须过S3质量门禁(AI_PROTOCOL.md v1.2) · Qwen3.5-9B单模型(4.41/5) · R1交叉审查 · P0完成
+- 模型端口: 主模型:8000 · 交叉模型(DeepSeek-R1-0528-Qwen3-8B):8002 (顺序切换swap_to)
 
 # 工具 & 模块
 
@@ -69,7 +69,7 @@ provider:
 ## 禁止
 1. 禁止 print() 用 Unicode — Windows GBK 崩溃，用 [OK] [FAIL] 替代
 2. 禁止修改文件前不 read_file — 文件可能已被用户改动
-3. 禁止生成超过30字连续小说正文
+3. 禁止AI生成内容不过S3质量门禁直接采用 — 见AI_PROTOCOL.md v1.2
 4. 禁止硬编码阈值/路径/端口/模型key列表 — 放 config.yaml，代码必须动态遍历配置
 5. 禁止修改 AI_PROTOCOL.md / canon/ 设定文件 — 需用户确认
 6. 禁止创建一次性临时脚本 — 纳入 scripts/ 或 agents/ 或 novel.py

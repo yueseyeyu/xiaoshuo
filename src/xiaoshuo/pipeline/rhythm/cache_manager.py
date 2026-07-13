@@ -14,7 +14,7 @@ from xiaoshuo.infra.logging_config import get_logger
 logger = get_logger("rhythm.cache_manager")
 
 # v11: 章节级缓存版本 (rule_analyze 逻辑变更时递增, 触发全量重分析)
-CACHE_VERSION = 13
+CACHE_VERSION = 17  # v10-fix: 修正pleasure_intensity系数(回归pos_density+×1.5+极性校验)
 
 
 def load_cached_summary(csv_path, name):

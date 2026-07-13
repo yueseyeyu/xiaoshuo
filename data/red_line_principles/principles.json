@@ -1,0 +1,187 @@
+{
+  "version": "1.0",
+  "updated_at": "2026-07-05T22:02:26",
+  "categories": {
+    "character": "角色红线 (主角不能怂/CP不能绿/角色不能降智)",
+    "power": "战力红线 (战力不能崩/升级不能跳)",
+    "plot": "剧情红线 (不能烂尾/不能水字数/不能逻辑断裂)",
+    "world": "世界观红线 (设定不能自相矛盾/规则不能随意改)",
+    "style": "风格红线 (不能AI味/不能流水账/不能说明文)",
+    "moral": "道德红线 (不写低俗/不美化犯罪/不传播负面)"
+  },
+  "principles": [
+    {
+      "id": "rl-001",
+      "category": "character",
+      "rule": "主角不能跪地求饶",
+      "keywords": [
+        "跪倒在地",
+        "跪下",
+        "磕头",
+        "求饶",
+        "跪地求饶"
+      ],
+      "patterns": [],
+      "severity": "critical",
+      "alternative": "主角即使战败也应站着，用语言或行动反击",
+      "enabled": true,
+      "created_at": "2026-07-05T22:01:04",
+      "hit_count": 0,
+      "override_count": 0
+    },
+    {
+      "id": "rl-002",
+      "category": "character",
+      "rule": "主角不能降智 (明知陷阱还往里跳)",
+      "keywords": [
+        "明知陷阱",
+        "明知是计",
+        "明知道危险"
+      ],
+      "patterns": [],
+      "severity": "serious",
+      "alternative": "给主角合理的理由去冒险，而非无脑送死",
+      "enabled": true,
+      "created_at": "2026-07-05T22:01:04",
+      "hit_count": 0,
+      "override_count": 0
+    },
+    {
+      "id": "rl-003",
+      "category": "character",
+      "rule": "主角不能圣母 (无底线原谅敌人)",
+      "keywords": [
+        "原谅了",
+        "放过了",
+        "算了饶他",
+        "放过他吧",
+        "饶他一命",
+        "饶了他吧",
+        "放了他吧",
+        "看在孩子的份上",
+        "看在他母亲",
+        "也挺可怜",
+        "也不容易",
+        "挺苦的",
+        "我不能杀",
+        "我不该杀",
+        "我不会杀",
+        "杀了他和有什么区别",
+        "我不是那种人",
+        "我不想变成",
+        "不能变得和他一样",
+        "其实他是好人",
+        "本性不坏",
+        "也是被迫的",
+        "误会了他",
+        "错怪了他",
+        "有苦衷的"
+      ],
+      "patterns": [
+        "放[了过].*吧",
+        "饶[了过].*[一这]命",
+        "[看念].*[老小孩子母亲父亲家人]",
+        "[他她].*也[挺很蛮].*[可怜不容易苦]",
+        "我[不能不该不会].*[杀伤害]",
+        "[杀伤害].*[人他她].*和.*[有没].*什么[区别不同]",
+        "[原本].*[来就].*[好善无幸]",
+        "[误会误解错怪].*[了他她]",
+        "[其实原来].*[有挺].*[苦衷原因理由]",
+        "救.*[反敌坏].*[派人]",
+        "[放让].*[走逃跑].*.*[自己我].*[伤死危险]"
+      ],
+      "severity": "serious",
+      "alternative": "主角可以有原则的宽容，但不能无底线圣母。\n番茄存活作品中，主角的善良必须有底线：\n- 对坏人：杀伐果断，或废其修为/剥夺身份\n- 对可改造者：有条件宽恕（完成任务/提供情报/付出代价）\n- 绝不让步：不因'反派有家人'而放过",
+      "enabled": true,
+      "created_at": "2026-07-05T22:01:04",
+      "hit_count": 10,
+      "override_count": 0
+    },
+    {
+      "id": "rl-004",
+      "category": "power",
+      "rule": "战力不能崩 (越级太多无代价)",
+      "keywords": [
+        "轻松击败",
+        "一拳秒杀",
+        "毫不费力地"
+      ],
+      "patterns": [
+        "越级.{0,10}(轻松|秒杀|碾压)"
+      ],
+      "severity": "serious",
+      "alternative": "越级战斗应有代价或特殊条件，不能无理由碾压",
+      "enabled": true,
+      "created_at": "2026-07-05T22:01:04",
+      "hit_count": 0,
+      "override_count": 0
+    },
+    {
+      "id": "rl-005",
+      "category": "plot",
+      "rule": "不能无逻辑推进 (突然跳到新场景无过渡)",
+      "keywords": [],
+      "patterns": [
+        "突然.{0,5}来到了",
+        "转眼间.{0,10}已经"
+      ],
+      "severity": "warning",
+      "alternative": "场景切换需要过渡描写，不能硬跳",
+      "enabled": true,
+      "created_at": "2026-07-05T22:01:04",
+      "hit_count": 0,
+      "override_count": 0
+    },
+    {
+      "id": "rl-006",
+      "category": "style",
+      "rule": "不能出现AI指纹词密集",
+      "keywords": [
+        "深吸一口气",
+        "目光扫过",
+        "嘴角勾起",
+        "不由地",
+        "旋即",
+        "与此同时"
+      ],
+      "patterns": [],
+      "severity": "warning",
+      "alternative": "避免连续使用AI高频心理描写词，改用动作和对话",
+      "enabled": true,
+      "created_at": "2026-07-05T22:01:04",
+      "hit_count": 0,
+      "override_count": 0
+    },
+    {
+      "id": "rl-007",
+      "category": "style",
+      "rule": "不能出现大段说明文 (设定灌输)",
+      "keywords": [],
+      "patterns": [
+        "(?:之所以|这是因为|众所周知).{50,}"
+      ],
+      "severity": "warning",
+      "alternative": "设定应通过对话和事件自然展开，不要大段说明",
+      "enabled": true,
+      "created_at": "2026-07-05T22:01:04",
+      "hit_count": 0,
+      "override_count": 0
+    },
+    {
+      "id": "rl-008",
+      "category": "moral",
+      "rule": "不能美化犯罪行为",
+      "keywords": [
+        "杀人不眨眼真男人",
+        "无毒不丈夫"
+      ],
+      "patterns": [],
+      "severity": "critical",
+      "alternative": "反派可以有魅力，但不应美化犯罪本身",
+      "enabled": true,
+      "created_at": "2026-07-05T22:01:04",
+      "hit_count": 0,
+      "override_count": 0
+    }
+  ]
+}

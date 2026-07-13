@@ -2,8 +2,8 @@
 import unittest
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "analysis"))
-from book_processor import detect_encoding, detect_genre, passes_basic_filter
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+from xiaoshuo.pipeline.book_processor import detect_encoding, detect_genre, passes_basic_filter
 
 
 class TestEncoding(unittest.TestCase):

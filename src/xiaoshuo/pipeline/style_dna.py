@@ -312,8 +312,7 @@ def extract_dna(text: str) -> StyleDNA:
     # ── D5: 视角 ──
     _extract_perspective(dna, text, chinese_count)
 
-    logger.debug("DNA 提取完成: %d 字, %d 句, %d 段",
-                chinese_count, len(sentences), len(paragraphs))
+    # v22.1: 移除 per-chapter DEBUG 日志（处理30本书×10章 = 300+条无用输出）
     return dna
 
 

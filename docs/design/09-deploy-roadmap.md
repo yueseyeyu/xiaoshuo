@@ -102,7 +102,7 @@ python -m llama_cpp.server \
 | 平台 AI 检测升级 | 🔴高 | 七层检测 + N-gram PPL + PAN 2026 基准 + P2 MASH 对抗流水线 |
 | 困惑度/突发性信号失效 | 🔴高 | N-gram PPL (Layer 7) + 12 维基线 + 🆕 节奏曲线作辅助特征 |
 | 平台行为模式检测 | 🟡中 | 降级：仅保留字数抖动，主防文本层 |
-| 平台水印检测 | 🟡中 | 正文 100% 手写，S2b 框架级切断 |
+| 平台水印检测 | 🟡中 | AI生成内容须过S3门禁，未过门禁不直接采用 |
 | 平台检测器模型切换 | 🔴高 | 🆕 MASH 多检测器对抗 (92% ASR) + PAN 2026 跨模型泛化 |
 | S2b 间接污染导致风格漂移 | 🟡中 | 🆕 v7.0 框架级切断（模糊化+3方向随机） |
 
@@ -265,6 +265,44 @@ L3（新增·深度）: 6本全章拆解 → 对比诊断报告
 
 **文献索引**: Preacher 2015 Extreme Groups Design · Eisenhardt 2025 Qualitative Saturation · Shneiderman 1996 Overview+Zoom+Details · WebNovelBench arxiv 2505.14818 · AuthorCraft 2026 Full Manuscript Analysis
 | **Kimi K2.6 蒸馏版追踪** | 发布时评估 | [F] 🆕 |
+
+---
+
+### 🆕 v15：评分引擎三层进化路线（2026-07-06 穷举搜索验证）
+
+> 基于 GitHub 39repo + arXiv 92论文 穷举搜索，确认三层递进式进化方案。
+> 论文索引: arXiv:2604.19261(33维语言学特征) · arXiv:2601.08654(Rulers三阶段框架) · arXiv:2510.18932(角色网络分析) · arXiv:2508.21476(SLM创意写作) · arXiv:2603.00077(Autorubric) · arXiv:2509.01640(TransGAT)
+
+#### 第一层：纯规则特征工程（✅ 已落地 v15-L1）
+
+| 特征模块 | 数据来源 | 维度数 | 状态 |
+|---------|---------|:------:|:----:|
+| 句法层：句长方差、句式多样性(Shannon熵) | avg_sentence_len, excl_density, dialogue_ratio | +2 | ✅ |
+| 情绪节奏：情绪波动幅度、疲劳惩罚 | emotion_valence, burnout_count | +1 | ✅ |
+| 伏笔密度：伏笔+身份揭示频率 | foreshadow_payoff_count, identity_reveal_count | +1 | ✅ |
+| 子类型自适应权重：打脸流/智斗流/羁绊流动态权重 | dominant_sub, bond/cognitive/sacrifice counts | 0(重加权) | ✅ |
+| Bug修复：vocab_diversity加载、量纲错配×4、双重API调用、ch_variability阈值 | — | 0(修复) | ✅ |
+
+**效果**：评分维度从7维扩展到11维；反模板惩罚恢复差异化(0.90-1.00)；子类型检测恢复(羁绊流8本/通用22本)；节奏突变风险检测恢复(10/10书触发)
+
+#### 第二层：LLM评分进化（⏳ 待启动）
+
+| 优化点 | 参考来源 | 触发条件 | 预期收益 |
+|-------|---------|---------|---------|
+| 结构化Prompt：二元判断→细分评分 | arXiv:2601.08654 (Rulers) | 本地LLM可用 | 对齐度+10% |
+| Few-shot锚点：3-5个已知分数章节 | arXiv:2603.00077 (Autorubric) | 30本书标注完成 | 稳定性+15% |
+| 双模型集成评判：Qwen+DeepSeek交叉 | arXiv:2603.00077 | 硬件≥12GB或swap | 可靠性+10% |
+| 维度扩展：7维→12维(+世界观/氛围/伏笔回收/信息密度) | GitHub:lars76/story-evaluation-llm | — | 覆盖面+30% |
+| OLS校准激活 | 已有代码 | 校准数据≥10本 | 分数分布对齐 |
+
+#### 第三层：混合架构进化（⏳ 长期方向）
+
+| 优化点 | 参考来源 | 触发条件 | 预期收益 |
+|-------|---------|---------|---------|
+| DeBERTa-v3分类器微调 | arXiv:2509.01640 (TransGAT) | 标注数据≥100章 | 推理速度100× |
+| 树模型两阶段校正(XGBoost) | GitHub:Lizhecheng02/Kaggle-AES | 第一层+第二层完成 | QWK+0.05 |
+| 角色关系网络密度 | arXiv:2510.18932 | 知识图谱完整 | 叙事质量新维度 |
+| 读者评论情感分析 | GitHub:GOLEM-lab/Qidian | 获取起点评论数据 | 真实留存分代理 |
 
 ---
 

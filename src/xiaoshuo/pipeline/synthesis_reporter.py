@@ -48,7 +48,7 @@ def auto_benchmark(synth, analyses, output_dir):
     for a in analyses:
         comm = a.get("commercial", {})
         if comm and isinstance(comm.get("overall"), int):
-            lines.append(f"- {a['name'][:20]}: 签约{comm['overall']}分 · {comm.get('grade','-')}")
+            lines.append(f"- {a['name'][:20]}: 综合{comm['overall']}分 · {comm.get('grade','-')}")
 
     target = output_dir / "rhythm_benchmark.md"
     target.write_text("\n".join(lines), encoding='utf-8')

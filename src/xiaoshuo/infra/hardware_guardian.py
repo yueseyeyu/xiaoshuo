@@ -95,6 +95,49 @@ def _read_vram_used_pynvml(pynvml, handle):
         return None
 
 
+def _read_gpu_util_pynvml(pynvml, handle):
+    try:
+        util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+        return int(util.gpu)
+    except pynvml.NVMLError_GpuIsLost:
+        raise
+    except Exception:
+        return None
+
+
+def _read_vram_processes_pynvml(pynvml, handle):
+    """读取占用 GPU 显存的进程列表（名称 + 占用 MB）。"""
+    processes = []
+    try:
+        import psutil
+        procs = []
+        try:
+            procs.extend(pynvml.nvmlDeviceGetComputeRunningProcesses(handle))
+        except Exception:
+            pass
+        try:
+            procs.extend(pynvml.nvmlDeviceGetGraphicsRunningProcesses(handle))
+        except Exception:
+            pass
+        seen_pids = set()
+        for p in procs:
+            pid = int(p.pid)
+            used_mb = getattr(p, 'usedGpuMemory', 0) // (1024 * 1024)
+            if pid in seen_pids or used_mb <= 0:
+                continue
+            seen_pids.add(pid)
+            name = None
+            try:
+                proc = psutil.Process(pid)
+                name = proc.name()
+            except Exception:
+                name = f"pid:{pid}"
+            processes.append({"pid": pid, "name": name, "used_mb": used_mb})
+    except Exception:
+        pass
+    return sorted(processes, key=lambda x: x["used_mb"], reverse=True)
+
+
 # ====================== nvidia-smi 降级方案 ======================
 
 def _read_gpu_temp_smi():
