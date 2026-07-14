@@ -1,4 +1,7 @@
 @echo off
+REM v17: 添加 --seed 42 修复跨session非确定性 (DeepSeek P0建议)
+REM   根因: --seed 默认-1(随机), flash-attn tiling不同导致GPU浮点非确定性
+REM   修复: --seed 42 固定种子. 如仍有非确定性, 尝试 --flash-attn off
 REM v16: 修复 flash-attn + q4_0 V-cache 不兼容导致的 20x 减速
 REM   根因: --flash-attn on + --cache-type-v q4_0 → 每次attention反量化 → 1.4 tok/s
 REM   修复: --cache-type-v q8_0 → 恢复 flash-attn 快路径
@@ -33,7 +36,8 @@ D:\miniconda3\envs\llm-shared\Library\bin\llama-server.exe ^
     --ubatch-size 256 --batch-size 512 ^
     --threads 10 ^
     --mlock ^
-    --defrag-thold 0.9
+    --defrag-thold 0.9 ^
+    --seed 42
 
 echo.
 echo [STOP] server closed
