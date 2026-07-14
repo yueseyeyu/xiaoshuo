@@ -37,7 +37,7 @@ v8.10: 48/100 → v8.15(过期数据): 68/100 → v8.15(新鲜数据): 72/100
 
 ---
 
-## 二、v8.15 本轮完成清单 (git 6个commit)
+## 二、v8.15 本轮完成清单 (git 14个commit)
 
 ### Commit历史
 
@@ -50,6 +50,12 @@ e13df93: P1-3: run-to-run variance (temp=0.0, 3/3 identical, std=0)
 ad6343f: v8.15 fresh data: OLS(3.466+0.361x) + Bootstrap CI + k-fold CV
 e5efbce: v8.15: LOOCV + scoring metadata recording + final review prompt v2
 c79ae27: v8.15: seed=42 fix + DS review(72/100) + score discretization finding
+23af6c7: v8.15 session complete: NEW_SESSION_HANDOFF.md updated + 72/100 credibility
+8d45795: v8.15: IAA annotation tool (20 chapters, 5 books, HTML+TXT)
+d6acfc6: v8.15: IAA tool v2 (reuse annotate_tool, S10+A7+B3=20ch, 7 books)
+fa2698c: v8.15: IAA tool v3 (isolated storage, annotator ID, no score leaking, safe export)
+da18bda: v8.15: fix IAA tool bugs (compareBox no-op, scores display, retest disabled, P1/P2 hidden, counts fixed)
+cead657: v8.15: IAA tool title fix + all bugs verified working in browser
 ```
 
 ### 代码修改
@@ -163,16 +169,21 @@ c79ae27: v8.15: seed=42 fix + DS review(72/100) + score discretization finding
 | 单一标注者 | -15分 | 朋友帮忙标注20章, 计算ICC | 朋友2-3小时 |
 | N=47小样本 | -10分 | 扩充到100章 | 人工标注5-10小时 |
 
-### 朋友标注方案 (20章, 最优选择)
+### 朋友标注方案 (20章, ✅ 工具已就绪)
 
-**目标**: 计算inter-annotator agreement(IAA), 验证golden set地基
+**状态**: IAA标注工具已生成并浏览器验证通过, 可直接发给朋友
 
-**章数**: **20章** (朋友重新标注你已标注的20章)
+**工具文件**: `data/golden/末世/tier3/iaa_annotation_tool.html`
 
-**选章原则**:
-1. 覆盖至少5本书(不要只选1本)
-2. 覆盖低/中/高三个分段(1-3分, 4-6分, 7-10分)
-3. 包含LLM评分偏差最大的章节(验证标注是否正确)
+**安全隔离设计**:
+1. localStorage key: `annotations_iaa_friend` (不冲突)
+2. 导出文件名: `friend_annotations.csv` (不覆盖用户数据)
+3. 章节数据: 去除所有human/llm/glm分数 (防锚定偏差)
+4. CSV含annotator列 (标识标注者)
+5. compare box已禁用 (不泄露已有分数)
+6. retest功能已禁用 (不会弹出错测章节)
+
+**选章分布**: S级10章(5本) + A级7章(废土崛起) + B级3章(末日蟑螂) = 20章
 
 **每章工时**: 5-10分钟(读章节文本+打2个分)
 
@@ -185,12 +196,14 @@ c79ae27: v8.15: seed=42 fix + DS review(72/100) + score discretization finding
 - ICC < 0.5 → 标注标准不清, 需要重定义rubric
 - 这是DeepSeek和豆包一致认为的"唯一能再提升可信度的路径"
 
+**朋友完成后**: 将CSV放到 `data/golden/末世/tier3/friend_annotations.csv`, 运行ICC计算
+
 ---
 
 ## 七、下一步优先级
 
 ```
-P0 (朋友可做): 20章独立标注 → 计算ICC → 验证golden set地基
+P0 (工具已就绪): 发IAA工具给朋友 → 朋友标注20章 → 计算ICC → 验证golden set地基
     ↓
 P1 (需人工): 扩充golden set 47→100章 → 缩窄CI → 提升校准稳定性
     ↓
