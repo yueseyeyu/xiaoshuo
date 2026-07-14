@@ -1,0 +1,23 @@
+{
+  "method": "OLS (pure human, temp=0.0, with prev_context)",
+  "n_human": 47,
+  "source": "v8.14_reference_scoring_data.json (fresh_abs scores, temp=0.0+prev_context)",
+  "date": "2026-07-14",
+  "intensity": {
+    "intercept": 3.062,
+    "slope": 0.379,
+    "mae": 1.561,
+    "bias": 0.0
+  },
+  "retention": {
+    "intercept": 4.047,
+    "slope": 0.355,
+    "mae": 1.261,
+    "bias": 0.0
+  },
+  "previous_wls_v812": {
+    "intensity": {"intercept": 1.928, "slope": 0.496, "r": 0.533},
+    "retention": {"intercept": 2.699, "slope": 0.488, "r": 0.46},
+    "note": "WLS混合了GLM数据(Bias+1.17)与人工数据, GLM方向与temp=0.0的LLM(-0.181)相反, 引入偏差"
+  }
+}

@@ -344,7 +344,7 @@ def _extract_rubric_json(raw):
         return None
 
 
-def llm_score_rubric(chapter_text, ch_num, conn=None, prev_context="", sub_genre="", temperature=0.1):
+def llm_score_rubric(chapter_text, ch_num, conn=None, prev_context="", sub_genre="", temperature=0.0):
     """Rubric-based scoring (Rubric Is All You Need, ACM 2025).
     v9: system/user separation for prefix caching.
     v18: CoT + prev_context + sub_genre emphasis.
@@ -1414,31 +1414,45 @@ def apply_golden_set_calibration(csv_path, golden_set_path=None):
     
     # v8.15: quantile_map dead code removed (results were never used in calibration)
     
-    # v8.15: Load WLS calibration params (replaces v21 median offset)
-    # Three external AIs unanimously recommended WLS over Bias-Corrected
+    # v8.15: Load OLS calibration params (replaces v8.12 WLS)
+    # OLS fitted on 47ch with temp=0.0+prev_context (matches production)
+    # GLM found WLS(v8.12) fails on temp=0.0 data due to opposite GLM bias direction
+    _ols_path = PROJECT_ROOT / "data" / "reports" / "末世" / "calibration" / "ols_calibration_v815.json"
     _wls_path = PROJECT_ROOT / "data" / "reports" / "末世" / "calibration" / "wls_calibration_v812.json"
     wls_params = None
-    if _wls_path.exists():
+    # Try OLS(v8.15) first, fallback to WLS(v8.12)
+    _calib_path = _ols_path if _ols_path.exists() else (_wls_path if _wls_path.exists() else None)
+    if _calib_path:
         try:
-            with open(_wls_path, "r", encoding="utf-8") as _wf:
+            with open(_calib_path, "r", encoding="utf-8") as _wf:
                 _wls_data = json.load(_wf)
-            _pure = _wls_data.get("pure_human_ols", {})
-            _mixed = _wls_data.get("mixed_ols", {})
-            wls_params = {
-                "intensity": {
-                    "intercept": _pure.get("intensity", {}).get("intercept", _mixed.get("intensity", {}).get("intercept", 1.928)),
-                    "slope": _pure.get("intensity", {}).get("slope", _mixed.get("intensity", {}).get("slope", 0.496)),
-                },
-                "retention": {
-                    "intercept": _pure.get("retention", {}).get("intercept", _mixed.get("retention", {}).get("intercept", 2.699)),
-                    "slope": _pure.get("retention", {}).get("slope", _mixed.get("retention", {}).get("slope", 0.488)),
-                },
-            }
-            logger.info("[O8] WLS params: i=%.3f+%.3f*x, r=%.3f+%.3f*x",
+            # OLS(v8.15) has direct intercept/slope; WLS(v8.12) has nested pure_human_ols/mixed_ols
+            if "intensity" in _wls_data and "intercept" in _wls_data["intensity"]:
+                # OLS(v8.15) format
+                wls_params = {
+                    "intensity": {"intercept": _wls_data["intensity"]["intercept"], "slope": _wls_data["intensity"]["slope"]},
+                    "retention": {"intercept": _wls_data["retention"]["intercept"], "slope": _wls_data["retention"]["slope"]},
+                }
+            else:
+                # WLS(v8.12) format (fallback)
+                _pure = _wls_data.get("pure_human_ols", {})
+                _mixed = _wls_data.get("mixed_ols", {})
+                wls_params = {
+                    "intensity": {
+                        "intercept": _pure.get("intensity", {}).get("intercept", _mixed.get("intensity", {}).get("intercept", 1.928)),
+                        "slope": _pure.get("intensity", {}).get("slope", _mixed.get("intensity", {}).get("slope", 0.496)),
+                    },
+                    "retention": {
+                        "intercept": _pure.get("retention", {}).get("intercept", _mixed.get("retention", {}).get("intercept", 2.699)),
+                        "slope": _pure.get("retention", {}).get("slope", _mixed.get("retention", {}).get("slope", 0.488)),
+                    },
+                }
+            logger.info("[O8] Calib params: i=%.3f+%.3f*x, r=%.3f+%.3f*x (%s)",
                        wls_params["intensity"]["intercept"], wls_params["intensity"]["slope"],
-                       wls_params["retention"]["intercept"], wls_params["retention"]["slope"])
+                       wls_params["retention"]["intercept"], wls_params["retention"]["slope"],
+                       _calib_path.name)
         except Exception as e:
-            logger.warning("[O8] WLS load failed: %s, fallback to median offset", e)
+            logger.warning("[O8] Calib load failed: %s, fallback to median offset", e)
 
     # Compute median offset as fallback
     int_offsets = [h - l for l, h in paired_int]
