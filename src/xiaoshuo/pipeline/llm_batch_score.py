@@ -1462,11 +1462,38 @@ def apply_golden_set_calibration(csv_path, golden_set_path=None):
     int_map_x, int_map_y = _build_quantile_map(paired_int)
     ret_map_x, ret_map_y = _build_quantile_map(paired_ret)
     
-    # Compute median offset for smart-skip and reporting
+    # v8.15: Load WLS calibration params (replaces v21 median offset)
+    # Three external AIs unanimously recommended WLS over Bias-Corrected
+    _wls_path = PROJECT_ROOT / "data" / "reports" / "末世" / "calibration" / "wls_calibration_v812.json"
+    wls_params = None
+    if _wls_path.exists():
+        try:
+            with open(_wls_path, "r", encoding="utf-8") as _wf:
+                _wls_data = json.load(_wf)
+            _pure = _wls_data.get("pure_human_ols", {})
+            _mixed = _wls_data.get("mixed_ols", {})
+            wls_params = {
+                "intensity": {
+                    "intercept": _pure.get("intensity", {}).get("intercept", _mixed.get("intensity", {}).get("intercept", 1.928)),
+                    "slope": _pure.get("intensity", {}).get("slope", _mixed.get("intensity", {}).get("slope", 0.496)),
+                },
+                "retention": {
+                    "intercept": _pure.get("retention", {}).get("intercept", _mixed.get("retention", {}).get("intercept", 2.699)),
+                    "slope": _pure.get("retention", {}).get("slope", _mixed.get("retention", {}).get("slope", 0.488)),
+                },
+            }
+            logger.info("[O8] WLS params: i=%.3f+%.3f*x, r=%.3f+%.3f*x",
+                       wls_params["intensity"]["intercept"], wls_params["intensity"]["slope"],
+                       wls_params["retention"]["intercept"], wls_params["retention"]["slope"])
+        except Exception as e:
+            logger.warning("[O8] WLS load failed: %s, fallback to median offset", e)
+
+    # Compute median offset as fallback
     int_offsets = [h - l for l, h in paired_int]
     ret_offsets = [h - l for l, h in paired_ret]
     int_offset = round(statistics.median(int_offsets), 1)
     ret_offset = round(statistics.median(ret_offsets), 1)
+    SHRINKAGE = 0.6 if len(paired_int) >= 20 else 0.4
     
     # v21: Smart-skip — 每个维度独立判断（与e2e_verify.py一致）
     SKIP_THRESHOLD = 0.5
@@ -1493,27 +1520,32 @@ def apply_golden_set_calibration(csv_path, golden_set_path=None):
     for row in rows:
         old_int = float(row.get("llm_intensity", 5))
         old_ret = float(row.get("llm_retention", 5))
-        # v21: Median offset + shrinkage, 每维度独立smart-skip
-        new_int = round(max(1.0, min(10.0, old_int + SHRINKAGE * int_offset)), 1) if not int_skip else old_int
-        new_ret = round(max(1.0, min(10.0, old_ret + SHRINKAGE * ret_offset)), 1) if not ret_skip else old_ret
-        row["llm_intensity"] = str(new_int)
-        row["llm_retention"] = str(new_ret)
+        if wls_params:
+            new_int = round(max(1.0, min(10.0, wls_params["intensity"]["intercept"] + wls_params["intensity"]["slope"] * old_int)), 1)
+            new_ret = round(max(1.0, min(10.0, wls_params["retention"]["intercept"] + wls_params["retention"]["slope"] * old_ret)), 1)
+        else:
+            new_int = round(max(1.0, min(10.0, old_int + SHRINKAGE * int_offset)), 1) if not int_skip else old_int
+            new_ret = round(max(1.0, min(10.0, old_ret + SHRINKAGE * ret_offset)), 1) if not ret_skip else old_ret
+        row["llm_intensity_calibrated"] = str(new_int)
+        row["llm_retention_calibrated"] = str(new_ret)
         row["llm_calibration_offset"] = f"i{new_int-old_int:+.1f},r{new_ret-old_ret:+.1f}"
         calibrated += 1
     
-    if "llm_calibration_offset" not in fieldnames:
-        fieldnames.append("llm_calibration_offset")
+    for _col in ["llm_intensity_calibrated", "llm_retention_calibrated", "llm_calibration_offset"]:
+        if _col not in fieldnames:
+            fieldnames.append(_col)
     
     with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
         w.writeheader()
         w.writerows(rows)
     
-    logger.info("[O8] Median-offset+shrinkage calibration: %d chapters (s=%.1f, n_golden=%d)", calibrated, SHRINKAGE, len(paired_int))
-    logger.info("     Offset: i%+.1f, r%+.1f | calibrated = raw + %.1f * offset", int_offset, ret_offset, SHRINKAGE)
-    return {"intensity_offset": int_offset, "retention_offset": ret_offset, 
-            "n_golden": len(paired_int), "method": "median_offset_shrinkage",
-            "shrinkage": SHRINKAGE}
+    _method = "wls" if wls_params else "median_offset_shrinkage"
+    logger.info("[O8] %s calibration: %d chapters (n_golden=%d) — original values preserved",
+               _method, calibrated, len(paired_int))
+    return {"intensity_offset": int_offset, "retention_offset": ret_offset,
+            "n_golden": len(paired_int), "method": _method,
+            "wls_params": wls_params, "overwrote_original": False}
 
 
 # ── v22.1 P1: Bootstrap Ranking Stability ──
