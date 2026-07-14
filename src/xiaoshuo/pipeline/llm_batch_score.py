@@ -1000,6 +1000,26 @@ def batch_book(txt_path, csv_path, max_chapters=None, sc_samples=1):
     intens = [r["llm_intensity"] for r in results]
     logger.info("OK N=%d | intensity %.0f-%.0f mean=%.1f | %s", len(results), min(intens), max(intens), statistics.mean(intens), out_path)
     
+    # v8.15: Save scoring metadata for traceability
+    _meta_path = out_path.parent / f"{name}_scoring_metadata.json"
+    import time as _time_meta
+    from datetime import datetime as _dt
+    _meta = {
+        "book": name,
+        "n_chapters": len(results),
+        "scoring_date": _dt.now().isoformat(),
+        "temperature": 0.0,
+        "model": "Qwen3.5-9B Q4_K_M",
+        "prev_context": True,
+        "csv_path": str(out_path),
+        "script": "llm_batch_score.batch_book",
+    }
+    try:
+        with open(_meta_path, "w", encoding="utf-8") as _mf:
+            json.dump(_meta, _mf, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+    
     # v18 O5: Pairwise对比评分 — BT模型校准rubric intensity
     try:
         rubric_map = {r["ch_num"]: r for r in results}
