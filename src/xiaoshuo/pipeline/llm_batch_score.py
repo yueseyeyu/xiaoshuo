@@ -35,46 +35,7 @@ from xiaoshuo.infra.logging_config import get_logger
 from xiaoshuo.pipeline.paths import rhythm_dir as _rhythm_dir, llm_score_dir, golden_set_path as _golden_set_path_fn
 from xiaoshuo.infra.llm_client import check_llm_health, get_main_model_base_url
 logger = get_logger(__name__)
-# L1-1: LLMLingua-2 lazy init (thread-safe, ~10-15% prompt processing speedup)
-_lingua_lock = threading.Lock()
-_lingua = None  # None=not tried, False=failed, obj=ready
-
-def _init_lingua():
-    """Thread-safe lazy init; first call downloads ~110MB, subsequent calls instant.
-    Skips if HF_HUB_OFFLINE=1 or HuggingFace unreachable (saves ~2min retries)."""
-    global _lingua
-    if _lingua is False:
-        return False  # already failed
-    if _lingua:
-        return True   # already loaded
-    with _lingua_lock:
-        if _lingua:
-            return True
-        if _lingua is False:
-            return False
-        # Quick network check — skip LLMLingua if HuggingFace unreachable (saves ~2min retries)
-        import os as _os
-        if _os.environ.get("HF_HUB_OFFLINE", "0") == "1":
-            logger.info("HF_HUB_OFFLINE=1, skipping LLMLingua")
-            _lingua = False
-            return False
-        import socket as _sock
-        _orig_timeout = _sock.getdefaulttimeout()
-        try:
-            _sock.setdefaulttimeout(5)
-            _sock.getaddrinfo("huggingface.co", 443)
-        except Exception:
-            logger.info("HuggingFace unreachable, skipping LLMLingua prompt compression")
-            _lingua = False
-            return False
-        finally:
-            _sock.setdefaulttimeout(_orig_timeout)  # 恢复全局超时，避免污染后续socket
-        # LLMLingua-2 原模型(microsoft/llmlingua-2-bert-base)已下线，
-        # 替代品为 llmlingua-2-xlm-roberta-large(1.1GB) 对中文短prompt收益<5%，不值得下载
-        # 直接跳过，使用原生prompt
-        logger.info("LLMLingua skipped (original model deprecated,替代品过大)")
-        _lingua = False
-        return False
+# LLMLingua-2 removed (v8.15): original model deprecated, replacement too large for 8GB GPU
 from collections import Counter
 
 # PROJECT_ROOT imported from src.xiaoshuo
@@ -332,14 +293,6 @@ def _build_rubric_prompts(chapter_text, ch_num, prev_context="", sub_genre=""):
     emphasis = _SUB_GENRE_EMPHASIS.get(sub_genre, "")
     if emphasis:
         system_msg = system_msg + emphasis
-    if not getattr(_build_rubric_prompts, "_rubric_cached", False) and _init_lingua():
-        try:
-            system_msg = _lingua.compress_prompt(
-                system_msg, rate=0.5, force_tokens=["intensity", "conflict", "emotion", "pace", "hook", "retention", "JSON"]
-            )["compressed_prompt"]
-            _build_rubric_prompts._rubric_cached = True
-        except Exception:
-            pass
 
     # User message: chapter-specific content (varies per call)
     # v18: 注入前章上下文，让LLM理解过渡章的叙事功能
@@ -1459,8 +1412,7 @@ def apply_golden_set_calibration(csv_path, golden_set_path=None):
                 return max(1.0, min(10.0, round(mapped, 1)))
         return max(1.0, min(10.0, raw_score))
     
-    int_map_x, int_map_y = _build_quantile_map(paired_int)
-    ret_map_x, ret_map_y = _build_quantile_map(paired_ret)
+    # v8.15: quantile_map dead code removed (results were never used in calibration)
     
     # v8.15: Load WLS calibration params (replaces v21 median offset)
     # Three external AIs unanimously recommended WLS over Bias-Corrected
