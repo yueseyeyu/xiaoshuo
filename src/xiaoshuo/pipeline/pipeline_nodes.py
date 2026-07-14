@@ -103,6 +103,19 @@ class RhythmAnalyzerNode(PipelineNode):
     name = "rhythm_analyzer"
     stage_info = (2, 9, "拆书节奏分析")
 
+    # v8.13: 输出 schema — 确保 rhythm CSV 列名完整
+    output_schema = {
+        "rhythm_csv": {
+            "dir": "data/processed/{genre}/rhythm",
+            "pattern": "rhythm_*.csv",
+            "required_columns": [
+                "ch_num", "wc", "hook_density", "conflict_density",
+                "dialogue_ratio", "pleasure_intensity",
+            ],
+            "min_files": 1,
+        }
+    }
+
     def __init__(self, extra_args: list[str] | None = None, optional: bool = False):
         self._extra_args = extra_args or []
         self._optional = optional
@@ -143,6 +156,32 @@ class LLMBatchScoreNode(_ModuleCallNode):
     script_name = "llm_batch_score"
     stage_info = (3, 9, "LLM批量评分")
 
+    # v8.13: 输入 schema — 确保 rhythm CSV 已生成且列名完整
+    # 注意: 此节点在 group=2 并行组中, 与 RhythmAnalyzerNode 同时启动。
+    # 首次运行时 rhythm CSV 可能尚未生成, input_schema 验证会产生 warning。
+    # 这是预期行为: 验证不阻断执行, 且 LLMBatchScoreNode 内部会自行处理缺失文件。
+    # 重跑时 (rhythm CSV 已存在) 验证才有实际意义。
+    input_schema = {
+        "rhythm_csv": {
+            "dir": "data/processed/{genre}/rhythm",
+            "pattern": "rhythm_*.csv",
+            "required_columns": ["ch_num", "hook_density", "conflict_density"],
+            "min_files": 1,
+        }
+    }
+    # v8.13: 输出 schema — 确保 LLM 评分 CSV 列名完整
+    output_schema = {
+        "llm_csv": {
+            "dir": "data/processed/{genre}/scores",
+            "pattern": "*_llm.csv",
+            "required_columns": [
+                "ch_num", "llm_intensity", "llm_retention",
+                "llm_hook", "llm_pace", "llm_conflict", "llm_emotion",
+            ],
+            "min_files": 1,
+        }
+    }
+
     def run(self, genre: str = "末世", **kwargs) -> bool:
         self._extra_args = ["--book", "all"] + self._extra_args
         return super().run(genre, **kwargs)
@@ -153,6 +192,16 @@ class GenreSynthesizerNode(_ModuleCallNode):
     module_path = "xiaoshuo.pipeline.genre_synthesizer"
     script_name = "genre_synthesizer"
     stage_info = (3, 9, "题材评分合成")
+
+    # v8.13: 输入 schema — 确保 LLM 评分 CSV 已生成
+    input_schema = {
+        "llm_csv": {
+            "dir": "data/processed/{genre}/scores",
+            "pattern": "*_llm.csv",
+            "required_columns": ["ch_num", "llm_intensity", "llm_retention"],
+            "min_files": 1,
+        }
+    }
 
 
 class QualityGateNode(PipelineNode):

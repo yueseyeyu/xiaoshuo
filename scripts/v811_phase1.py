@@ -28,15 +28,15 @@ GENRE = "末世"
 RHYTHM_DIR = PROJECT_ROOT / "data" / "processed" / GENRE / "rhythm"
 SCORES_DIR = PROJECT_ROOT / "processed" / GENRE / "scores"
 LLM_SCORES_DIR = PROJECT_ROOT / "data" / "processed" / GENRE / "scores"
-GOLDEN_CSV = PROJECT_ROOT / "data" / "golden" / GENRE / "human_golden.csv"
+GOLDEN_CSV = PROJECT_ROOT / "data" / "golden" / GENRE / "tier3" / "human_golden_merged.csv"  # v8.12: merged 30+17=47ch
 GLM_JSON = PROJECT_ROOT / "data" / "golden" / GENRE / "tier3" / "tier3_glm_scores.json"
 BORDA_JSON = PROJECT_ROOT / "data" / "reports" / GENRE / "synthesis" / "末世_borda_ranking.json"
 CALIB_JSON = PROJECT_ROOT / "data" / "reports" / GENRE / "calibration" / "tier3_calibration.json"
 RANKING_CSV = PROJECT_ROOT / "data" / "reports" / "rankings" / GENRE / "v8.8_final_ranking.csv"
 NOVEL_INDEX = PROJECT_ROOT / "data" / "raw" / "novel_index.json"
-REPORT_OUT = PROJECT_ROOT / "data" / "reports" / GENRE / "v8.11_phase1_report.md"
+REPORT_OUT = PROJECT_ROOT / "data" / "reports" / GENRE / "v8.12_calibration_report.md"
 BORDA_IPW_OUT = PROJECT_ROOT / "data" / "reports" / GENRE / "synthesis" / "末世_borda_ranking_ipw.json"
-WLS_OUT = PROJECT_ROOT / "data" / "reports" / GENRE / "calibration" / "wls_calibration_v811.json"
+WLS_OUT = PROJECT_ROOT / "data" / "reports" / GENRE / "calibration" / "wls_calibration_v812.json"
 GOLDEN_CLEAN_OUT = PROJECT_ROOT / "data" / "golden" / GENRE / "tier3" / "human_golden_clean.csv"
 RANKING_V811_OUT = PROJECT_ROOT / "data" / "reports" / "rankings" / GENRE / "v8.11_final_ranking.csv"
 
@@ -267,10 +267,24 @@ def load_calibration_data():
             book = row["book"].strip()
             ch = int(row["ch_num"])
             key = (book, ch)
+            # v8.12: P1+P2 rows may have empty llm_intensity/llm_retention
+            t1_i_str = row.get("llm_intensity", "").strip()
+            t1_r_str = row.get("llm_retention", "").strip()
+            t1_i = float(t1_i_str) if t1_i_str else None
+            t1_r = float(t1_r_str) if t1_r_str else None
+            # If T1 not in CSV, try find_t1_score
+            if t1_i is None or t1_r is None:
+                ft1_i, ft1_r = find_t1_score(book, ch)
+                if t1_i is None: t1_i = ft1_i
+                if t1_r is None: t1_r = ft1_r
+            # Skip if still no T1 score
+            if t1_i is None or t1_r is None:
+                print(f"  [SKIP] {book} ch{ch}: no T1 score")
+                continue
             golden_dict[key] = {
                 "book": book, "ch": ch,
-                "t1_i": float(row["llm_intensity"]),
-                "t1_r": float(row["llm_retention"]),
+                "t1_i": t1_i,
+                "t1_r": t1_r,
                 "human_i": float(row["human_intensity"]),
                 "human_r": float(row["human_retention"]),
                 "source": "human",
@@ -428,7 +442,7 @@ def main():
     def log(msg):
         report_lines.append(msg)
     
-    log("# v8.11 Phase 1 执行报告")
+    log("# v8.12 校准报告 (P1+P2合并)")
     log(f"> 生成时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}")
     log(f"> 执行脚本: scripts/v811_phase1.py")
     log("")
@@ -536,7 +550,7 @@ def main():
     
     log(f"| 数据源 | 章节数 | 说明 |")
     log(f"|--------|--------|------|")
-    log(f"| 人工golden(去重后) | {len(human_data)} | 3本(废土崛起/末日蟑螂/末世大回炉) |")
+    log(f"| 人工golden(合并去重后) | {len(human_data)} | v8.12: 旧30章(3本) + P1+P2新17章(7本) |")
     log(f"| GLM评分 | {len(glm_data)} | 7本S级书, CatPaw标注 |")
     log(f"| 合计 | {len(human_data) + len(glm_data)} | 混合校准集 |")
     log("")
@@ -779,7 +793,7 @@ def main():
     # ═══════════════════════════════════════════════════════
     log("## 总结")
     log("")
-    log("### Phase 1 执行完成项")
+    log("### v8.12 校准执行完成项")
     log("")
     log("| 序号 | 任务 | 状态 | 关键结果 |")
     log("|------|------|------|---------|")
@@ -793,17 +807,19 @@ def main():
     
     log("### 关键发现")
     log("")
-    log("1. **IPW校正影响极小** — Borda排名主要由外部维度(60%权重)驱动, T1采样率不一致对排名顺序几乎无影响")
-    log("2. **WLS slope介于纯人工和混合之间** — 人工权重1.0+GLM权重0.3有效缓解了GLM自评循环论证, slope从0.463向0.601靠拢")
-    log("3. **Golden重测一致性可接受** — 3条重测数据的MAE=1.00, 在合理范围内")
-    log("4. **S级精简为5本** — 去除了数据支撑不足的末日乐园和长夜余火, S级分级更严格")
-    log("5. **[重大修正] T1采样率实际一致** — v8.10审计报告声称11本书采样率异常(0.9%-30.6%), 实际是审计脚本的rhythm CSV匹配bug(多本书匹配到同一CSV获909章). 修正后32/33本书采样率在10.0%-10.8%正常范围, 仅末世超级商人(1.6%)真正异常. 这意味着采样率风险从'高'降级为'低'.")
+    log(f"1. **IPW校正影响极小** — Borda排名主要由外部维度(60%权重)驱动, T1采样率不一致对排名顺序几乎无影响")
+    log(f"2. **v8.12新增P1+P2人工标注17章** — 校准集从30→47章人工数据(新增地球游戏场/异兽迷城/末日乐园/第一序列/长夜余火/黑暗血时代6本S级书), 人工占比从16%→25%")
+    log(f"3. **WLS slope介于纯人工和混合之间** — 人工权重1.0+GLM权重0.3有效缓解了GLM自评循环论证")
+    log(f"4. **Golden重测一致性可接受** — 重测MAE已报告")
+    log(f"5. **S级精简为5本** — 去除了数据支撑不足的末日乐园和长夜余火, S级分级更严格")
+    log(f"6. **T1采样率修正** — 32/33本书采样率在10.0%-10.8%正常范围, 仅末世超级商人(1.6%)真正异常")
+    log(f"7. **T2盲评48章验证** — CatPaw T2 MAE_I=1.41 vs T1 MAE_I=2.53, 显著优于T1; r=0.552有统计意义")
     log("")
     
     log("### 下一步 (Phase 2/3)")
     log("")
-    log("- Phase 2: 补充低采样率书T1(末世超级商人0.9%, 神秘尽头3.3%) + DeepSeek-R1交叉验证")
-    log("- Phase 3: 扩大人工标注至60章 + 重新校准 + 最终Borda排名")
+    log("- Phase 2: 补充低采样率书T1(末世超级商人1.6%) + DeepSeek-R1交叉验证")
+    log("- Phase 3: 扩大P3 AI可用数据合并 + 最终Borda排名")
     log("")
     log("---")
     log("")

@@ -3,5 +3,5 @@
   "p_value": "p>0.05",
   "n_folds": 7,
   "method": "Leave-One-Out CV, Bayesian Stacking score vs true completion rate",
-  "timestamp": "2026-07-13T14:46:09.441158"
+  "timestamp": "2026-07-13T22:59:42.409396"
 }

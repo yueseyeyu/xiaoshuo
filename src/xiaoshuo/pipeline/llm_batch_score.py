@@ -524,6 +524,272 @@ def llm_score_with_confidence(chapter_text, ch_num, conn=None, prev_context="", 
     return merged
 
 
+# ══════════════════════════════════════════════════════════════
+# v8.14: Reference-Based Scoring (Phase A1)
+# ══════════════════════════════════════════════════════════════
+# 论文: Can LLMs Be Good Evaluators? (MDPI 2025) — positivity bias
+#       Automated Creativity Evaluation (ACL 2025) — ref-based MAE↓30-50%
+# 核心改进: 用真实章节摘录+已知人工评分替代合成描述作为校准锚点
+
+
+def _truncate_reference_text(text, max_len=400):
+    """Truncate chapter text for reference passage: head 150 + tail 250."""
+    if len(text) <= max_len:
+        return text
+    head_len = min(150, max_len // 3)
+    return text[:head_len] + "\n...[省略]...\n" + text[-(max_len - head_len - 20):]
+
+
+def build_reference_bank(golden_csv_path=None, genre="末世"):
+    """Build reference passage bank from golden CSV + novel texts.
+
+    Loads human_golden_merged.csv, finds chapter texts from novel files,
+    extracts excerpts, and returns all golden passages with score band labels.
+
+    Returns:
+        list of dicts: [{book, ch_num, excerpt, human_intensity, human_retention, band, tags}]
+    """
+    if golden_csv_path is None:
+        golden_csv_path = PROJECT_ROOT / "data" / "golden" / genre / "tier3" / "human_golden_merged.csv"
+
+    golden_csv_path = Path(golden_csv_path)
+    if not golden_csv_path.exists():
+        logger.warning("Golden CSV not found: %s", golden_csv_path)
+        return []
+
+    with open(golden_csv_path, 'r', encoding='utf-8-sig') as f:
+        golden_rows = list(csv.DictReader(f))
+
+    with open(INDEX_PATH, 'r', encoding='utf-8') as f:
+        index = json.load(f)
+    novels = index.get("genres", {}).get(genre, {}).get("novels", [])
+
+    # Build book short_name -> txt_path mapping
+    book_to_txt = {}
+    for novel in novels:
+        txt_file = novel.get("file", "")
+        for fp in NOVELS_DIR.glob(f"{genre}/*.txt"):
+            if fp.name == txt_file:
+                short_name = txt_file.replace(".txt", "").replace("《", "").replace("》", "")
+                m = re.match(r"([^（(]+)", short_name)
+                if m:
+                    short_name = m.group(1).strip()
+                book_to_txt[short_name] = fp
+                break
+
+    references = []
+    _chapter_cache = {}
+
+    for row in golden_rows:
+        book_name = row.get("book", "").strip()
+        ch_num = int(row.get("ch_num", 0))
+        human_intensity = float(row.get("human_intensity", 0) or 0)
+        human_retention = float(row.get("human_retention", 0) or 0)
+
+        if not book_name or ch_num == 0:
+            continue
+
+        txt_path = None
+        for short_name, fp in book_to_txt.items():
+            if short_name in book_name or book_name in short_name:
+                txt_path = fp
+                break
+
+        if txt_path is None:
+            logger.warning("No txt found for book '%s'", book_name)
+            continue
+
+        cache_key = str(txt_path)
+        if cache_key not in _chapter_cache:
+            _chapter_cache[cache_key] = extract_chapters(txt_path)
+        chapters = _chapter_cache[cache_key]
+
+        chapter = None
+        for ch in chapters:
+            if ch.get("num") == ch_num:
+                chapter = ch
+                break
+
+        if chapter is None:
+            logger.warning("Chapter %d not found in %s", ch_num, book_name)
+            continue
+
+        excerpt = _truncate_reference_text(chapter.get("raw_body", ""))
+        if len(excerpt) < 50:
+            continue
+
+        if human_intensity <= 3.5:
+            band = "low"
+        elif human_intensity <= 5.5:
+            band = "medium_low"
+        elif human_intensity <= 7.5:
+            band = "medium_high"
+        else:
+            band = "high"
+
+        references.append({
+            "book": book_name,
+            "ch_num": ch_num,
+            "excerpt": excerpt,
+            "human_intensity": human_intensity,
+            "human_retention": human_retention,
+            "band": band,
+            "tags": row.get("tags", ""),
+        })
+
+    logger.info("Reference bank: %d passages from %d books",
+                len(references), len(set(r["book"] for r in references)))
+    return references
+
+
+def _select_references(references, exclude_book=None, exclude_ch_num=None):
+    """Select 4 representative references (one per score band), excluding specified chapter.
+
+    Leave-one-out: when scoring chapter X, exclude X from references.
+    If X was the only reference in its band, include it anyway.
+
+    Returns:
+        list of 4 (or fewer) reference dicts, one per band
+    """
+    bands = ["low", "medium_low", "medium_high", "high"]
+    band_centers = {"low": 2.5, "medium_low": 4.5, "medium_high": 6.5, "high": 8.5}
+    selected = []
+
+    for band in bands:
+        candidates = [
+            r for r in references
+            if r["band"] == band
+            and not (r["book"] == exclude_book and r["ch_num"] == exclude_ch_num)
+        ]
+        if not candidates:
+            candidates = [r for r in references if r["band"] == band]
+        if not candidates:
+            continue
+
+        center = band_centers[band]
+        best = min(candidates, key=lambda r: abs(r["human_intensity"] - center))
+        selected.append(best)
+
+    return selected
+
+
+_REF_RUBRIC_TEMPLATE = (
+    "=== 你是专业网文编辑，对章节阅读体验独立评分 ===\n\n"
+    "请对下方章节评分，大胆使用全量程(1-10)，不要挤在中段。\n\n"
+    "### 校准参考段落 (已知人工评分) ###\n"
+    "以下段落来自已标注的末世小说章节，人工评分已验证。\n"
+    "请参照这些段落的评分基准来校准你的评分尺度。\n\n"
+    "{reference_section}\n\n"
+    "### 评分量规 (Rubric) ###\n"
+    "1. 爽点强度 (1-10): 1=平淡铺垫 3=小爽 5=明显爽感 7=强烈高光 10=巅峰神作\n"
+    "   [锚定] 普通过渡章=3 | 标准打脸成功=5 | 绝境翻盘=7 | 全书最佳高潮=9-10\n"
+    "2. 冲突等级: none/low/medium/high\n"
+    "3. 情绪氛围: 爽快/紧张/悲壮/悬疑/日常/温情/压抑\n"
+    "4. 节奏: fast/medium/slow\n"
+    "5. 钩子质量: none/weak/strong\n"
+    "6. 读者留存力 (1-10): 1=可能弃书 5=普通 7=想追 10=熬夜也要看\n"
+    "   [锚定] 开篇铺垫=4 | 小高潮后=6 | 重大反转后=8 | 全书高潮=9-10\n\n"
+    "### 输出格式 (先分析再评分) ###\n"
+    "先用一句话（不超过30字）概括本章核心看点，然后参照参考段落评估本章水平，最后输出评分JSON。\n"
+    "注意：分析必须简短，重点输出JSON。\n"
+    "格式:\n"
+    "分析: [一句话概括]\n"
+    '{"intensity":5,"conflict":"medium","emotion":"日常","pace":"medium","hook":"weak","retention":5}'
+)
+
+
+def _build_reference_system_prompt(references):
+    """Build system prompt with reference passages injected."""
+    band_labels = {
+        "low": "低分段 (平淡铺垫)",
+        "medium_low": "中低分段 (有冲突但不够强)",
+        "medium_high": "中高分段 (明确爽感)",
+        "high": "高分段 (强烈高潮)",
+    }
+
+    ref_parts = []
+    for i, ref in enumerate(references, 1):
+        band_label = band_labels.get(ref["band"], ref["band"])
+        ref_parts.append(
+            f"[参考{i} - {band_label} | 人工评分: 爽点{ref['human_intensity']:.1f}, 留存{ref['human_retention']:.1f}]\n"
+            f"来源: {ref['book']} 第{ref['ch_num']}章\n"
+            f"标签: {ref.get('tags', '无')}\n"
+            f'"{ref["excerpt"]}"'
+        )
+
+    reference_section = "\n\n".join(ref_parts)
+    return _REF_RUBRIC_TEMPLATE.replace("{reference_section}", reference_section)
+
+
+def llm_score_reference_based(chapter_text, ch_num, references, prev_context="", sub_genre="", temperature=0.0):
+    """v8.14: Reference-based scoring (Phase A1).
+
+    Provides LLM with real chapter excerpts + known human scores as calibration anchors.
+    Reduces positivity bias (MDPI 2025) and improves MAE by 30-50% (ACL 2025).
+
+    Returns:
+        dict with intensity, conflict, emotion, pace, hook, retention, or None
+    """
+    if not references:
+        return llm_score_rubric(chapter_text, ch_num, prev_context=prev_context,
+                                 sub_genre=sub_genre, temperature=temperature)
+
+    system_msg = _build_reference_system_prompt(references)
+
+    emphasis = _SUB_GENRE_EMPHASIS.get(sub_genre, "")
+    if emphasis:
+        system_msg = system_msg + emphasis
+
+    # Same truncation as _build_rubric_prompts
+    text = chapter_text
+    if len(text) > 1200:
+        head = text[:300]
+        tail = text[-700:]
+        mid = text[300:-700]
+        best_segment = _find_peak_pleasure_segment(mid, window=200)
+        if best_segment:
+            text = head + "\n...[中段省略]...\n" + best_segment + "\n...[中段省略]...\n" + tail
+        else:
+            text = head + "\n...[中段省略]...\n" + tail
+    else:
+        text = text[:1200]
+
+    if prev_context:
+        user_msg = f"[前情提要] {prev_context}\n\n第{ch_num}章:\n{text}"
+    else:
+        user_msg = f"第{ch_num}章:\n{text}"
+
+    from xiaoshuo.infra.llm_client import llm_chat
+    raw = llm_chat(
+        user_msg, system=system_msg,
+        max_tokens=600, temperature=temperature, timeout=60,
+        max_retries=2, strip_thinking=True,
+    )
+    if not raw:
+        return None
+
+    result = _extract_rubric_json(raw)
+    if result is None:
+        # Retry with a shorter, JSON-focused prompt (no reference comparison)
+        logger.warning("Reference-based scoring parse failed (ch%d), retrying with JSON-only prompt", ch_num)
+        retry_system = (
+            "你是专业网文编辑。请直接输出评分JSON，不要输出分析。\n"
+            "参考评分尺度: 低分(2-3)=平淡铺垫, 中分(5)=有冲突, 高分(7)=强烈高光, 巅峰(9)=全书最佳。\n"
+            "只输出JSON: {\"intensity\":5,\"conflict\":\"medium\",\"emotion\":\"日常\",\"pace\":\"medium\",\"hook\":\"weak\",\"retention\":5}"
+        )
+        raw2 = llm_chat(
+            user_msg, system=retry_system,
+            max_tokens=200, temperature=temperature, timeout=60,
+            max_retries=1, strip_thinking=True,
+        )
+        if raw2:
+            result = _extract_rubric_json(raw2)
+        if result is None:
+            logger.warning("Reference-based scoring retry also failed (ch%d): raw=%s",
+                           ch_num, raw[:100] if raw else 'empty')
+    return result
+
+
 def batch_book(txt_path, csv_path, max_chapters=None, sc_samples=1):
     """Batch-score all chapters in a book, merge with existing rhythm CSV.
     sc_samples: Self-Consistency samples (1=single pass, 3=multi-sample median/mode aggregation)

@@ -322,7 +322,9 @@ def main():
         glm_mean = sum(glm_vals) / len(glm_vals) if glm_vals else 0
         t1_mean = sum(t1_vals) / len(t1_vals) if t1_vals else 0
         
-        log(f"| {book} | {ds_glm:.3f if ds_glm else 'N/A'} | {ds_t1:.3f if ds_t1 else 'N/A'} | {ds_mean:.1f} | {glm_mean:.1f} | {t1_mean:.1f} |")
+        ds_glm_str = f"{ds_glm:.3f}" if ds_glm else "N/A"
+        ds_t1_str = f"{ds_t1:.3f}" if ds_t1 else "N/A"
+        log(f"| {book} | {ds_glm_str} | {ds_t1_str} | {ds_mean:.1f} | {glm_mean:.1f} | {t1_mean:.1f} |")
     
     log("")
     log("---")

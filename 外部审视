@@ -1,0 +1,68 @@
+1. ds：file:///d%3A/Code/xiaoshuo/v8.14-external-audit/v8.14-external-audit.html
+报告已生成。以下是审计核心结论：
+
+v8.14 外部审计总结
+综合可信度评分：48/100 — 方法论正确，但三个地基问题导致结论不可靠。
+
+7 个核心问题的回答
+#	问题	审计结论
+Q1	Run-to-run 方差是否淹没了 Reference 改进？	是。 存档→新鲜 Bias 差 0.955，dwarf reference 的 0.489 改善
+Q2	Bias-Corrected 是否过拟合？	是。 5-fold CV 显示 offset 波动 0.382-0.645，Fold 1 中校正反而更差
+Q3	单一标注者是否可靠？	无法判断。 没有 inter-annotator agreement，κ=0。这是 P0 问题
+Q4	WLS 是否比 Bias-Corrected 更好？	是。 WLS MAE=1.634 vs Bias-Corrected MAE=1.830
+Q5	Reference 是否引入了噪声？	很可能。 r 从 0.381 降到 0.286，增加 ~1600 字 prompt 换来了排序能力下降
+Q6	Bias 降低是否统计显著？	不显著。 Bootstrap 95% CI [-0.011, +0.979] 包含零点
+Q7	生产 offset 是否稳定？	不稳定。 K-fold 显示 offset 波动 0.263，WLS 可能更稳定
+三项 P0 行动
+增加第 2 名标注者，计算 Cohen's κ
+多次重复运行（≥3 次），报告均值 ± 标准差
+在报告中加入 WLS vs Bias-Corrected 直接对比
+完整报告和图表：v8.14-external-audit.html
+2. glm：file:///d%3A/Code/xiaoshuo/data/reports/%E6%9C%AB%E4%B8%96/external_review_v8.14.html
+审视报告已保存至 v8.14外部审视报告。
+
+核心发现（基于原始数据独立计算验证）
+最关键发现：WLS已全面优于Bias-Corrected
+我将5种策略在同一47章上直接对比，发现已有的WLS校准比Bias-Corrected更好：
+
+策略	MAE_I	RMSE_I	计算成本
+Bias-Corrected	1.838	2.285	2×（abs+ref）
+WLS (v8.12)	1.634	1.947	1×（abs only）
+WLS低11%的MAE，低15%的RMSE，且只需跑一次absolute评分。原因是WLS同时校正offset和scale（slope=0.496），而Bias-Corrected只校正offset。
+
+三个关键数据
+Bias改善未达统计显著：Bootstrap 95% CI = [-0.011, 0.979]，包含0。run-to-run方差（0.955）是改善量（0.489）的近2倍
+Reference仅47%章节优于Absolute——低于抛硬币概率。最严重的案例：废土崛起ch1345被Abs正确评分3分，但Reference改成了错误的7.5分
+r=0.381对Bias-Corrected是数学必然——Pearson r对线性变换不变，这不是策略优势
+7个问题的核心判定
+问题	判定	关键依据
+Q1 run-to-run噪声	是，噪声是主因	方差0.955 > 改善0.489
+Q2 in-sample过拟合	是，但程度轻（LOOCV MAE+0.04）	主要问题是方法本身只校正offset
+Q3 单一标注者	最根本风险	无法计算IAA；3个context_dependent章节暴露评分标准差异
+Q4 BC vs WLS	WLS已更好	MAE低11%，RMSE低15%，成本减半
+Q5 Reference价值	弊大于利	r降25%，MAE+6.8%，仅Bias改善
+Q6 统计显著	不显著	95% CI包含0
+Q7 生产可行性	offset不稳定	WLS的slope更鲁棒
+P0级建议
+直接采用WLS（human = 1.928 + 0.496 × LLM），替代Bias-Corrected — 1小时工作量
+增加第2名标注者对20章重新评分，计算Cohen's κ — 10-15小时
+分离context_dependent章节 — 2小时
+3.doubao：file:///d%3A/Code/xiaoshuo/external_review_v814/external_ai_review_v814.html
+v8.14 评分管线外部AI审视报告已完成。
+
+查看审视报告
+
+核心结论速览
+总体评级：低置信度 — 核心结论缺乏统计严谨性支撑
+
+7个问题的独立判定
+问题	判定	关键洞察
+Q1 Run-to-run方差	⚠️ 大概率是噪声	改进量(0.489) < run-to-run方差(0.955)的51%
+Q2 In-sample过拟合	❌ 肯定存在	Bias=0是数学恒等式，不是校准有效；r不变是线性变换的必然结果
+Q3 单一标注者	⚠️ 地基不牢	无法验证标注可靠性，是体系性风险
+Q4 vs WLS	✅ WLS大概率更好	WLS同时修正Bias+尺度，r=0.533 > 0.381
+Q5 Reference价值	⚠️ 噪声大于信号	r降25%，Bias降低更像锚定效应而非真校准
+Q6 统计显著性	⚠️ 边缘显著	Bias差p≈0.085，r差p≈0.62（完全不显著）
+Q7 生产可行性	⚠️ 都不稳定	WLS更鲁棒，需定期校准+漂移监控
+一句话建议
+现在就用v8.12的WLS校准（已有141章数据，方法论更成熟），同时做k-fold交叉验证和bootstrap CI量化置信度，然后逐步完善golden set（扩样本+加标注者），Reference评分暂时搁置（性价比太低）。
