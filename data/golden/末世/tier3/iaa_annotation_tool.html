@@ -438,7 +438,7 @@ body, .topbar, .sidebar, .reader, .reader-header, .annotate-panel, .panel-footer
   <button class="blind-toggle active" id="blindToggle" onclick="toggleBlind()">盲评: 开</button>
   <div class="progress-wrap">
     <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-    <div class="progress-text" id="progressText">0 / 54 · 第1章</div>
+    <div class="progress-text" id="progressText">0 / 20 · 第1章</div>
   </div>
   <label style="color:var(--text-dim);font-size:12px;margin-right:4px;">标注者:</label><input id="annotatorName" type="text" placeholder="你的名字" value="" style="background:var(--bg-input);border:1px solid var(--border);border-radius:3px;padding:4px 8px;font-size:13px;width:100px;color:var(--text);" /><button class="export-btn" onclick="exportCSV()">导出 CSV</button>
 </div>
@@ -447,14 +447,11 @@ body, .topbar, .sidebar, .reader, .reader-header, .annotate-panel, .panel-footer
   <!-- 左栏 -->
   <div class="sidebar">
     <div class="sidebar-header">
-      <span>章节列表 (<span id="chapterCount">30</span>)</span>
+      <span>章节列表 (<span id="chapterCount">20</span>)</span>
       <button class="jump-btn" onclick="jumpToNextUnread()" title="跳到下一个未标注章节">↓未标注</button>
     </div>
-    <div class="pri-filters" id="priFilters">
+    <div class="pri-filters" id="priFilters" style="display:none;">
     <button class="pri-btn active" data-filter="all" onclick="filterPriority('all')">全部 <span class="count"></span></button>
-    <button class="pri-btn" data-filter="P1" onclick="filterPriority('P1')" style="border-color:#ef4444;color:#ef4444;">P1必做 <span class="count"></span></button>
-    <button class="pri-btn" data-filter="P2" onclick="filterPriority('P2')" style="border-color:#f59e0b;color:#f59e0b;">P2应做 <span class="count"></span></button>
-    <button class="pri-btn" data-filter="P3" onclick="filterPriority('P3')">P3可选 <span class="count"></span></button>
     </div>
 <div class="chapter-list" id="chapterList"></div>
   </div>
@@ -854,54 +851,8 @@ function revealMachineScores() {
 
 // === 重测校验 (v2, 从零重写) ===
 function checkRetest() {
-  // 统计已完成的非重测标注
-  let doneCount = 0;
-  for (const k in annotations) {
-    if (annotations[k].intensity && !annotations[k].is_retest) doneCount++;
-  }
-  
-  // 已有重测章节则跳过
-  if (retestInserted || doneCount < 20) return;
-  
-  // 从已标注章节中随机选3章
-  const candidates = [];
-  chapters.forEach((ch, i) => {
-    if (ch.isRetest) return;
-    const key = ch.book + '_' + ch.ch_num;
-    if (annotations[key] && annotations[key].intensity) {
-      candidates.push(i);
-    }
-  });
-  if (candidates.length === 0) return;
-  
-  // Fisher-Yates洗牌
-  for (let i = candidates.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
-  }
-  const picked = candidates.slice(0, Math.min(3, candidates.length));
-  
-  // 添加重测章节
-  const retestMeta = [];
-  picked.forEach((origIdx, i) => {
-    const orig = chapters[origIdx];
-    const retestKey = orig.book + '_' + orig.ch_num + '_retest' + i;
-    chapters.push({...orig, isRetest: true, retestKey: retestKey});
-    retestMeta.push({book: orig.book, ch_num: orig.ch_num, retestKey: retestKey});
-  });
-  
-  retestInserted = true;
-  
-  // 持久化——只存最小元数据
-  try {
-    localStorage.setItem('retest_iaa_friend', JSON.stringify(retestMeta));
-  } catch(e) { console.warn('重测状态保存失败:', e); }
-  
-  // 刷新章节列表显示
-  renderChapterList();
-  
-  // Toast通知（非阻塞）
-  showRetestToast(picked.length);
+  // IAA mode: retest disabled (not needed for inter-annotator agreement)
+  return;
 }
 
 function showRetestToast(count) {
@@ -1067,15 +1018,6 @@ function showChapter(idx) {
 
   // 分数
   let scoresHtml = '<div class="score-pill"><span class="label">字数</span><span class="value">' + ch.wc + '</span></div>';
-  scoresHtml += '<div class="score-pill"><span class="label">规则</span><span class="value">' + ch.rule_intensity + '</span></div>';
-  if (ch.llm_intensity !== null && ch.llm_intensity !== undefined) {
-    scoresHtml += '<div class="score-pill"><span class="label">LLM爽度</span><span class="value">' + ch.llm_intensity + '</span></div>';
-    scoresHtml += '<div class="score-pill"><span class="label">LLM留存</span><span class="value">' + ch.llm_retention + '</span></div>';
-  }
-  if (ch.glm_intensity !== null && ch.glm_intensity !== undefined) {
-    scoresHtml += '<div class="score-pill" style="border-color:var(--green);"><span class="label" style="color:var(--green);">T2爽度</span><span class="value">' + ch.glm_intensity + '</span></div>';
-    scoresHtml += '<div class="score-pill" style="border-color:var(--green);"><span class="label" style="color:var(--green);">T2留存</span><span class="value">' + ch.glm_retention + '</span></div>';
-  }
   document.getElementById('chapterScores').innerHTML = scoresHtml;
 
   // 正文：按段落渲染
@@ -1146,24 +1088,8 @@ function saveScrollPos(idx) {
 }
 
 // === 四方对比 ===
-function updateCompareBox_DISABLED(ch, saved) {
-const ruleVal = ch.rule_intensity || 0;
-const llmVal = (ch.llm_intensity !== null && ch.llm_intensity !== undefined) ? ch.llm_intensity : 0;
-const glmVal = (ch.glm_intensity !== null && ch.glm_intensity !== undefined) ? ch.glm_intensity : 0;
-const humanVal = saved.intensity || 0;
-document.getElementById('ruleBar').style.width = (ruleVal * 10) + '%';
-document.getElementById('ruleVal').textContent = ruleVal ? ruleVal : '—';
-document.getElementById('llmBar').style.width = (llmVal * 10) + '%';
-document.getElementById('llmVal').textContent = llmVal ? llmVal : '—';
-document.getElementById('glmBar').style.width = (glmVal * 10) + '%';
-document.getElementById('glmVal').textContent = glmVal ? glmVal : '—';
-if (humanVal) {
-document.getElementById('humanBar').style.width = (humanVal * 10) + '%';
-document.getElementById('humanVal').textContent = humanVal;
-} else {
-document.getElementById('humanBar').style.width = '0%';
-document.getElementById('humanVal').textContent = '—';
-}
+function updateCompareBox(ch, saved) {
+// IAA mode: disabled to prevent anchoring bias
 }
 
 // === 锚点参照 ===
