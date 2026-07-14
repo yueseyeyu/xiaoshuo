@@ -1,0 +1,393 @@
+{
+  "n": 47,
+  "elapsed_s": 156,
+  "matches_with_v814": "13/47",
+  "intensity": {
+    "mae": 1.755,
+    "bias": 0.096,
+    "r": 0.4098
+  },
+  "retention": {
+    "mae": 1.755,
+    "bias": 0.032,
+    "r": 0.2991
+  },
+  "results": [
+    {
+      "book": "废土崛起",
+      "ch_num": 1,
+      "human_i": 3.0,
+      "human_r": 3.0,
+      "new_i": 3.0,
+      "new_r": 4.0
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 193,
+      "human_i": 4.0,
+      "human_r": 6.0,
+      "new_i": 3.0,
+      "new_r": 4.0
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 385,
+      "human_i": 5.0,
+      "human_r": 5.0,
+      "new_i": 5.0,
+      "new_r": 6.0
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 577,
+      "human_i": 6.0,
+      "human_r": 7.0,
+      "new_i": 6.0,
+      "new_r": 7.0
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 769,
+      "human_i": 7.5,
+      "human_r": 7.5,
+      "new_i": 4.0,
+      "new_r": 5.0
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 961,
+      "human_i": 3.5,
+      "human_r": 6.5,
+      "new_i": 2.0,
+      "new_r": 3.0
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 1153,
+      "human_i": 8.0,
+      "human_r": 8.5,
+      "new_i": 7.0,
+      "new_r": 8.0
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 1345,
+      "human_i": 3.0,
+      "human_r": 5.5,
+      "new_i": 3.0,
+      "new_r": 4.0
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 1537,
+      "human_i": 7.0,
+      "human_r": 7.5,
+      "new_i": 10.0,
+      "new_r": 10.0
+    },
+    {
+      "book": "废土崛起",
+      "ch_num": 1729,
+      "human_i": 8.5,
+      "human_r": 9.5,
+      "new_i": 3.0,
+      "new_r": 4.0
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 1,
+      "human_i": 1.5,
+      "human_r": 2.5,
+      "new_i": 3.0,
+      "new_r": 4.0
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 241,
+      "human_i": 7.0,
+      "human_r": 7.5,
+      "new_i": 8.0,
+      "new_r": 9.0
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 481,
+      "human_i": 2.0,
+      "human_r": 3.5,
+      "new_i": 2.0,
+      "new_r": 4.0
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 721,
+      "human_i": 2.5,
+      "human_r": 3.0,
+      "new_i": 7.0,
+      "new_r": 8.0
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 961,
+      "human_i": 1.5,
+      "human_r": 2.5,
+      "new_i": 7.0,
+      "new_r": 8.0
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 1201,
+      "human_i": 5.0,
+      "human_r": 6.5,
+      "new_i": 3.0,
+      "new_r": 4.0
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 1441,
+      "human_i": 7.5,
+      "human_r": 7.5,
+      "new_i": 3.0,
+      "new_r": 4.0
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 1681,
+      "human_i": 7.0,
+      "human_r": 6.5,
+      "new_i": 7.0,
+      "new_r": 7.0
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 1921,
+      "human_i": 5.0,
+      "human_r": 5.5,
+      "new_i": 3.0,
+      "new_r": 5.0
+    },
+    {
+      "book": "末日蟑螂",
+      "ch_num": 2160,
+      "human_i": 5.5,
+      "human_r": 6.5,
+      "new_i": 8.0,
+      "new_r": 9.0
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 1,
+      "human_i": 6.0,
+      "human_r": 7.0,
+      "new_i": 3.0,
+      "new_r": 4.0
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 194,
+      "human_i": 6.0,
+      "human_r": 7.0,
+      "new_i": 7.0,
+      "new_r": 9.0
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 387,
+      "human_i": 2.5,
+      "human_r": 7.0,
+      "new_i": 3.0,
+      "new_r": 4.0
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 580,
+      "human_i": 3.5,
+      "human_r": 6.5,
+      "new_i": 8.0,
+      "new_r": 9.0
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 773,
+      "human_i": 5.5,
+      "human_r": 7.5,
+      "new_i": 8.0,
+      "new_r": 9.0
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 966,
+      "human_i": 2.0,
+      "human_r": 2.5,
+      "new_i": 6.0,
+      "new_r": 7.0
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 1159,
+      "human_i": 5.0,
+      "human_r": 6.5,
+      "new_i": 5.0,
+      "new_r": 7.0
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 1352,
+      "human_i": 6.0,
+      "human_r": 7.5,
+      "new_i": 7.0,
+      "new_r": 8.0
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 1545,
+      "human_i": 5.5,
+      "human_r": 7.5,
+      "new_i": 3.0,
+      "new_r": 5.0
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 1738,
+      "human_i": 3.5,
+      "human_r": 5.0,
+      "new_i": 9.0,
+      "new_r": 9.0
+    },
+    {
+      "book": "地球游戏场",
+      "ch_num": 1,
+      "human_i": 6.0,
+      "human_r": 6.5,
+      "new_i": 3.0,
+      "new_r": 4.0
+    },
+    {
+      "book": "地球游戏场",
+      "ch_num": 198,
+      "human_i": 6.0,
+      "human_r": 7.5,
+      "new_i": 5.0,
+      "new_r": 7.0
+    },
+    {
+      "book": "地球游戏场",
+      "ch_num": 561,
+      "human_i": 8.5,
+      "human_r": 8.5,
+      "new_i": 9.0,
+      "new_r": 9.0
+    },
+    {
+      "book": "地球游戏场",
+      "ch_num": 749,
+      "human_i": 7.5,
+      "human_r": 7.5,
+      "new_i": 8.0,
+      "new_r": 8.0
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 975,
+      "human_i": 9.0,
+      "human_r": 9.0,
+      "new_i": 9.0,
+      "new_r": 9.0
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 1556,
+      "human_i": 2.5,
+      "human_r": 5.0,
+      "new_i": 3.0,
+      "new_r": 5.0
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 1606,
+      "human_i": 6.5,
+      "human_r": 8.0,
+      "new_i": 6.0,
+      "new_r": 7.0
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 1625,
+      "human_i": 5.5,
+      "human_r": 7.5,
+      "new_i": 4.0,
+      "new_r": 7.0
+    },
+    {
+      "book": "末世大回炉",
+      "ch_num": 1704,
+      "human_i": 5.0,
+      "human_r": 7.5,
+      "new_i": 4.0,
+      "new_r": 7.0
+    },
+    {
+      "book": "异兽迷城",
+      "ch_num": 1,
+      "human_i": 7.5,
+      "human_r": 9.0,
+      "new_i": 6.0,
+      "new_r": 8.0
+    },
+    {
+      "book": "异兽迷城",
+      "ch_num": 316,
+      "human_i": 7.5,
+      "human_r": 8.5,
+      "new_i": 8.0,
+      "new_r": 9.0
+    },
+    {
+      "book": "异兽迷城",
+      "ch_num": 663,
+      "human_i": 6.0,
+      "human_r": 7.5,
+      "new_i": 9.0,
+      "new_r": 9.0
+    },
+    {
+      "book": "异兽迷城",
+      "ch_num": 900,
+      "human_i": 5.0,
+      "human_r": 6.5,
+      "new_i": 3.0,
+      "new_r": 4.0
+    },
+    {
+      "book": "黑暗血时代",
+      "ch_num": 1537,
+      "human_i": 8.0,
+      "human_r": 8.0,
+      "new_i": 7.0,
+      "new_r": 8.0
+    },
+    {
+      "book": "第一序列",
+      "ch_num": 955,
+      "human_i": 8.5,
+      "human_r": 9.0,
+      "new_i": 8.0,
+      "new_r": 8.0
+    },
+    {
+      "book": "末日乐园",
+      "ch_num": 979,
+      "human_i": 5.5,
+      "human_r": 7.0,
+      "new_i": 7.0,
+      "new_r": 9.0
+    },
+    {
+      "book": "长夜余火",
+      "ch_num": 96,
+      "human_i": 7.5,
+      "human_r": 8.5,
+      "new_i": 7.0,
+      "new_r": 8.0
+    }
+  ]
+}

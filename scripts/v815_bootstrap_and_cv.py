@@ -70,20 +70,21 @@ def _ols_fit(xs, ys):
 
 
 def main():
-    # Load v8.14 data (temp=0.0 + prev_context, 47 chapters)
-    data_path = PROJECT_ROOT / "data" / "reports" / "末世" / "v8.14_reference_scoring_data.json"
+    # Load v8.15 fresh data (temp=0.0+prev_context, 2026-07-14)
+    # Supersedes v8.14 data which only 13/47 chapters match current model state
+    data_path = PROJECT_ROOT / "data" / "reports" / "末世" / "v8.15_verify_full_47.json"
     with open(data_path, "r", encoding="utf-8") as f:
-        v814_data = json.load(f)
+        v815_data = json.load(f)
 
-    results = v814_data.get("results", [])
-    # Extract (llm_abs, human) pairs
+    results = v815_data.get("results", [])
+    # Extract (llm, human) pairs — v8.15 uses new_i/new_r field names
     pairs_i = []  # (llm_intensity, human_intensity)
     pairs_r = []  # (llm_retention, human_retention)
     for r in results:
-        llm_i = r.get("fresh_abs_intensity")
-        hum_i = r.get("human_intensity")
-        llm_r = r.get("fresh_abs_retention")
-        hum_r = r.get("human_retention")
+        llm_i = r.get("new_i")
+        hum_i = r.get("human_i")
+        llm_r = r.get("new_r")
+        hum_r = r.get("human_r")
         if llm_i is not None and hum_i is not None:
             pairs_i.append((float(llm_i), float(hum_i)))
         if llm_r is not None and hum_r is not None:
