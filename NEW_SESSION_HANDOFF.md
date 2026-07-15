@@ -1,192 +1,253 @@
 # 新会话交接文档
 
-> 生成时间: 2026-07-13 (v8.10审计后更新)
+> 生成时间: 2026-07-14 (v8.15完成: temp=0.0 + OLS + Bootstrap CI + LOOCV + 三方AI最终评审)
 > 生成者: CatPaw (项目总负责人角色)
 
 ---
 
 ## 一、项目当前状态总览
 
-### 已完成管线 (7步全部完成 ✅)
-
-| 步骤 | 状态 | 数据量 | 说明 |
-|------|------|--------|------|
-| 1. Rhythm 规则评分 | ✅ 33/33本 | 33个rhythm CSV, 43378章 | hook_density等文本特征 |
-| 2. Tier1 AI评分 | ✅ 33本/4362章 | 10%均匀分层采样 | 采样率0.9%-30.6%(有偏差) |
-| 3. Tier2 本地模型评分 | ✅ 33本/1110章 | 质量分级采样+节奏峰谷对齐 | T1∩T2零重叠 |
-| 4. 合并T1+T2→_llm.csv | ✅ 33本/5472章 | T1与T2零重叠验证通过 | |
-| 5. Tier3校准 | ✅ 125章 | 30章人工golden + 95章GLM | OLS slope=0.463, LOOCV r=0.546 |
-| 6. Commercial Engine + Borda排名 | ✅ 33/33本 | 5维Borda加权 + TOPSIS对照 | Spearman r=0.917 |
-| 7. v8.10独立审计 | ✅ 完成 | 审计报告+外部AI审视指令 | 总体可信度: 中等 |
-
-### v8.10审计关键发现
-
-**审计报告**: `data/reports/末世/audit_v8.10.md`
-**审计脚本**: `scripts/_audit_v810.py` → `scripts/_audit_v810_out.txt`
-**外部AI审视指令**: `data/reports/末世/external_ai_review_prompt_v8.10.md`
-
-| 风险 | 级别 | 核心问题 |
-|------|------|---------|
-| GLM自评循环论证 | **高** | 76%校准数据来自AI, GLM与T1相关性r=0.590 |
-| 末日乐园S级缺乏数据支撑 | **高** | diversity#33(倒数第1), webnovel#27(倒数第7) |
-| 长夜余火S级依赖作者知名度 | **中** | signing#24, bt#16, 仅diversity#5支撑 |
-| T1采样率不一致 | **中** | 0.9%-30.6%, 差异34倍 |
-| OLS slope被GLM拉低 | **中** | 纯人工slope=0.762, 混合后0.463, 降幅39% |
-| Borda TOP1-2缺乏外部验证 | **中** | 全球变异、末世之深渊召唤师未验证 |
-| signing间接循环论证 | **中** | 末世之深渊召唤师signing#1→borda#2但已降A级 |
-| Rhythm→LLM传导弱 | **低** | Pearson r均值=0.145 |
-| Borda权重非数据驱动 | **低** | Entropy vs config在diversity上严重分歧 |
-| golden有3条重复 | **低** | 重测章节, 非错误 |
-
-### Borda 排名 TOP10 (v8.10, Tier3校准后)
-
-| # | 书名 | Borda | 人工分级 | 关键维度 |
-|---|------|-------|---------|----------|
-| 1 | 全球变异 | 32.9 | S | signing#8, bt#4, webnovel#3 |
-| 2 | 末世之深渊召唤师 | 44.8 | **A**(v8.8降级) | signing#1, webnovel#1 |
-| 3 | 末世大回炉 | 47.0 | S | bt#6, webnovel#4 |
-| 4 | 地球游戏场 | 48.2 | S | signing#4, diversity#3 |
-| 5 | 黑暗血时代 | 52.1 | S | bt#5, signing#5 |
-| 6 | 末日拼图游戏 | 53.8 | A | signing#1 |
-| 7 | 第一序列 | 57.5 | S | bt#2 |
-| 8 | 神秘尽头 | 59.8 | A | bt#1 |
-| 9 | 末世魔神游戏 | 66.2 | A | diversity#1 |
-| 10 | 从红月开始 | 67.7 | A | retention#2, bt#3 |
-
-完整排名JSON: `data/reports/末世/synthesis/末世_borda_ranking.json`
-TOPSIS排名: `data/reports/末世/synthesis/末世_topsis_ranking.json`
-
-### 校准结果 (Tier3)
-
-| 指标 | 纯人工(30章) | 混合(125章) |
-|------|------------|------------|
-| OLS slope | 0.762 | 0.463 |
-| OLS intercept | — | 2.249 |
-| R² | — | 0.319 |
-| Pearson r | 0.473 | 0.565 |
-| LOOCV r | — | 0.546 (p<0.001) |
-| T1 Bias (intensity) | +1.60 | +1.78 |
-| T2 Bias (intensity) | — | -2.59 |
-
-校准文件: `data/reports/末世/calibration/tier3_calibration.json`
-
----
-
-## 二、接下来干什么
-
-### P0: 立即执行 (高优先级)
-
-1. **扩大人工标注集**: 从30章扩展到至少50章, 覆盖7本S级书(每书7章), 使人工占比达40%+
-2. **重新审视末日乐园S级**: diversity#33 + webnovel#27不支持S级, 建议降为B+
-3. **统一T1采样率**: 对采样率<5%的书(末世超级商人0.9%、神秘尽头3.3%、蹉跎4.1%)补充采样
-4. **发送外部AI审视指令**: 将 `data/reports/末世/external_ai_review_prompt_v8.10.md` 发送给DeepSeek/Kimi/Doubao, 收集三方独立评估
-
-### P1: 近期执行
-
-5. **引入独立AI交叉验证**: 用DeepSeek-R1对95章GLM数据重新评分, 比较AI间一致性
-6. **报告双校准结果**: 同时展示纯人工(slope=0.762)和混合(slope=0.463)供对比
-7. **补充外部口碑验证**: 对Borda TOP5补充豆瓣/起点/番茄数据
-8. **长夜余火降级或标注**: 降为A级, 或保留S级标注"S*(作者加成)"
-
-### P2: 中期优化
-
-9. **考虑将diversity权重从0.4提升**: Entropy分析显示diversity区分度最高(0.309)
-10. **修复index中的size_kb**: 末日蟑螂和狩魔手记size_kb与实际不符
-11. **扩展到其他分类**: 仙侠/科幻/都市等已有入库数据
-
----
-
-## 三、关键目录架构
+### 综合可信度: 72/100 (DeepSeek最终评审)
 
 ```
-d:\Code\xiaoshuo\
-├── data/
-│   ├── raw/novels/末世/                    # 33本原始txt
-│   ├── raw/novel_index.json                # 小说索引(SSOT)
-│   ├── golden/末世/
-│   │   ├── human_golden.csv                # 30章人工golden标注
-│   │   └── tier3/
-│   │       ├── tier3_glm_scores.json       # 95章GLM校准评分
-│   │       └── rescore_prompts/            # GLM评分指令(已使用, 存档)
-│   ├── processed/末世/
-│   │   ├── rhythm/                         # 33个rhythm CSV
-│   │   ├── quality/                        # commercial_scores.json
-│   │   └── scores/
-│   │       ├── ai_annotate_batches/        # Tier1批次
-│   │       ├── tier2_batches/              # Tier2批次
-│   │       ├── *_ai_full.csv               # Tier1合并CSV (33本)
-│   │       ├── *_t2_full.csv               # Tier2合并CSV (33本)
-│   │       └── *_llm.csv                   # T1+T2合并CSV (33本, 5472章)
-│   └── reports/
-│       ├── rankings/末世/                  # 排名快照+分级表
-│       │   ├── v8.8_final_ranking.md
-│       │   └── v8.8_final_ranking.csv
-│       └── 末世/
-│           ├── audit_v8.10.md              # ★ v8.10独立审计报告
-│           ├── external_ai_review_prompt_v8.10.md  # ★ 外部AI审视指令
-│           ├── synthesis/
-│           │   ├── 末世_borda_ranking.json  # Borda排名
-│           │   ├── 末世_topsis_ranking.json # TOPSIS排名
-│           │   ├── 末世_写作技法总纲.md
-│           │   └── rhythm_benchmark.md
-│           ├── calibration/
-│           │   └── tier3_calibration.json  # Tier3校准结果
-│           ├── writing_manuals/            # 逐章指令
-│           └── full_audit_t1t2.json        # T1/T2全量审计
-├── scripts/                                # ~20个核心脚本
-│   ├── ai_annotate.py                      # Tier1标注核心
-│   ├── calibrate_with_tier3.py             # Tier3校准
-│   ├── gen_tier2_sampling.py               # Tier2采样
-│   ├── loocv_calibrate.py                  # LOOCV校准
-│   ├── merge_tier2_and_update.py           # T1+T2合并+Borda重跑
-│   ├── recompute_borda.py                  # Borda加权重算
-│   ├── save_snapshot_and_audit.py          # 快照+全量审计
-│   ├── three_tier_eval.py                  # 三层评估主脚本
-│   ├── _audit_v810.py                      # v8.10审计脚本(参考)
-│   ├── quality_check.py / quality_check_tier2.py  # 质检
-│   ├── start_model_safe.bat                # LLM启动
-│   └── _archive/                           # 过时脚本归档(130+)
-├── src/xiaoshuo/
-│   └── pipeline/scoring/
-│       ├── commercial_engine.py            # 商业评分引擎
-│       ├── borda_ranker.py                 # Borda排名器
-│       └── structure_matcher.py            # 结构匹配
-├── config.yaml                             # 配置SSOT
-├── _archive/                               # 根目录旧文件归档
-└── NEW_SESSION_HANDOFF.md                  # 本文档
+v8.10: 48/100 → v8.15(过期数据): 68/100 → v8.15(新鲜数据): 72/100
+```
+
+| 维度 | 评分 | 说明 |
+|------|------|------|
+| 评分确定性 | 9.5/10 | temp=0.0, within-session 3/3一致(std=0) |
+| 统计验证 | 7/10 | Bootstrap CI + 5-fold CV + LOOCV |
+| 过拟合控制 | 8/10 | LOOCV delta=+0.066 |
+| 校准方法 | 7.5/10 | OLS slope显著(CI [0.118,0.583]) |
+| 金标准可靠性 | 3.5/10 | 单一标注者, 无IAA |
+| 样本量 | 4/10 | N=47, CI宽 |
+
+### 已完成管线 (12步全部完成 ✅)
+
+| 步骤 | 状态 | 说明 |
+|------|------|------|
+| 1-4. Rhythm+T1+T2+合并 | ✅ 33本/5472章 | 10%分层采样 |
+| 5. Tier3校准 | ✅ 47章人工golden | v8.15: OLS(3.466+0.361x) |
+| 6. Commercial+Borda | ✅ 33/33本 | Spearman r=0.917 |
+| 7-8. v8.10审计+v8.11 | ✅ | IPW+WLS+分级 |
+| 9. DeepSeek交叉验证 | ✅ 7本95章 | DS-GLM r=0.415 |
+| 10-11. v8.12校准+v8.13Schema | ✅ | 47章+WLS+schema验证 |
+| 12. v8.14 Reference Scoring | ✅ 搁置 | 三方AI一致否决 |
+| **13. v8.15 temp=0.0+OLS+CI** | **✅** | **本轮完成** |
+
+---
+
+## 二、v8.15 本轮完成清单 (git 14个commit)
+
+### Commit历史
+
+```
+c54e21f: v8.12-v8.14全部数据保护 (74文件/14852行)
+2e1eb74: P0 fixes: WLS calibration + no-overwrite + golden_set cleanup
+4f979bc: P1-2: remove dead code (LLMLingua + quantile_map)
+e13df93: P1-3: run-to-run variance (temp=0.0, 3/3 identical, std=0)
+257a355: P0: temperature=0.0 default + OLS(v8.15) calibration
+ad6343f: v8.15 fresh data: OLS(3.466+0.361x) + Bootstrap CI + k-fold CV
+e5efbce: v8.15: LOOCV + scoring metadata recording + final review prompt v2
+c79ae27: v8.15: seed=42 fix + DS review(72/100) + score discretization finding
+23af6c7: v8.15 session complete: NEW_SESSION_HANDOFF.md updated + 72/100 credibility
+8d45795: v8.15: IAA annotation tool (20 chapters, 5 books, HTML+TXT)
+d6acfc6: v8.15: IAA tool v2 (reuse annotate_tool, S10+A7+B3=20ch, 7 books)
+fa2698c: v8.15: IAA tool v3 (isolated storage, annotator ID, no score leaking, safe export)
+da18bda: v8.15: fix IAA tool bugs (compareBox no-op, scores display, retest disabled, P1/P2 hidden, counts fixed)
+cead657: v8.15: IAA tool title fix + all bugs verified working in browser
+```
+
+### 代码修改
+
+| 文件 | 修改内容 |
+|------|---------|
+| `src/xiaoshuo/pipeline/llm_batch_score.py` | temperature默认0.1→0.0; OLS替代WLS; 不覆盖原始值(新增calibrated列); 删除LLMLingua; 删除quantile_map; 新增评分元数据JSON |
+| `data/processed/末世/scores/golden_set.json` | 30条/3本书→47条/9本书 |
+| `data/reports/末世/calibration/ols_calibration_v815.json` | 新OLS参数(3.466+0.361x)+完整元数据 |
+| `scripts/start_model_safe.bat` | v17: 新增--seed 42修复跨session非确定性 |
+
+### 新增脚本
+
+| 脚本 | 用途 |
+|------|------|
+| `scripts/v815_run_to_run_variance.py` | 3次运行方差实验(temp=0.0) |
+| `scripts/v815_verify_full_47.py` | 47章全量重跑(验证数据新鲜性) |
+| `scripts/v815_bootstrap_and_cv.py` | Bootstrap CI + 5-fold CV |
+| `scripts/v815_loocv.py` | LOOCV(Leave-One-Out CV) |
+| `scripts/v815_verify_data_source.py` | 5章快速验证(数据源确认) |
+
+---
+
+## 三、v8.15 核心发现
+
+### 3.1 temperature=0.0消除方差
+
+| 指标 | temp=0.1(旧) | temp=0.0(新) | 改善 |
+|------|------------|------------|------|
+| run-to-run std | 0.955 | **0.000** | 完全消除 |
+| Bias_I | +0.904 | +0.096 | -89% |
+| MAE_I | 1.862 | 1.755 | -6% |
+| r_I | 0.381 | 0.410 | +8% |
+
+### 3.2 Bootstrap CI (新鲜数据, 1000次重采样)
+
+| 指标 | 点估计 | 95% CI | 显著？ |
+|------|--------|--------|--------|
+| Bias_I | +0.096 | [-0.574, +0.777] | **❌ 不显著(含0)** |
+| r_I | 0.410 | [0.139, 0.635] | ✅ 显著 |
+| slope_I | 0.361 | [0.118, 0.583] | ✅ 显著(不含0不含1) |
+| OLS MAE_I | 1.485 | [1.124, 1.807] | — |
+
+### 3.3 LOOCV vs 5-fold CV
+
+| 指标 | 5-fold CV | LOOCV | 说明 |
+|------|----------|-------|------|
+| MAE_I | 1.550 ± 0.322 | 1.552 | 高度一致 |
+| 过拟合delta | +0.065 | +0.066 | 轻微,可接受 |
+| slope range | 0.318-0.432 | 0.328-0.408 | LOOCV更窄 |
+
+### 3.4 跨session非确定性
+
+- **within-session**: 3/3完全相同(temp=0.0, std=0) ✅
+- **cross-session**: 只有13/47章节匹配(28%) ❌
+- **根因**: GPU浮点非确定性(flash-attn tiling + 无--seed)
+- **修复**: 已加`--seed 42`, 下次重启生效. 如仍无效, 尝试`--flash-attn off`
+
+### 3.5 LLM分数离散化(DeepSeek发现)
+
+- LLM intensity: 9个唯一值(全是整数2-10)
+- 人工 intensity: 15个唯一值(含0.5分)
+- **temp=0.0+greedy倾向输出整数**, OLS可拉伸分布但无法恢复0.5粒度
+
+---
+
+## 四、三方AI评审历史
+
+| 轮次 | DeepSeek | 豆包 | GLM | 最佳 |
+|------|----------|------|-----|------|
+| v8.14 | 48/100 | 低 | — | DeepSeek(5-fold CV) |
+| v8.15-temp | 68/100 | — | — | DeepSeek(prev_context发现) |
+| v8.15-bootstrap(过期) | 68/100 | 63/100 | 58/100(数据源错误) | DeepSeek |
+| v8.15-bootstrap(新鲜) | **72/100** | — | — | DeepSeek(数值验证+离散化发现) |
+
+### 三方AI各自特点
+
+| AI | 强项 | 弱项 |
+|----|------|------|
+| DeepSeek | 独立计算验证(5-fold CV, Bootstrap), 新洞察(离散化) | 有时过于自信(Q2两轮判断不同) |
+| 豆包 | 代码核查(唯一正确验证v8.14温度), 数学洞察(OLS Bias=0是数学必然) | 不做计算验证 |
+| GLM | OLS vs WLS对比, 文献引用(Thinking Machines Lab) | 两轮都搞混temperature变量 |
+
+---
+
+## 五、当前OLS校准参数
+
+```json
+// data/reports/末世/calibration/ols_calibration_v815.json
+{
+  "intensity":  { "intercept": 3.466, "slope": 0.361 },
+  "retention":  { "intercept": 4.905, "slope": 0.261 },
+  "metadata": {
+    "source": "v8.15_verify_full_47.json (temp=0.0+prev_context, fresh)",
+    "date": "2026-07-14",
+    "n_human": 47
+  }
+}
+```
+
+**已废弃**:
+- WLS v8.12: intercept=1.928, slope=0.496 (GLM数据Bias方向相反)
+- OLS v8.14: intercept=3.062, slope=0.379 (只有13/47匹配当前模型)
+
+---
+
+## 六、待解决瓶颈 (无法通过代码解决)
+
+| 瓶颈 | 扣分 | 解决方案 | 需要什么 |
+|------|------|---------|---------|
+| 单一标注者 | -15分 | 朋友帮忙标注20章, 计算ICC | 朋友2-3小时 |
+| N=47小样本 | -10分 | 扩充到100章 | 人工标注5-10小时 |
+
+### 朋友标注方案 (20章, ✅ 工具已就绪)
+
+**状态**: IAA标注工具已生成并浏览器验证通过, 可直接发给朋友
+
+**工具文件**: `data/golden/末世/tier3/iaa_annotation_tool.html`
+
+**安全隔离设计**:
+1. localStorage key: `annotations_iaa_friend` (不冲突)
+2. 导出文件名: `friend_annotations.csv` (不覆盖用户数据)
+3. 章节数据: 去除所有human/llm/glm分数 (防锚定偏差)
+4. CSV含annotator列 (标识标注者)
+5. compare box已禁用 (不泄露已有分数)
+6. retest功能已禁用 (不会弹出错测章节)
+
+**选章分布**: S级10章(5本) + A级7章(废土崛起) + B级3章(末日蟑螂) = 20章
+
+**每章工时**: 5-10分钟(读章节文本+打2个分)
+
+**总计**: 100-200分钟 = 1.7-3.3小时
+
+**产出**: ICC(Intraclass Correlation Coefficient) + Bland-Altman图
+
+**意义**: 
+- ICC > 0.7 → golden set可靠, 可信度+10-15分
+- ICC < 0.5 → 标注标准不清, 需要重定义rubric
+- 这是DeepSeek和豆包一致认为的"唯一能再提升可信度的路径"
+
+**朋友完成后**: 将CSV放到 `data/golden/末世/tier3/friend_annotations.csv`, 运行ICC计算
+
+---
+
+## 七、下一步优先级
+
+```
+P0 (工具已就绪): 发IAA工具给朋友 → 朋友标注20章 → 计算ICC → 验证golden set地基
+    ↓
+P1 (需人工): 扩充golden set 47→100章 → 缩窄CI → 提升校准稳定性
+    ↓
+P1 (需重启服务器): 验证--seed 42是否改善跨session匹配率
+    ↓
+P2 (可选): 测试temp=0.05改善离散化(9个唯一分→更多粒度)
+    ↓
+P3 (可选): 拆分llm_batch_score.py(1539行→3模块)
 ```
 
 ---
 
-## 四、新会话验证步骤
+## 八、验证步骤
 
 ```bash
 cd d:\Code\xiaoshuo
 
-# 1. 查看Borda排名
-D:\miniconda3\envs\llm-shared\python.exe -c "import json; r=json.load(open('data/reports/末世/synthesis/末世_borda_ranking.json','r',encoding='utf-8')); [print(f'#{i+1} {x[\"book_name\"][:25]:<27} borda={x[\"total_borda\"]}') for i,x in enumerate(r[:10])]"
+# 1. 验证temperature默认值
+$env:PYTHONUTF8=1
+D:\miniconda3\envs\llm-shared\python.exe -c "import inspect; from xiaoshuo.pipeline.llm_batch_score import llm_score_rubric; print('temperature:', inspect.signature(llm_score_rubric).parameters['temperature'].default)"
 
-# 2. 查看校准结果
-D:\miniconda3\envs\llm-shared\python.exe -c "import json; d=json.load(open('data/reports/末世/calibration/tier3_calibration.json','r',encoding='utf-8')); print(f'OLS slope={d[\"ols\"][\"intensity\"][\"slope\"]}, LOOCV r={d[\"loocv\"][\"intensity\"][\"r\"]}')"
+# 2. 查看OLS校准参数
+D:\miniconda3\envs\llm-shared\python.exe -c "import json; d=json.load(open('data/reports/末世/calibration/ols_calibration_v815.json',encoding='utf-8')); print(f'OLS: {d[\"intensity\"][\"intercept\"]}+{d[\"intensity\"][\"slope\"]}x')"
 
-# 3. 查看LLM合并数据统计
-D:\miniconda3\envs\llm-shared\python.exe -c "import csv; from pathlib import Path; d=Path('data/processed/末世/scores'); t=sum(sum(1 for _ in open(f,'r',encoding='utf-8-sig'))-1 for f in d.glob('*_llm.csv')); print(f'Total LLM chapters: {t}')"
+# 3. 查看新鲜数据指标
+D:\miniconda3\envs\llm-shared\python.exe -c "import json; d=json.load(open('data/reports/末世/v8.15_verify_full_47.json',encoding='utf-8')); print(f'Bias={d[\"intensity\"][\"bias\"]}, MAE={d[\"intensity\"][\"mae\"]}, r={d[\"intensity\"][\"r\"]}')"
 
-# 4. 重新运行审计 (可选)
-D:\miniconda3\envs\llm-shared\python.exe scripts/_audit_v810.py
+# 4. 查看Bootstrap CI
+D:\miniconda3\envs\llm-shared\python.exe -c "import json; d=json.load(open('data/reports/末世/v8.15_bootstrap_cv_results.json',encoding='utf-8')); b=d['baseline']['intensity']; print(f'Bias CI: [{b[\"bias_ci\"][0]}, {b[\"bias_ci\"][1]}]')"
 ```
 
-预期输出: Borda TOP1=全球变异(32.9), slope=0.463, LOOCV r=0.546, 5472章LLM数据。
+预期输出: temperature=0.0, OLS=3.466+0.361x, Bias=0.096, BiasCI=[-0.574, 0.777]
 
 ---
 
-## 五、注意事项
+## 九、注意事项
 
-1. **np.corrcoef在Windows环境有DLL错误**: 使用手动Pearson公式替代, 见 `scripts/_audit_v810.py` 中的 `pearson_r()` 函数
-2. **PowerShell无法输出中文**: 所有脚本输出改为写文件, 用 `read_file` 读取结果
-3. **novel_index.json**: 是SSOT, `rhythm_csv` 字段必须正确指向rhythm目录中的文件名
-4. **commercial_engine缓存**: `_load_all_llm_scores()` 有模块级缓存, 修改 `_llm.csv` 后需重启Python进程
-5. **编码**: 所有JSON文件UTF-8无BOM, CSV文件UTF-8带BOM(Excel兼容)
-6. **LLM服务**: 本地LLM已关闭, 如需重启用 `scripts/start_model_safe.bat`
-7. **后端服务**: 端口8089, 正确启动方式: `D:\miniconda3\envs\llm-shared\python.exe -m xiaoshuo.api.server --port 8089` 从 `d:\Code\xiaoshuo` 启动
-8. **v8.10审计风险**: 最核心风险是GLM自评循环论证(76% AI数据), 待外部AI审视反馈后决定优化方案
+1. **v8.14数据已过期**: `v8.14_reference_scoring_data.json`只有13/47章节匹配当前模型, 不应再用于统计分析
+2. **OLS参数会随session变**: 模型服务器重启后OLS可能需要重新拟合, 已有元数据记录追溯
+3. **temperature=0.0**: 生产环境默认值已改为0.0, 所有新评分自动使用
+4. **golden_set.json**: 已从30条/3本书清洗为47条/9本书, 与CSV一致
+5. **校准不覆盖原始值**: 新增`llm_intensity_calibrated`列, 原始`llm_intensity`保留
+6. **--seed 42**: `start_model_safe.bat` v17已添加, 下次重启生效
+7. **9个唯一分**: temp=0.0+greedy导致LLM只输出整数, 考虑temp=0.05改善(但引入方差)
+8. **后端服务**: 端口8089, `D:\miniconda3\envs\llm-shared\python.exe -m xiaoshuo.api.server --port 8089`
+9. **硬件**: RTX 5060 8GB + 32GB RAM, Qwen3.5-9B Q4_K_M
+10. **十阶段愿景完成度**: Part A 90% → Part B 70% → Part C 60% → Part D 75% → Part E 20%, 整体约50%

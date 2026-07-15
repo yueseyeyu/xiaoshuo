@@ -1,0 +1,37 @@
+{
+  "method": "LOOCV (Leave-One-Out Cross-Validation)",
+  "n": 47,
+  "data_source": "v8.15_verify_full_47.json (temp=0.0+prev_context, fresh)",
+  "intensity": {
+    "in_sample_mae": 1.485,
+    "loocv_mae": 1.552,
+    "delta": 0.066,
+    "loocv_r": 0.319,
+    "slope_range": [
+      0.328,
+      0.408
+    ],
+    "intercept_range": [
+      3.142,
+      3.714
+    ],
+    "full_ols": {
+      "intercept": 3.465,
+      "slope": 0.361
+    }
+  },
+  "retention": {
+    "in_sample_mae": 1.283,
+    "loocv_mae": 1.338,
+    "delta": 0.054,
+    "loocv_r": 0.1709,
+    "slope_range": [
+      0.212,
+      0.312
+    ],
+    "full_ols": {
+      "intercept": 4.905,
+      "slope": 0.261
+    }
+  }
+}
