@@ -30,8 +30,10 @@ import re
 import sys
 import yaml
 import http.client
+from dataclasses import dataclass
 from pathlib import Path
 from collections import Counter
+from typing import Literal, Mapping
 
 from xiaoshuo import PROJECT_ROOT
 from xiaoshuo.infra.config_manager import get_config, get_config_section, get_deepseek_config
@@ -1332,6 +1334,141 @@ def compute_cross_genre_competitiveness(rows, genre_pooled):
 # ══════════════════════════════════════════════════════════════
 # compute_rule_only_score — 纯规则评分 (无 LLM 依赖)
 # ══════════════════════════════════════════════════════════════
+
+@dataclass(frozen=True)
+class RuleOnlyScoreResult:
+    status: Literal["COMPLETE", "INSUFFICIENT", "FAILED"]
+    overall: int | None
+    grade: str | None
+    scores: Mapping[str, int]
+    risks: list[Mapping]
+    pool_n: int
+    formula_version: str
+    error_code: str | None
+
+
+def compute_rule_only_score_explicit(rows, *, pool, genre, book_name, scoring_policy):
+    """Compute the rule-only score from explicit caller-owned inputs."""
+    required_policy = {"formula_version", "sub_genre", "known_quality", "min_rows"}
+    if not isinstance(scoring_policy, Mapping) or set(scoring_policy) != required_policy:
+        return RuleOnlyScoreResult("FAILED", None, None, {}, [], 0, "", "INVALID_SCORING_POLICY")
+    if not isinstance(scoring_policy["formula_version"], str) or not isinstance(scoring_policy["sub_genre"], str):
+        return RuleOnlyScoreResult("FAILED", None, None, {}, [], 0, "", "INVALID_SCORING_POLICY_TYPES")
+    if not isinstance(scoring_policy["known_quality"], bool) or scoring_policy["min_rows"] != 10:
+        return RuleOnlyScoreResult("FAILED", None, None, {}, [], 0, scoring_policy["formula_version"], "INVALID_SCORING_POLICY_VALUES")
+    total = len(rows)
+    formula_version = scoring_policy["formula_version"]
+    if total < scoring_policy["min_rows"]:
+        return RuleOnlyScoreResult("INSUFFICIENT", None, None, {}, [], 0, formula_version, "INSUFFICIENT_ROWS")
+    if not isinstance(pool, Mapping) or not isinstance(pool.get("n_books"), int):
+        return RuleOnlyScoreResult("FAILED", None, None, {}, [], 0, scoring_policy["formula_version"], "INVALID_POOL")
+    pool_n = pool.get("n_books", 0)
+    if pool_n < 3:
+        return RuleOnlyScoreResult("INSUFFICIENT", None, None, {}, [], pool_n, formula_version, "INSUFFICIENT_POOL")
+    metric_names = ("hook_density", "conflict", "intensity", "diversity", "slap_rate", "reversal_rate", "readability")
+    if any(
+        not isinstance(pool.get(name), Mapping)
+        or not pool[name].get("_sorted")
+        or any(key not in pool[name] for key in ("p25", "p50", "p75", "_sorted"))
+        for name in metric_names
+    ):
+        return RuleOnlyScoreResult("INSUFFICIENT", None, None, {}, [], pool_n, formula_version, "INSUFFICIENT_POOL_METRICS")
+
+    ch3 = rows[:min(3, total)]
+    ch30 = rows[:min(30, total)]
+    opening_hook = statistics.mean([row["hook_density"] for row in ch3])
+    opening_conflict = statistics.mean([row["conflict_density"] for row in ch3])
+    opening_intensity = statistics.mean([row["pleasure_intensity"] for row in ch3])
+    slap_rate = sum(row["slap_count"] for row in ch30) / max(len(ch30), 1)
+    shannon_div = _compute_plot_diversity(rows).get("diversity_index", 0)
+    hook_types = Counter(row["hook_type"] for row in rows)
+    reversal_rate = hook_types.get("反转式", 0) / max(total, 1)
+    suspense_rate = hook_types.get("悬念式", 0) / max(total, 1)
+
+    sent_lens = [row.get("avg_sentence_len", 20) for row in rows]
+    sent_std = statistics.stdev(sent_lens) if len(sent_lens) > 1 else 0
+    sent_variety_score = max(0, 100 - abs(sent_std - 15) * 4)
+    avg_excl = statistics.mean([row.get("excl_density", 0) for row in rows])
+    avg_dialogue = statistics.mean([row.get("dialogue_ratio", 0) for row in rows])
+    narr_ratio = max(0.001, 1 - avg_excl - avg_dialogue)
+    style_props = [max(0.001, avg_excl), max(0.001, avg_dialogue), narr_ratio]
+    style_sum = sum(style_props)
+    style_entropy = -sum((part / style_sum) * math.log(part / style_sum) for part in style_props) / math.log(3)
+    emotion_values = []
+    for row in rows:
+        value = row.get("emotion_valence", "0")
+        if isinstance(value, str) and value.lstrip("-").isdigit():
+            emotion_values.append(int(value))
+        elif isinstance(value, (int, float)):
+            emotion_values.append(int(value))
+    emotion_volatility = (max(emotion_values) - min(emotion_values)) * 12 if emotion_values else 50
+    emotion_volatility = min(100, emotion_volatility)
+    burnout_rate = sum(row.get("burnout_count", 0) for row in rows) / max(total, 1)
+    burnout_penalty = max(0, 1 - burnout_rate * 0.5)
+    foreshadow_rate = sum(row.get("foreshadow_payoff_count", 0) + row.get("identity_reveal_count", 0) for row in rows) / max(total, 1)
+
+    scores = {
+        "前3章钩子": rank_then_score(opening_hook, pool, "hook_density"),
+        "前3章冲突": rank_then_score(opening_conflict, pool, "conflict"),
+        "首章爽点": rank_then_score(opening_intensity, pool, "intensity"),
+        "爽点多样性": rank_then_score(shannon_div, pool, "diversity"),
+        "打脸频率": rank_then_score(slap_rate, pool, "slap_rate"),
+        "反转率": rank_then_score(reversal_rate, pool, "reversal_rate"),
+        "悬念率": rank_then_score(suspense_rate, pool, "suspense_rate"),
+        "句式多样性": round(style_entropy * 100),
+        "句长节奏感": round(sent_variety_score),
+        "情绪张力": round(emotion_volatility * burnout_penalty),
+        "伏笔密度": round(min(100, foreshadow_rate * 30)),
+    }
+    weights = {
+        "打脸流": (0.30, 0.25, 0.15, 0.30),
+        "智斗流": (0.25, 0.35, 0.10, 0.30),
+        "羁绊流": (0.35, 0.20, 0.20, 0.25),
+    }.get(scoring_policy["sub_genre"], (0.35, 0.30, 0.15, 0.20))
+    signing_score = round(scores["前3章钩子"] * weights[0] + scores["前3章冲突"] * weights[1] + scores["首章爽点"] * weights[2] + scores["打脸频率"] * weights[3])
+    hook_coverage = sum(1 for row in rows if row.get("hook_density", 0) > 0) / max(total, 1) * 100
+    retention_score = round(min(100, hook_coverage) * 0.25 + scores["首章爽点"] * 0.15 + scores["爽点多样性"] * 0.15 + scores["反转率"] * 0.10 + scores["句式多样性"] * 0.10 + scores["情绪张力"] * 0.10 + scores["伏笔密度"] * 0.10 + scores["句长节奏感"] * 0.05)
+    sorted_hooks = pool.get("hook_density", {}).get("_sorted", [])
+    our_hook = max(0.1, opening_hook)
+    bt_wins = sum(1 for value in sorted_hooks if our_hook / (our_hook + max(0.1, value)) > 0.5)
+    scores["BT相对排名"] = round(bt_wins / max(len(sorted_hooks), 1) * 100)
+    webnovel = {
+        "情节强度": scores["前3章冲突"],
+        "人物深度": scores["爽点多样性"],
+        "文笔风格": rank_then_score(statistics.mean([row.get("readability", 0.5) for row in rows]), pool, "readability"),
+        "情感张力": scores["首章爽点"],
+        "读者吸引力": min(100, hook_coverage),
+    }
+    scores["WebNovelBench综合"] = round(statistics.mean(webnovel.values()))
+
+    vocab_values = [row.get("vocab_diversity", 0) for row in rows if row.get("vocab_diversity", 0) > 0]
+    avg_vocab = statistics.mean(vocab_values) if vocab_values else 0.2
+    sub_counts = Counter(row.get("dominant_sub", "none") for row in rows)
+    concentration = sum(value for _, value in sub_counts.most_common(2)) / max(total, 1)
+    variation_values = [row.get("ch_variability", 0) for row in rows if row.get("ch_variability", 0) > 0]
+    avg_variation = statistics.mean(variation_values) if variation_values else 0
+    penalty = 1.0
+    if avg_vocab < 0.18:
+        penalty -= 0.05
+    if concentration > 0.55 and opening_hook < 1.5:
+        penalty -= 0.05
+    if avg_variation < 0.05 and total > 50:
+        penalty -= 0.05
+    penalty = max(0.70, penalty)
+    slow_burn = statistics.mean([row.get("dialogue_ratio", 0) for row in rows[:min(30, total)]]) > 0.40 and opening_hook < 1.5
+    weight_signing, weight_retention = (0.25, 0.30) if slow_burn else (0.30, 0.25)
+    weight_rest = (1.0 - weight_signing - weight_retention) / 3.0
+    overall = round((signing_score * weight_signing + retention_score * weight_retention + scores["爽点多样性"] * weight_rest + scores["BT相对排名"] * weight_rest + scores["WebNovelBench综合"] * weight_rest) * penalty)
+    if scoring_policy["known_quality"] and overall < 60:
+        overall = round(overall * 0.75 + 60 * 0.25)
+    risks = []
+    for index in range(len(rows) - 1):
+        row = rows[index]
+        if index > 0 and row["hook_density"] == 0 and rows[index - 1]["hook_density"] == 0:
+            risks.append({"ch": row["ch_num"], "reason": "连续2章零钩子", "fire_rate": "12-18%"})
+        if row.get("ch_variability", 0) > 0.15:
+            risks.append({"ch": row["ch_num"], "reason": "节奏突变", "fire_rate": "15-20%"})
+    return RuleOnlyScoreResult("COMPLETE", overall, _grade(overall), scores, risks[:10], pool_n, formula_version, None)
 
 def _check_known_quality(book_name):
     """Check if book_name matches any entry in config.yaml book_filter.known_quality_list."""

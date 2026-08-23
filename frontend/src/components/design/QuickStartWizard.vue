@@ -19,6 +19,7 @@ const uiStore = useUiStore()
 
 const qsStep = ref(1)
 const qsMaxSteps = 5
+const qsGenerating = ref(false)
 const qsData = ref({
   genre: '',
   premise: '',
@@ -32,11 +33,13 @@ const qsData = ref({
 const GENRES = ['末世', '仙侠', '科幻', '都市', '悬疑', '无限流', '历史', '奇幻', '洪荒', '同人', '游戏', '玄幻']
 
 function qsSelectGenre(g: string) {
+  if (qsGenerating.value) return
   qsData.value.genre = g
   qsStep.value = 2
 }
 
 function qsNext() {
+  if (qsGenerating.value) return
   if (qsStep.value === 2) {
     if (!qsData.value.premise.trim()) { uiStore.showToast('请输入一句话梗概'); return }
     qsStep.value = 3
@@ -50,39 +53,102 @@ function qsNext() {
 }
 
 function qsPrev() {
+  if (qsGenerating.value) return
   if (qsStep.value > 1) qsStep.value--
 }
 
-async function qsGenerate() {
-  if (!qsData.value.premise) { uiStore.showToast('请输入梗概'); return }
-  emit('close')
+function formatError(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message
+  if (typeof error === 'string' && error.trim()) return error
+  return '未知错误'
+}
 
-  const fullSummary = qsData.value.premise +
-    (qsData.value.hook ? ` 【卖点】${qsData.value.hook}` : '') +
-    (qsData.value.protagonist ? ` 【主角】${qsData.value.protagonist}` : '') +
-    (qsData.value.goldfinger ? ` 【金手指】${qsData.value.goldfinger}` : '')
+function showStepError(step: string, error?: unknown) {
+  const detail = error === undefined ? '' : `：${typeof error === 'string' ? error : formatError(error)}`
+  uiStore.showToast(`${step}失败${detail}`, 'error')
+}
 
-  const createRes = await ProjectAPI.create({
-    title: qsData.value.premise.substring(0, 12) + '...',
-    genre: qsData.value.genre || '末世',
-    summary: fullSummary,
-    volumes_count: 5,
-    total_chapters: 300,
-  })
-
-  if (createRes.ok && createRes.data?.project) {
-    const proj = createRes.data.project
-    await projectStore.loadProject(proj.id)
-    uiStore.showToast('项目已创建，正在生成骨架...', 'success')
-    await generateSkeletonFromPremise(qsData.value)
-    emit('generated')
-  } else {
-    uiStore.showToast('创建项目失败', 'error')
+async function runApiStep(
+  step: string,
+  request: () => Promise<{ ok: boolean; error?: string }>,
+): Promise<boolean> {
+  try {
+    const result = await request()
+    if (!result.ok) {
+      showStepError(step, result.error)
+      return false
+    }
+    return true
+  } catch (error) {
+    showStepError(step, error)
+    return false
   }
 }
 
-async function generateSkeletonFromPremise(qs: typeof qsData.value) {
-  if (!projectStore.currentProject?.id) return
+function closeWizard() {
+  if (!qsGenerating.value) emit('close')
+}
+
+async function qsGenerate() {
+  if (!qsData.value.premise.trim()) { uiStore.showToast('请输入梗概'); return }
+  if (qsGenerating.value) return
+  const requestData = { ...qsData.value }
+  qsGenerating.value = true
+
+  const fullSummary = requestData.premise +
+    (requestData.hook ? ` 【卖点】${requestData.hook}` : '') +
+    (requestData.protagonist ? ` 【主角】${requestData.protagonist}` : '') +
+    (requestData.goldfinger ? ` 【金手指】${requestData.goldfinger}` : '')
+
+  try {
+    let createRes
+    try {
+      createRes = await ProjectAPI.create({
+        title: requestData.premise.substring(0, 12) + '...',
+        genre: requestData.genre || '末世',
+        summary: fullSummary,
+        volumes_count: 5,
+        total_chapters: 300,
+      })
+    } catch (error) {
+      showStepError('创建项目', error)
+      return
+    }
+
+    if (!createRes.ok || !createRes.data?.project) {
+      showStepError('创建项目', createRes.error)
+      return
+    }
+
+    const proj = createRes.data.project
+    try {
+      await projectStore.loadProject(proj.id)
+    } catch (error) {
+      showStepError('加载项目', error)
+      return
+    }
+    if (projectStore.currentProject?.id !== proj.id) {
+      showStepError('加载项目', '项目已创建，但未加载到新项目')
+      return
+    }
+
+    uiStore.showToast('项目已创建，正在生成骨架...', 'success')
+    if (await generateSkeletonFromPremise(requestData)) {
+      emit('generated')
+      emit('close')
+    }
+  } catch (error) {
+    showStepError('生成骨架', error)
+  } finally {
+    qsGenerating.value = false
+  }
+}
+
+async function generateSkeletonFromPremise(qs: typeof qsData.value): Promise<boolean> {
+  if (!projectStore.currentProject?.id) {
+    uiStore.showToast('未找到当前项目，无法生成骨架', 'error')
+    return false
+  }
   const pid = projectStore.currentProject.id
   const premise = qs.premise
 
@@ -153,35 +219,51 @@ async function generateSkeletonFromPremise(qs: typeof qsData.value) {
     })
   }
 
-  await ProjectAPI.updateSkeleton(pid, { volumes: newVolumes, chapters: newChapters })
+  if (!await runApiStep(
+    '保存粗纲',
+    () => ProjectAPI.updateSkeleton(pid, { volumes: newVolumes, chapters: newChapters }),
+  )) {
+    return false
+  }
 
   const worldCore = premise + (qs.hook ? ` 核心卖点：${qs.hook}` : '')
   const worldPowers = qs.goldfinger || '待设定（建议：能力来源、升级路径、限制条件）'
-  await ProjectAPI.updateWorld(pid, { core: worldCore, powers: worldPowers })
+  if (!await runApiStep(
+    '保存世界观',
+    () => ProjectAPI.updateWorld(pid, { core: worldCore, powers: worldPowers }),
+  )) {
+    return false
+  }
 
   if (qs.protagonist) {
     const charName = qs.protagonist.split('，')[0].substring(0, 10) || '主角'
-    await ProjectAPI.updateCharacters(pid, [{
-      name: charName,
-      role: '主角',
-      identity: '',
-      personality: '',
-      ability: qs.goldfinger || '',
-      desc: qs.protagonist + (qs.goldfinger ? ` 金手指：${qs.goldfinger}` : ''),
-    }])
+    if (!await runApiStep(
+      '保存角色',
+      () => ProjectAPI.updateCharacters(pid, [{
+        name: charName,
+        role: '主角',
+        identity: '',
+        personality: '',
+        ability: qs.goldfinger || '',
+        desc: qs.protagonist + (qs.goldfinger ? ` 金手指：${qs.goldfinger}` : ''),
+      }]),
+    )) {
+      return false
+    }
   }
 
   uiStore.showToast('骨架已生成！点击粗纲查看', 'success')
+  return true
 }
 </script>
 
 <template>
   <Teleport to="body">
-    <div class="qs-overlay" @click.self="emit('close')">
+    <div class="qs-overlay" @click.self="closeWizard">
       <div class="qs-modal">
         <div class="qs-modal-header">
           <h3><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-3px;margin-right:4px;"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>快速开始：从梗概到大纲</h3>
-          <button class="icon-btn" @click="emit('close')">×</button>
+          <button class="icon-btn" :disabled="qsGenerating" @click="closeWizard">×</button>
         </div>
         <!-- 步骤指示器 -->
         <div class="qs-indicator">
@@ -201,6 +283,7 @@ async function generateSkeletonFromPremise(qs: typeof qsData.value) {
                 :key="g"
                 class="qs-genre-btn"
                 :class="{ selected: qsData.genre === g }"
+                :disabled="qsGenerating"
                 @click="qsSelectGenre(g)"
               >{{ g }}</button>
             </div>
@@ -210,12 +293,12 @@ async function generateSkeletonFromPremise(qs: typeof qsData.value) {
             <h3 class="qs-title">剧情 — 用一句话抓住故事核心</h3>
             <p class="qs-desc">好的梗概 = 主角 + 金手指 + 核心冲突 + 目标</p>
             <div class="qs-input-area">
-              <textarea v-model="qsData.premise" placeholder="例：高考生在末日考场觉醒模拟器..." rows="3" />
-              <textarea v-model="qsData.synopsis" placeholder="扩展简介（可选）" rows="3" style="margin-top:8px;" />
+              <textarea v-model="qsData.premise" :disabled="qsGenerating" placeholder="例：高考生在末日考场觉醒模拟器..." rows="3" />
+              <textarea v-model="qsData.synopsis" :disabled="qsGenerating" placeholder="扩展简介（可选）" rows="3" style="margin-top:8px;" />
             </div>
             <div class="qs-nav">
-              <button class="btn btn-secondary" @click="qsPrev">上一步</button>
-              <button class="btn btn-primary" @click="qsNext">下一步</button>
+              <button class="btn btn-secondary" :disabled="qsGenerating" @click="qsPrev">上一步</button>
+              <button class="btn btn-primary" :disabled="qsGenerating" @click="qsNext">下一步</button>
             </div>
           </template>
           <!-- Step 3: 卖点 -->
@@ -223,11 +306,11 @@ async function generateSkeletonFromPremise(qs: typeof qsData.value) {
             <h3 class="qs-title">卖点 — 你的故事凭什么吸引读者？</h3>
             <p class="qs-desc">思考你的故事与同类作品的核心差异</p>
             <div class="qs-input-area">
-              <textarea v-model="qsData.hook" placeholder="例：系统不是打怪升级，而是通过养灵宠代打" rows="3" />
+              <textarea v-model="qsData.hook" :disabled="qsGenerating" placeholder="例：系统不是打怪升级，而是通过养灵宠代打" rows="3" />
             </div>
             <div class="qs-nav">
-              <button class="btn btn-secondary" @click="qsPrev">上一步</button>
-              <button class="btn btn-primary" @click="qsNext">下一步</button>
+              <button class="btn btn-secondary" :disabled="qsGenerating" @click="qsPrev">上一步</button>
+              <button class="btn btn-primary" :disabled="qsGenerating" @click="qsNext">下一步</button>
             </div>
           </template>
           <!-- Step 4: 人设 -->
@@ -236,15 +319,15 @@ async function generateSkeletonFromPremise(qs: typeof qsData.value) {
             <div class="qs-input-area">
               <div class="qs-field">
                 <label>主角人设</label>
-                <textarea v-model="qsData.protagonist" placeholder="例：聪明但爱摆烂的理性派" rows="2" />
+                <textarea v-model="qsData.protagonist" :disabled="qsGenerating" placeholder="例：聪明但爱摆烂的理性派" rows="2" />
               </div>
               <div class="qs-field">
                 <label>金手指/外挂</label>
-                <textarea v-model="qsData.goldfinger" placeholder="例：灵宠养成系统" rows="2" />
+                <textarea v-model="qsData.goldfinger" :disabled="qsGenerating" placeholder="例：灵宠养成系统" rows="2" />
               </div>
               <div class="qs-field">
                 <label>阶段目标</label>
-                <textarea v-model="qsData.goals" placeholder="例：征服宗门 → 征服帝国 → 登顶" rows="3" />
+                <textarea v-model="qsData.goals" :disabled="qsGenerating" placeholder="例：征服宗门 → 征服帝国 → 登顶" rows="3" />
               </div>
             </div>
             <div class="qs-nav">
@@ -264,8 +347,10 @@ async function generateSkeletonFromPremise(qs: typeof qsData.value) {
               <div class="qs-confirm-row"><span>金手指</span><b>{{ qsData.goldfinger || '未填写' }}</b></div>
             </div>
             <div class="qs-nav">
-              <button class="btn btn-secondary" @click="qsPrev">上一步</button>
-              <button class="btn btn-primary" @click="qsGenerate">创建项目并生成骨架</button>
+              <button class="btn btn-secondary" :disabled="qsGenerating" @click="qsPrev">上一步</button>
+              <button class="btn btn-primary" :disabled="qsGenerating" @click="qsGenerate">
+                {{ qsGenerating ? '正在生成...' : '创建项目并生成骨架' }}
+              </button>
             </div>
           </template>
         </div>

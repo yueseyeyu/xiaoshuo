@@ -33,15 +33,24 @@ scene_search.py — 场景级写作参考检索引擎 v3 (混合检索: BM25 + B
 """
 
 import csv
+import hashlib
 import json
+import os
 import pickle
 import re
-from typing import Optional
+import stat
+import threading
+import uuid
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Optional, TYPE_CHECKING
 
 import jieba
 import numpy as np
 from rank_bm25 import BM25Okapi
-from sentence_transformers import SentenceTransformer
+
+if TYPE_CHECKING:
+    from sentence_transformers import SentenceTransformer
 
 from xiaoshuo import PROJECT_ROOT
 from xiaoshuo.infra.config_manager import get_config
@@ -63,6 +72,83 @@ _RRF_K = 60  # 工业标准默认值 (Cormack et al. 2009)
 # 默认 BGE 模型 (与 config.yaml 保持一致)
 _DEFAULT_BGE_MODEL = "BAAI/bge-small-zh-v1.5"
 _BGE_CACHE_DIR = PROJECT_ROOT / ".hf_cache"
+
+_METADATA_STRING_FIELDS = (
+    "book_name", "text_preview", "emotion", "pace", "conflict_level",
+    "pleasure_type", "dominant_sub", "hook_type", "technique_summary",
+)
+_METADATA_INT_FIELDS = ("chapter", "scene_index", "char_count")
+_METADATA_FLOAT_FIELDS = ("dialogue_ratio",)
+
+
+class IndexNotReadyError(RuntimeError):
+    """索引不存在、损坏或与当前模型/语料合同不一致。"""
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _digest_entries(entries: list[tuple[str, str]]) -> str:
+    payload = json.dumps(sorted(entries), ensure_ascii=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _is_reparse_point(path: Path) -> bool:
+    """识别 Windows reparse point、symlink 和其他链接目录。"""
+    try:
+        info = path.stat(follow_symlinks=False)
+    except OSError:
+        return False
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return path.is_symlink() or bool(getattr(info, "st_file_attributes", 0) & reparse_flag)
+
+
+def _reject_reparse_ancestors(path: Path, label: str) -> None:
+    """拒绝目标及其已有祖先中的链接/junction，避免路径语义漂移。"""
+    current = path.absolute()
+    while True:
+        if current.exists() and _is_reparse_point(current):
+            raise IndexNotReadyError(f"{label} 路径包含 reparse point：{current}")
+        parent = current.parent
+        if parent == current:
+            return
+        current = parent
+
+
+def _reject_reparse_file(path: Path, root: Path, label: str) -> None:
+    """拒绝链接文件，并确认解析后的文件仍在批准目录内。"""
+    _reject_contained_path(path, root, label)
+    if not path.is_file():
+        raise IndexNotReadyError(f"{label} 文件无效：{path}")
+
+
+def _reject_contained_path(path: Path, root: Path, label: str) -> None:
+    """拒绝 reparse 路径，并确认解析后的目标仍在批准目录内。"""
+    _reject_reparse_ancestors(path, label)
+    try:
+        resolved = path.resolve(strict=True)
+        resolved.relative_to(root.resolve(strict=True))
+    except (OSError, ValueError) as exc:
+        raise IndexNotReadyError(f"{label} 文件越出批准目录：{path}") from exc
+
+
+def _resolve_project_cache_path(path: Path) -> Path:
+    """将缓存路径固定在项目根内，并拒绝越界和 reparse。"""
+    if ".." in path.parts:
+        raise IndexNotReadyError("scene_search.cache_dir 不得包含 ..")
+    resolved = path.resolve(strict=False)
+    project_root = PROJECT_ROOT.resolve()
+    try:
+        resolved.relative_to(project_root)
+    except ValueError as exc:
+        raise IndexNotReadyError("scene_search.cache_dir 必须位于项目目录内") from exc
+    _reject_reparse_ancestors(resolved, "索引缓存")
+    return resolved
 
 # 中文停用词 (场景检索场景下的常见无信息量词)
 _STOP_WORDS = frozenset([
@@ -325,29 +411,99 @@ class SceneSearch:
         self.method = ss_cfg.get("method", "hybrid_bm25_bge")
         self.top_k = ss_cfg.get("top_k", 5)
         self.embedding_model_name = ss_cfg.get("embedding_model", _DEFAULT_BGE_MODEL)
+        self.embedding_model_path = Path(str(ss_cfg.get("model_local_path", ""))).expanduser()
+        self.offline = ss_cfg.get("offline", True)
+        self.manifest_schema_version = int(ss_cfg.get("manifest_schema_version", 1))
+        self.min_scene_chars = int(ss_cfg.get("min_scene_chars", _MIN_SCENE_CHARS))
+        self.max_scene_chars = int(ss_cfg.get("max_scene_chars", _MAX_SCENE_CHARS))
         self.rrf_k = int(ss_cfg.get("rrf_k", _RRF_K))
-        self._cache = _cache_dir(genre)
+        self._config_error: Optional[str] = None
+        cache_template = ss_cfg.get("cache_dir")
+        try:
+            if cache_template:
+                cache_path = Path(str(cache_template).format(genre=genre)).expanduser()
+                cache_path = cache_path if cache_path.is_absolute() else PROJECT_ROOT / cache_path
+            else:
+                cache_path = _cache_dir(genre)
+            self._cache = _resolve_project_cache_path(cache_path)
+        except (IndexNotReadyError, KeyError, ValueError) as exc:
+            self._config_error = str(exc)
+            self._cache = _cache_dir(genre).resolve(strict=False)
+        self._state_lock = threading.RLock()
         # BM25 状态
         self._bm25: Optional[BM25Okapi] = None
         self._tokenized_corpus: list = []
         # BGE 状态
-        self._bge_model: Optional[SentenceTransformer] = None
+        self._bge_model: Optional[Any] = None
         self._bge_embeddings: Optional[np.ndarray] = None  # (N, 512)
         # 共享状态
         self._metadata: list = []
+        self._loaded_build_limit: Optional[int] = None
+
+    def _clear_loaded_state(self) -> None:
+        """发布失败时清空旧内存索引，避免绕过磁盘合同继续服务。"""
+        self._bm25 = None
+        self._tokenized_corpus = []
+        self._bge_embeddings = None
+        self._metadata = []
+        self._loaded_build_limit = None
 
     # ── BGE 模型懒加载 ──
 
     def _get_bge_model(self):
-        """BGE 嵌入模型懒加载 (使用 .hf_cache 本地缓存, 无需联网下载)."""
-        if self._bge_model is None:
-            print(f"  [BGE] 加载模型 {self.embedding_model_name} ...")
-            self._bge_model = SentenceTransformer(
-                self.embedding_model_name,
-                cache_folder=str(_BGE_CACHE_DIR),
-            )
-            print(f"  [BGE] 模型就绪, dim={self._bge_model.get_sentence_embedding_dimension()}")
-        return self._bge_model
+        """懒加载 D 盘本地 BGE 模型，禁止联网回退。"""
+        with self._state_lock:
+            if self._bge_model is None:
+                model_path = self._validated_model_path()
+                from sentence_transformers import SentenceTransformer
+
+                print(f"  [BGE] 加载本地模型 {model_path} ...")
+                self._bge_model = SentenceTransformer(
+                    str(model_path),
+                    cache_folder=str(_BGE_CACHE_DIR),
+                    local_files_only=True,
+                )
+                print(f"  [BGE] 模型就绪, dim={self._bge_model.get_sentence_embedding_dimension()}")
+            return self._bge_model
+
+    def _validated_model_path(self) -> Path:
+        """校验模型目录在 D 盘且具备 SentenceTransformer 最小文件集。"""
+        path = self.embedding_model_path
+        required = ("config.json", "tokenizer_config.json")
+        weights = (path / "model.safetensors", path / "pytorch_model.bin")
+        if self._config_error:
+            raise IndexNotReadyError(self._config_error)
+        if self.offline is not True:
+            raise IndexNotReadyError("scene_search.offline 必须严格为 true")
+        if not path.is_absolute() or path.drive.upper() != "D:":
+            raise IndexNotReadyError("BGE 模型必须位于 D 盘本地目录")
+        _reject_reparse_ancestors(path, "BGE 模型")
+        if not path.is_dir():
+            raise IndexNotReadyError("D 盘 BGE 模型目录不完整")
+        model_root = path.resolve(strict=True)
+        for name in required:
+            _reject_reparse_file(path / name, model_root, "BGE 模型")
+        if not any(weight.is_file() and not _is_reparse_point(weight)
+                   for weight in weights):
+            raise IndexNotReadyError("D 盘 BGE 模型缺少权重文件")
+        for weight in weights:
+            if weight.is_file():
+                _reject_reparse_file(weight, model_root, "BGE 模型")
+        return path
+
+    def _model_identity(self) -> dict[str, Any]:
+        path = self._validated_model_path()
+        config_path = path / "config.json"
+        weight = next(item for item in (path / "model.safetensors", path / "pytorch_model.bin") if item.is_file())
+        return {
+            "model_id": self.embedding_model_name,
+            "model_local_path": path.as_posix(),
+            "model_config_sha256": _sha256_file(config_path),
+            "model_tokenizer_config_sha256": _sha256_file(path / "tokenizer_config.json"),
+            "model_weight_file": weight.name,
+            "model_weight_bytes": weight.stat().st_size,
+            "model_weight_sha256": _sha256_file(weight),
+        }
 
     def _bge_encode(self, texts, batch_size=32, show_progress=False):
         """文本 → BGE 嵌入向量 (L2 归一化, 便于 cosine 相似度)."""
@@ -363,72 +519,140 @@ class SceneSearch:
 
     # ── 索引构建 ──
 
+    @contextmanager
+    def _filesystem_lock(self):
+        """跨进程锁住同一题材的索引发布，避免读到交叉写入状态。"""
+        if self._config_error:
+            raise IndexNotReadyError(self._config_error)
+        if self.offline is not True:
+            raise IndexNotReadyError("scene_search.offline 必须严格为 true")
+        if self.method != "hybrid_bm25_bge":
+            raise IndexNotReadyError(f"不支持的 scene_search.method：{self.method}")
+        lock_path = self._cache.parent / f".{self._cache.name}.lock"
+        if not self._cache.parent.is_dir():
+            raise IndexNotReadyError("索引目录尚未建立，请先执行索引构建")
+        try:
+            _reject_reparse_ancestors(self._cache.parent, "索引缓存")
+            with lock_path.open("a+b") as handle:
+                handle.seek(0, os.SEEK_END)
+                if handle.tell() == 0:
+                    handle.write(b"0")
+                    handle.flush()
+                handle.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+                    try:
+                        yield
+                    finally:
+                        handle.seek(0)
+                        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+                    try:
+                        yield
+                    finally:
+                        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        except OSError as exc:
+            raise IndexNotReadyError("索引文件锁不可用") from exc
+
+    def _validate_method(self) -> None:
+        if self._config_error:
+            raise IndexNotReadyError(self._config_error)
+        if self.offline is not True:
+            raise IndexNotReadyError("scene_search.offline 必须严格为 true")
+        if self.method != "hybrid_bm25_bge":
+            raise IndexNotReadyError(f"不支持的 scene_search.method：{self.method}")
+
     def build_index(self, force=False, limit=0):
+        """在进程内和跨进程锁内构建或加载索引。"""
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
+            raise IndexNotReadyError("索引构建 limit 必须是非负整数")
+        self._validate_method()
+        self._cache.parent.mkdir(parents=True, exist_ok=True)
+        _reject_reparse_ancestors(self._cache.parent, "索引缓存")
+        with self._state_lock:
+            with self._filesystem_lock():
+                return self._build_index_unlocked(force=force, limit=limit)
+
+    def _collect_corpus(self, limit=0):
+        """读取当前语料并返回构建结果与可复算的源快照。"""
+        if not _INDEX_PATH.is_file():
+            raise IndexNotReadyError("源 novel_index.json 不存在")
+        novel_index = _load_novel_index()
+        genre_novels = novel_index.get("genres", {}).get(self.genre, {}).get("novels", [])
+        if not genre_novels:
+            return [], [], [("data/raw/novel_index.json", _sha256_file(_INDEX_PATH))], 0
+
+        all_scenes = []
+        all_metadata = []
+        source_entries = [("data/raw/novel_index.json", _sha256_file(_INDEX_PATH))]
+        book_count = 0
+        for novel in genre_novels:
+            book_name = novel.get("file", "").replace(".txt", "")
+            novel_path = _NOVELS_DIR / self.genre / novel.get("file", "")
+            if not novel_path.is_file():
+                continue
+            rhythm_data = _load_rhythm_data(self.genre, book_name)
+            if not rhythm_data:
+                continue
+            source_entries.append((
+                str(novel_path.relative_to(PROJECT_ROOT)).replace("\\", "/"),
+                _sha256_file(novel_path),
+            ))
+            rhythm_path = _rhythm_dir(self.genre) / f"rhythm_{book_name}.csv"
+            if not rhythm_path.is_file():
+                continue
+            source_entries.append((
+                str(rhythm_path.relative_to(PROJECT_ROOT)).replace("\\", "/"),
+                _sha256_file(rhythm_path),
+            ))
+            try:
+                chapters = extract_chapters(str(novel_path))
+            except Exception as exc:
+                print(f"  [WARN] 跳过 {book_name}: 章节抽取失败 {exc}")
+                continue
+            for chapter in chapters:
+                ch_num = chapter.get("num", 0)
+                ch_text = chapter.get("text", "")
+                ch_rhythm = rhythm_data.get(ch_num, {})
+                scenes = _split_scenes(ch_text, self.min_scene_chars, self.max_scene_chars)
+                for scene_idx, scene_text in enumerate(scenes):
+                    all_scenes.append(scene_text)
+                    all_metadata.append(
+                        _build_scene_metadata(book_name, ch_num, scene_idx, scene_text, ch_rhythm)
+                    )
+            book_count += 1
+            if book_count % 5 == 0:
+                print(f"  [OK] 已处理 {book_count}/{len(genre_novels)} 本...")
+            if limit > 0 and book_count >= limit:
+                break
+        return all_scenes, all_metadata, source_entries, book_count
+
+    def _build_index_unlocked(self, force=False, limit=0):
         """Build scene search index from all novels in the genre.
 
         Args:
             force: if True, rebuild even if cache exists
             limit: max books to process (0 = all)
         """
-        cache_bm25 = self._cache / "bm25_index.pkl"
-        cache_bge = self._cache / "bge_embeddings.npy"
-        cache_meta = self._cache / "metadata.json"
+        model_identity = self._model_identity()
 
-        if (not force
-                and cache_bm25.exists()
-                and cache_bge.exists()
-                and cache_meta.exists()):
-            self._load_cache()
+        if (not force and all((self._cache / name).is_file() for name in (
+                "bm25_index.pkl", "bge_embeddings.npy", "metadata.json", "manifest.json"))):
+            self._load_cache_unlocked(expected_limit=limit)
             print(f"[OK] 从缓存加载索引: {len(self._metadata)} 个场景")
             return len(self._metadata)
 
         self._cache.mkdir(parents=True, exist_ok=True)
-
-        novel_index = _load_novel_index()
-        genre_novels = novel_index.get("genres", {}).get(self.genre, {}).get("novels", [])
-        if not genre_novels:
-            print(f"[FAIL] 题材 '{self.genre}' 无入库小说")
-            return 0
-
-        all_scenes = []
-        all_metadata = []
-        book_count = 0
-
-        for novel in genre_novels:
-            book_name = novel.get("file", "").replace(".txt", "")
-            novel_path = _NOVELS_DIR / self.genre / novel.get("file", "")
-            if not novel_path.exists():
-                continue
-
-            rhythm_data = _load_rhythm_data(self.genre, book_name)
-            if not rhythm_data:
-                continue
-
-            try:
-                chapters = extract_chapters(str(novel_path))
-            except Exception as e:
-                print(f"  [WARN] 跳过 {book_name}: 章节抽取失败 {e}")
-                continue
-
-            for ch in chapters:
-                ch_num = ch.get("num", 0)
-                ch_text = ch.get("text", "")
-                ch_rhythm = rhythm_data.get(ch_num, {})
-
-                scenes = _split_scenes(ch_text)
-                for i, scene_text in enumerate(scenes):
-                    meta = _build_scene_metadata(book_name, ch_num, i, scene_text, ch_rhythm)
-                    all_scenes.append(scene_text)
-                    all_metadata.append(meta)
-
-            book_count += 1
-            if book_count % 5 == 0:
-                print(f"  [OK] 已处理 {book_count}/{len(genre_novels)} 本...")
-            if limit > 0 and book_count >= limit:
-                break
-
+        cache_parent = self._cache.parent.resolve(strict=True)
+        _reject_contained_path(self._cache, cache_parent, "索引缓存")
+        all_scenes, all_metadata, source_entries, book_count = self._collect_corpus(limit=limit)
         if not all_scenes:
-            print("[FAIL] 未提取到任何场景")
+            print(f"[FAIL] 题材 '{self.genre}' 无入库小说")
             return 0
 
         n_scenes = len(all_scenes)
@@ -444,35 +668,227 @@ class SceneSearch:
         print(f"  [BGE] 嵌入 {n_scenes} 个场景...")
         bge_embeddings = self._bge_encode(all_scenes, show_progress=False)
         print(f"  [BGE] 嵌入矩阵 shape={bge_embeddings.shape}")
+        if (bge_embeddings.ndim != 2 or bge_embeddings.shape[0] != n_scenes
+                or bge_embeddings.dtype != np.float32
+                or not np.isfinite(bge_embeddings).all()):
+            raise IndexNotReadyError("模型生成的向量矩阵无效")
 
-        # 缓存: BM25(pickle) + BGE(npy) + 元数据(json)
-        with open(cache_bm25, "wb") as f:
-            pickle.dump({"bm25": bm25, "tokenized_corpus": tokenized_corpus}, f)
-        np.save(str(cache_bge), bge_embeddings)
-        with open(cache_meta, "w", encoding="utf-8") as f:
-            json.dump(all_metadata, f, ensure_ascii=False, indent=2)
+        # 先在独立 staging 目录生成完整载荷，manifest 最后发布。
+        staging = self._cache.parent / f".{self._cache.name}.staging-{uuid.uuid4().hex}"
+        cache_bm25 = staging / "bm25_index.pkl"
+        cache_bge = staging / "bge_embeddings.npy"
+        cache_meta = staging / "metadata.json"
+        cache_manifest = staging / "manifest.json"
+        try:
+            staging.mkdir(parents=True, exist_ok=False)
+            _reject_contained_path(staging, cache_parent, "索引 staging")
+            with cache_bm25.open("wb") as handle:
+                pickle.dump({"bm25": bm25, "tokenized_corpus": tokenized_corpus}, handle)
+            _reject_contained_path(staging, cache_parent, "索引 staging")
+            np.save(str(cache_bge), bge_embeddings)
+            _reject_contained_path(staging, cache_parent, "索引 staging")
+            with cache_meta.open("w", encoding="utf-8") as handle:
+                json.dump(all_metadata, handle, ensure_ascii=False, indent=2)
+
+            _reject_reparse_file(cache_bm25, staging, "索引 staging")
+            _reject_reparse_file(cache_bge, staging, "索引 staging")
+            _reject_reparse_file(cache_meta, staging, "索引 staging")
+
+            manifest = {
+                "schema_version": self.manifest_schema_version,
+                "genre": self.genre,
+                "embedding_model": model_identity["model_id"],
+                "model_local_path": model_identity["model_local_path"],
+                "model_config_sha256": model_identity["model_config_sha256"],
+                "model_tokenizer_config_sha256": model_identity["model_tokenizer_config_sha256"],
+                "model_weight_file": model_identity["model_weight_file"],
+                "model_weight_bytes": model_identity["model_weight_bytes"],
+                "model_weight_sha256": model_identity["model_weight_sha256"],
+                "embedding_dim": int(bge_embeddings.shape[1]),
+                "method": self.method,
+                "offline": self.offline,
+                "min_scene_chars": self.min_scene_chars,
+                "max_scene_chars": self.max_scene_chars,
+                "merge_min_chars": _MERGE_MIN_CHARS,
+                "rrf_k": self.rrf_k,
+                "source_novel_index_sha256": _sha256_file(_INDEX_PATH),
+                "source_corpus_sha256": _digest_entries(source_entries),
+                "build_limit": limit,
+                "n_books": book_count,
+                "n_scenes": n_scenes,
+                "corpus_total_chars": sum(item["char_count"] for item in all_metadata),
+                "artifacts": {
+                    "bm25_index.pkl": _sha256_file(cache_bm25),
+                    "bge_embeddings.npy": _sha256_file(cache_bge),
+                    "metadata.json": _sha256_file(cache_meta),
+                },
+            }
+            with cache_manifest.open("w", encoding="utf-8") as handle:
+                json.dump(manifest, handle, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+            _reject_reparse_file(cache_manifest, staging, "索引 staging")
+            for name in ("bm25_index.pkl", "bge_embeddings.npy", "metadata.json"):
+                source = staging / name
+                target = self._cache / name
+                _reject_reparse_file(source, staging, "索引 staging")
+                _reject_contained_path(self._cache, cache_parent, "索引缓存")
+                _reject_reparse_ancestors(target, "索引缓存")
+                os.replace(source, target)
+            _reject_reparse_file(cache_manifest, staging, "索引 staging")
+            _reject_contained_path(self._cache, cache_parent, "索引缓存")
+            _reject_reparse_ancestors(self._cache / "manifest.json", "索引缓存")
+            os.replace(cache_manifest, self._cache / "manifest.json")
+        except Exception:
+            self._clear_loaded_state()
+            raise
+        finally:
+            try:
+                staging.rmdir()
+            except OSError:
+                pass
 
         self._bm25 = bm25
         self._tokenized_corpus = tokenized_corpus
         self._bge_embeddings = bge_embeddings
         self._metadata = all_metadata
+        self._loaded_build_limit = limit
 
         print(f"[OK] 索引构建完成: {len(all_metadata)} 场景, {book_count} 本书")
         return len(all_metadata)
 
     def _load_cache(self):
-        """从缓存加载 BM25 + BGE + 元数据."""
+        """在锁内校验并加载 BM25、BGE、元数据和 manifest。"""
+        with self._state_lock:
+            with self._filesystem_lock():
+                self._load_cache_unlocked(expected_limit=0)
+
+    def _load_cache_unlocked(self, expected_limit=0):
         cache_bm25 = self._cache / "bm25_index.pkl"
         cache_bge = self._cache / "bge_embeddings.npy"
         cache_meta = self._cache / "metadata.json"
+        cache_manifest = self._cache / "manifest.json"
 
-        with open(cache_bm25, "rb") as f:
-            data = pickle.load(f)
-            self._bm25 = data["bm25"]
-            self._tokenized_corpus = data["tokenized_corpus"]
-        self._bge_embeddings = np.load(str(cache_bge))
-        with open(cache_meta, "r", encoding="utf-8") as f:
-            self._metadata = json.load(f)
+        required = (cache_bm25, cache_bge, cache_meta, cache_manifest)
+        if any(not item.is_file() for item in required):
+            raise IndexNotReadyError("索引未建立，请先执行索引构建")
+        _reject_reparse_ancestors(self._cache, "索引缓存")
+        cache_root = self._cache.resolve(strict=True)
+        for path in required:
+            _reject_reparse_file(path, cache_root, "索引")
+
+        try:
+            manifest = json.loads(cache_manifest.read_text(encoding="utf-8"))
+            if not isinstance(manifest, dict):
+                raise ValueError("manifest 根节点必须是对象")
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise IndexNotReadyError("索引 manifest 无法读取") from exc
+
+        model_identity = self._model_identity()
+        build_limit = manifest.get("build_limit")
+        if not isinstance(build_limit, int) or build_limit < 0:
+            raise IndexNotReadyError("索引 manifest 的 build_limit 无效")
+        if expected_limit is not None and build_limit != expected_limit:
+            raise IndexNotReadyError("索引的构建范围与当前请求不一致")
+        expected = {
+            "schema_version": self.manifest_schema_version,
+            "genre": self.genre,
+            "embedding_model": model_identity["model_id"],
+            "model_local_path": model_identity["model_local_path"],
+            "model_config_sha256": model_identity["model_config_sha256"],
+            "model_tokenizer_config_sha256": model_identity["model_tokenizer_config_sha256"],
+            "model_weight_file": model_identity["model_weight_file"],
+            "model_weight_bytes": model_identity["model_weight_bytes"],
+            "model_weight_sha256": model_identity["model_weight_sha256"],
+            "method": self.method,
+            "offline": self.offline,
+            "min_scene_chars": self.min_scene_chars,
+            "max_scene_chars": self.max_scene_chars,
+            "merge_min_chars": _MERGE_MIN_CHARS,
+            "rrf_k": self.rrf_k,
+            "source_novel_index_sha256": _sha256_file(_INDEX_PATH),
+        }
+        if any(manifest.get(key) != value for key, value in expected.items()):
+            raise IndexNotReadyError("索引 manifest 与当前模型、配置或题材不一致")
+
+        artifacts = manifest.get("artifacts")
+        if not isinstance(artifacts, dict):
+            raise IndexNotReadyError("索引 manifest 缺少 artifacts 校验段")
+        for path in (cache_bm25, cache_bge, cache_meta):
+            if artifacts.get(path.name) != _sha256_file(path):
+                raise IndexNotReadyError(f"索引文件校验失败：{path.name}")
+
+        _, current_metadata, source_entries, current_books = self._collect_corpus(limit=build_limit)
+        current_chars = sum(item.get("char_count", 0) for item in current_metadata)
+        if (manifest.get("source_corpus_sha256") != _digest_entries(source_entries)
+                or manifest.get("n_books") != current_books
+                or manifest.get("n_scenes") != len(current_metadata)
+                or manifest.get("corpus_total_chars") != current_chars):
+            raise IndexNotReadyError("索引 manifest 与当前语料快照不一致")
+
+        try:
+            with cache_bm25.open("rb") as f:
+                data = pickle.load(f)
+            embeddings = np.load(str(cache_bge), allow_pickle=False)
+            metadata = json.loads(cache_meta.read_text(encoding="utf-8"))
+        except (OSError, EOFError, ValueError, TypeError, KeyError, AttributeError,
+                pickle.UnpicklingError, json.JSONDecodeError) as exc:
+            raise IndexNotReadyError("索引文件损坏或格式无效") from exc
+
+        tokenized_corpus = data.get("tokenized_corpus") if isinstance(data, dict) else None
+        bm25 = data.get("bm25") if isinstance(data, dict) else None
+        n_scenes = manifest.get("n_scenes")
+        embedding_dim = manifest.get("embedding_dim")
+        valid_tokens = (isinstance(tokenized_corpus, list)
+                        and all(isinstance(row, list) and all(isinstance(token, str) for token in row)
+                                for row in tokenized_corpus))
+        valid_metadata = (isinstance(metadata, list)
+                          and all(self._valid_metadata_item(item) for item in metadata))
+        if (bm25 is None or not callable(getattr(bm25, "get_scores", None))
+                or not valid_tokens
+                or not valid_metadata
+                or not isinstance(n_scenes, int) or not isinstance(embedding_dim, int)
+                or not isinstance(manifest.get("n_books"), int)
+                or not isinstance(manifest.get("corpus_total_chars"), int)
+                or len(tokenized_corpus) != n_scenes
+                or len(metadata) != n_scenes
+                or embeddings.ndim != 2
+                or embeddings.dtype != np.float32
+                or embeddings.shape != (n_scenes, embedding_dim)):
+            raise IndexNotReadyError("索引维度或场景数量与 manifest 不一致")
+        if not np.isfinite(embeddings).all():
+            raise IndexNotReadyError("索引向量包含非有限数值")
+        try:
+            bm25_corpus = getattr(bm25, "corpus")
+            probe_scores = np.asarray(bm25.get_scores(["__mpv_contract_probe__"]))
+        except (AttributeError, TypeError, ValueError, IndexError) as exc:
+            raise IndexNotReadyError("BM25 索引结构无效") from exc
+        if (not isinstance(bm25_corpus, list)
+                or len(bm25_corpus) != n_scenes
+                or probe_scores.shape != (n_scenes,)
+                or not np.isfinite(probe_scores).all()):
+            raise IndexNotReadyError("BM25 语料或评分维度无效")
+
+        self._bm25 = bm25
+        self._tokenized_corpus = tokenized_corpus
+        self._bge_embeddings = embeddings
+        self._metadata = metadata
+        self._loaded_build_limit = build_limit
+
+    @staticmethod
+    def _valid_metadata_item(item: Any) -> bool:
+        """校验 API 会直接读取的全部 metadata 字段。"""
+        if not isinstance(item, dict):
+            return False
+        if any(not isinstance(item.get(name), str) for name in _METADATA_STRING_FIELDS):
+            return False
+        if any(not isinstance(item.get(name), int) or isinstance(item.get(name), bool)
+               for name in _METADATA_INT_FIELDS):
+            return False
+        return all(
+            isinstance(item.get(name), (int, float))
+            and not isinstance(item.get(name), bool)
+            and np.isfinite(float(item.get(name)))
+            for name in _METADATA_FLOAT_FIELDS
+        )
 
     # ── 检索 ──
 
@@ -494,88 +910,102 @@ class SceneSearch:
         """
         if top_k is None:
             top_k = self.top_k
+        try:
+            with self._state_lock:
+                with self._filesystem_lock():
+                    if (self._bm25 is None or self._bge_embeddings is None
+                            or not self._metadata or self._loaded_build_limit is None):
+                        self._load_cache_unlocked(expected_limit=0)
+                    if (self._bm25 is None or self._bge_embeddings is None
+                            or not self._metadata or self._loaded_build_limit != 0):
+                        raise IndexNotReadyError("索引未建立，请先执行索引构建")
 
-        if self._bm25 is None or self._bge_embeddings is None or not self._metadata:
-            try:
-                self._load_cache()
-            except (FileNotFoundError, OSError):
-                return [{"error": "索引未构建，请先运行 build_index()"}]
-        if self._bm25 is None or self._bge_embeddings is None or not self._metadata:
-            return [{"error": "索引未构建，请先运行 build_index()"}]
-
-        n = len(self._metadata)
+                    n = len(self._metadata)
         # 检索深度: 取 top_n_candidate, 然后 RRF 融合后取 top_k
         # 取 5x top_k 作为候选池, 保证 RRF 融合有足够多样性
-        candidate_pool = min(max(top_k * 5, 20), n)
+                    candidate_pool = min(max(top_k * 5, 20), n)
 
         # 通道A: BM25 检索
-        tokenized_query = _jieba_tokenize(query)
-        bm25_scores = self._bm25.get_scores(tokenized_query)
-        bm25_rank_indices = np.argsort(bm25_scores)[::-1][:candidate_pool]
+                    tokenized_query = _jieba_tokenize(query)
+                    bm25_scores = self._bm25.get_scores(tokenized_query)
+                    bm25_rank_indices = np.argsort(bm25_scores)[::-1][:candidate_pool]
 
         # 通道B: BGE 语义检索
-        query_emb = self._bge_encode([query], show_progress=False)  # (1, 512)
+                    query_emb = self._bge_encode([query], show_progress=False)  # (1, 512)
         # cosine 相似度 (BGE 已 L2 归一化, dot product = cosine)
-        bge_sims = (self._bge_embeddings @ query_emb[0]).ravel()
-        bge_rank_indices = np.argsort(bge_sims)[::-1][:candidate_pool]
+                    bge_sims = (self._bge_embeddings @ query_emb[0]).ravel()
+                    bge_rank_indices = np.argsort(bge_sims)[::-1][:candidate_pool]
 
         # RRF 融合
-        fused_indices = _rrf_fuse(
-            list(bm25_rank_indices),
-            list(bge_rank_indices),
-            k=self.rrf_k,
-        )
+                    fused_indices = _rrf_fuse(
+                        list(bm25_rank_indices),
+                        list(bge_rank_indices),
+                        k=self.rrf_k,
+                    )
 
         # 取 top_k, 计算可解释性字段
-        top_indices = fused_indices[:top_k]
+                    top_indices = fused_indices[:top_k]
 
         # 构造 rank 映射 (idx → rank, 1-based)
-        bm25_rank_map = {int(idx): r for r, idx in enumerate(bm25_rank_indices, start=1)}
-        bge_rank_map = {int(idx): r for r, idx in enumerate(bge_rank_indices, start=1)}
+                    bm25_rank_map = {int(idx): r for r, idx in enumerate(bm25_rank_indices, start=1)}
+                    bge_rank_map = {int(idx): r for r, idx in enumerate(bge_rank_indices, start=1)}
 
         # RRF 分数归一化 (max-min → 0-1, 便于展示)
-        rrf_scores_raw = []
-        for idx in top_indices:
-            rrf_score = 0.0
-            if idx in bm25_rank_map:
-                rrf_score += 1.0 / (self.rrf_k + bm25_rank_map[idx])
-            if idx in bge_rank_map:
-                rrf_score += 1.0 / (self.rrf_k + bge_rank_map[idx])
-            rrf_scores_raw.append(rrf_score)
-        max_score = max(rrf_scores_raw) if rrf_scores_raw else 1.0
-        min_score = min(rrf_scores_raw) if rrf_scores_raw else 0.0
-        denom = max_score - min_score if max_score > min_score else 1.0
+                    rrf_scores_raw = []
+                    for idx in top_indices:
+                        rrf_score = 0.0
+                        if idx in bm25_rank_map:
+                            rrf_score += 1.0 / (self.rrf_k + bm25_rank_map[idx])
+                        if idx in bge_rank_map:
+                            rrf_score += 1.0 / (self.rrf_k + bge_rank_map[idx])
+                        rrf_scores_raw.append(rrf_score)
+                    max_score = max(rrf_scores_raw) if rrf_scores_raw else 1.0
+                    min_score = min(rrf_scores_raw) if rrf_scores_raw else 0.0
+                    denom = max_score - min_score if max_score > min_score else 1.0
 
-        results = []
-        for i, idx in enumerate(top_indices):
-            meta = dict(self._metadata[idx])
-            meta["similarity"] = round(float((rrf_scores_raw[i] - min_score) / denom), 3)
-            meta["bm25_rank"] = bm25_rank_map.get(int(idx), None)
-            meta["bge_rank"] = bge_rank_map.get(int(idx), None)
-            results.append(meta)
-
-        return results
+                    results = []
+                    for i, idx in enumerate(top_indices):
+                        meta = dict(self._metadata[idx])
+                        meta["similarity"] = round(float((rrf_scores_raw[i] - min_score) / denom), 3)
+                        meta["bm25_rank"] = bm25_rank_map.get(int(idx), None)
+                        meta["bge_rank"] = bge_rank_map.get(int(idx), None)
+                        results.append(meta)
+                    return results
+        except Exception as exc:
+            return [{"error": "INDEX_NOT_READY", "message": f"索引查询未就绪：{exc}"}]
 
     # ── 统计 ──
 
     def index_stats(self):
         """Return index statistics."""
-        if self._bm25 is None or self._bge_embeddings is None:
-            try:
-                self._load_cache()
-            except Exception:
-                return {"error": "索引未构建"}
-
-        books = set(m["book_name"] for m in self._metadata)
-        return {
-            "total_scenes": len(self._metadata),
-            "total_books": len(books),
-            "embedding_dim": int(self._bge_embeddings.shape[1]) if self._bge_embeddings is not None else 0,
-            "method": self.method,
-            "embedding_model": self.embedding_model_name,
-            "rrf_k": self.rrf_k,
-            "genre": self.genre,
-        }
+        try:
+            with self._state_lock:
+                with self._filesystem_lock():
+                    if (self._bm25 is None or self._bge_embeddings is None
+                            or self._loaded_build_limit is None):
+                        self._load_cache_unlocked(expected_limit=0)
+                    if not self._metadata or self._loaded_build_limit != 0:
+                        raise IndexNotReadyError("索引未建立，请先执行索引构建")
+                    books = set(m["book_name"] for m in self._metadata)
+                    return {
+                        "status": "ready",
+                        "index_not_ready": None,
+                        "total_scenes": len(self._metadata),
+                        "total_books": len(books),
+                        "embedding_dim": int(self._bge_embeddings.shape[1]),
+                        "method": self.method,
+                        "embedding_model": self.embedding_model_name,
+                        "rrf_k": self.rrf_k,
+                        "genre": self.genre,
+                    }
+        except Exception as exc:
+            return {
+                "status": "index_not_ready",
+                "index_not_ready": f"索引统计未就绪：{exc}",
+                "total_scenes": 0,
+                "total_books": 0,
+                "genre": self.genre,
+            }
 
 
 # ── CLI ──

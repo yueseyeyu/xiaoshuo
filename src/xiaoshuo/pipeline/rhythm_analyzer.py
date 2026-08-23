@@ -27,6 +27,7 @@ from xiaoshuo.pipeline.rhythm.chapter_parser import extract_chapters, _build_cha
 from xiaoshuo.pipeline.rhythm.rule_analyzer import rule_analyze
 from xiaoshuo.pipeline.rhythm.llm_verifier import llm_verify, _map_llm_response, _LLM_KEY_MAP
 from xiaoshuo.pipeline.rhythm.cache_manager import (
+    CACHE_VERSION,
     CACHE_VERSION as _CACHE_VERSION,
     load_cached_summary as _load_cached_summary,
     check_cache_version,
@@ -52,15 +53,42 @@ from xiaoshuo.pipeline.rhythm.patterns import (
     RICH_POS_KW, RICH_NEG_KW, RICH_PHYSIO_KW,
 )
 
-# ── 模块级常量 (保持向后兼容) ──
+# ── 仅保留不依赖执行上下文的模块级值 ──
 from xiaoshuo import PROJECT_ROOT
-from xiaoshuo.pipeline.paths import novels_dir as _novels_dir
-from xiaoshuo.infra.llm_client import get_llm_port
-
-NOVELS_DIR = _novels_dir()
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
-LLAMA_PORT = get_llm_port()
-LLAMA_BASE = f"http://127.0.0.1:{LLAMA_PORT}"
+
+
+def _get_runtime_novels_dir(genre=None):
+    """在执行上下文已激活后解析小说目录。"""
+    from xiaoshuo.pipeline.paths import novels_dir
+
+    return novels_dir(genre)
+
+
+def _get_runtime_llama_port():
+    """在实际运行时读取 LLM 端口，避免导入期读取配置。"""
+    from xiaoshuo.infra.llm_client import get_llm_port
+
+    return get_llm_port()
+
+
+def _get_runtime_llama_base():
+    return f"http://127.0.0.1:{_get_runtime_llama_port()}"
+
+
+def __getattr__(name):
+    """兼容旧常量名称，同时把上下文解析延迟到访问时。"""
+    if name == "NOVELS_DIR":
+        return _get_runtime_novels_dir()
+    if name == "LLAMA_PORT":
+        return _get_runtime_llama_port()
+    if name == "LLAMA_BASE":
+        return _get_runtime_llama_base()
+    if name == "_rhythm_dir":
+        from xiaoshuo.pipeline.paths import rhythm_dir
+
+        return rhythm_dir
+    raise AttributeError(name)
 
 
 # ── CLI 入口 ──
@@ -74,15 +102,15 @@ def main():
         elif arg == "--books" and i < len(sys.argv) - 1:
             books_filter = set(sys.argv[i + 1].split(","))
 
+    novels_dir = _get_runtime_novels_dir(genre)
     if genre:
-        genre_dir = NOVELS_DIR / genre
-        files = sorted(genre_dir.glob("*.txt")) if genre_dir.exists() else []
+        files = sorted(novels_dir.glob("*.txt")) if novels_dir.exists() else []
     else:
-        files = sorted(NOVELS_DIR.glob("**/*.txt"))
+        files = sorted(novels_dir.glob("**/*.txt"))
     if books_filter:
         files = [f for f in files if f.stem[:40] in books_filter]
     if not files:
-        print(f"[FAIL] No .txt files in {'novels/' + genre if genre else NOVELS_DIR}")
+        print(f"[FAIL] No .txt files in {'novels/' + genre if genre else novels_dir}")
         sys.exit(1)
 
     from xiaoshuo.infra.logging_config import get_logger

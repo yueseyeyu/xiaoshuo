@@ -37,6 +37,26 @@ from xiaoshuo.infra.llm_client import check_llm_health, get_main_model_base_url
 logger = get_logger(__name__)
 # LLMLingua-2 removed (v8.15): original model deprecated, replacement too large for 8GB GPU
 from collections import Counter
+from . import llm_batch_score_core
+from . import llm_batch_score_reference
+from . import llm_batch_score_pairwise
+from .llm_batch_score_calibration import (
+    apply_calibration_values as _calibration_apply_values,
+    bootstrap_rank_analysis as _calibration_bootstrap_rank_analysis,
+    build_calibration_plan as _calibration_build_plan,
+)
+from .llm_batch_score_cli import (
+    parse_cli_args as _cli_parse_cli_args,
+    select_book_sampling as _cli_select_book_sampling,
+)
+from .llm_batch_score_io import (
+    build_decision_records as _io_build_decision_records,
+    build_score_row as _io_build_score_row,
+    load_already_scored as _io_load_already_scored,
+    load_rule_rows as _io_load_rule_rows,
+    merge_decision_records as _io_merge_decision_records,
+    write_score_csv as _io_write_score_csv,
+)
 
 # PROJECT_ROOT imported from src.xiaoshuo
 NOVELS_DIR = PROJECT_ROOT / "data" / "raw" / "novels"
@@ -168,25 +188,6 @@ def check_server():
 
 # ── Rubric template (DRY: shared by single-pass and self-consistency scoring) ──
 
-def _normalize_hook(hook_val):
-    """Normalize hook field: LLM sometimes outputs numeric (e.g. '5.0') instead of category.
-    Map: >=7 → strong, >=4 → weak, <4 → none."""
-    if not hook_val:
-        return "none"
-    s = str(hook_val)
-    if s in ("none", "weak", "strong"):
-        return s
-    try:
-        v = float(s)
-        if v >= 7:
-            return "strong"
-        elif v >= 4:
-            return "weak"
-        else:
-            return "none"
-    except ValueError:
-        return "none"
-
 # v18: CoT (Chain-of-Thought) scoring — 先分析再评分，准确率+15-20%
 # 参考: RUC-NLPIR/Rubrics_Survey (2025), Microsoft LLM-Rubric (ACL 2024)
 _RUBRIC_TEMPLATE = (
@@ -317,7 +318,7 @@ def _extract_rubric_json(raw):
                     res = json.loads(m.group())
                     if "intensity" in res:
                         if "hook" in res:
-                            res["hook"] = _normalize_hook(res["hook"])
+                            res["hook"] = llm_batch_score_core._normalize_hook(res["hook"])
                         return res
                 except (json.JSONDecodeError, KeyError, ValueError):
                     continue
@@ -335,7 +336,7 @@ def _extract_rubric_json(raw):
                 "conflict": cl.group(1) if cl else "medium",
                 "emotion": em.group(1) if em else "日常",
                 "pace": pa.group(1) if pa else "medium",
-                "hook": _normalize_hook(hook_raw),
+                "hook": llm_batch_score_core._normalize_hook(hook_raw),
                 "retention": float(rt.group(1)) if rt else 5,
             }
         return None
@@ -485,14 +486,6 @@ def llm_score_with_confidence(chapter_text, ch_num, conn=None, prev_context="", 
 # 核心改进: 用真实章节摘录+已知人工评分替代合成描述作为校准锚点
 
 
-def _truncate_reference_text(text, max_len=400):
-    """Truncate chapter text for reference passage: head 150 + tail 250."""
-    if len(text) <= max_len:
-        return text
-    head_len = min(150, max_len // 3)
-    return text[:head_len] + "\n...[省略]...\n" + text[-(max_len - head_len - 20):]
-
-
 def build_reference_bank(golden_csv_path=None, genre="末世"):
     """Build reference passage bank from golden CSV + novel texts.
 
@@ -567,7 +560,7 @@ def build_reference_bank(golden_csv_path=None, genre="末世"):
             logger.warning("Chapter %d not found in %s", ch_num, book_name)
             continue
 
-        excerpt = _truncate_reference_text(chapter.get("raw_body", ""))
+        excerpt = llm_batch_score_core._truncate_reference_text(chapter.get("raw_body", ""))
         if len(excerpt) < 50:
             continue
 
@@ -595,85 +588,6 @@ def build_reference_bank(golden_csv_path=None, genre="末世"):
     return references
 
 
-def _select_references(references, exclude_book=None, exclude_ch_num=None):
-    """Select 4 representative references (one per score band), excluding specified chapter.
-
-    Leave-one-out: when scoring chapter X, exclude X from references.
-    If X was the only reference in its band, include it anyway.
-
-    Returns:
-        list of 4 (or fewer) reference dicts, one per band
-    """
-    bands = ["low", "medium_low", "medium_high", "high"]
-    band_centers = {"low": 2.5, "medium_low": 4.5, "medium_high": 6.5, "high": 8.5}
-    selected = []
-
-    for band in bands:
-        candidates = [
-            r for r in references
-            if r["band"] == band
-            and not (r["book"] == exclude_book and r["ch_num"] == exclude_ch_num)
-        ]
-        if not candidates:
-            candidates = [r for r in references if r["band"] == band]
-        if not candidates:
-            continue
-
-        center = band_centers[band]
-        best = min(candidates, key=lambda r: abs(r["human_intensity"] - center))
-        selected.append(best)
-
-    return selected
-
-
-_REF_RUBRIC_TEMPLATE = (
-    "=== 你是专业网文编辑，对章节阅读体验独立评分 ===\n\n"
-    "请对下方章节评分，大胆使用全量程(1-10)，不要挤在中段。\n\n"
-    "### 校准参考段落 (已知人工评分) ###\n"
-    "以下段落来自已标注的末世小说章节，人工评分已验证。\n"
-    "请参照这些段落的评分基准来校准你的评分尺度。\n\n"
-    "{reference_section}\n\n"
-    "### 评分量规 (Rubric) ###\n"
-    "1. 爽点强度 (1-10): 1=平淡铺垫 3=小爽 5=明显爽感 7=强烈高光 10=巅峰神作\n"
-    "   [锚定] 普通过渡章=3 | 标准打脸成功=5 | 绝境翻盘=7 | 全书最佳高潮=9-10\n"
-    "2. 冲突等级: none/low/medium/high\n"
-    "3. 情绪氛围: 爽快/紧张/悲壮/悬疑/日常/温情/压抑\n"
-    "4. 节奏: fast/medium/slow\n"
-    "5. 钩子质量: none/weak/strong\n"
-    "6. 读者留存力 (1-10): 1=可能弃书 5=普通 7=想追 10=熬夜也要看\n"
-    "   [锚定] 开篇铺垫=4 | 小高潮后=6 | 重大反转后=8 | 全书高潮=9-10\n\n"
-    "### 输出格式 (先分析再评分) ###\n"
-    "先用一句话（不超过30字）概括本章核心看点，然后参照参考段落评估本章水平，最后输出评分JSON。\n"
-    "注意：分析必须简短，重点输出JSON。\n"
-    "格式:\n"
-    "分析: [一句话概括]\n"
-    '{"intensity":5,"conflict":"medium","emotion":"日常","pace":"medium","hook":"weak","retention":5}'
-)
-
-
-def _build_reference_system_prompt(references):
-    """Build system prompt with reference passages injected."""
-    band_labels = {
-        "low": "低分段 (平淡铺垫)",
-        "medium_low": "中低分段 (有冲突但不够强)",
-        "medium_high": "中高分段 (明确爽感)",
-        "high": "高分段 (强烈高潮)",
-    }
-
-    ref_parts = []
-    for i, ref in enumerate(references, 1):
-        band_label = band_labels.get(ref["band"], ref["band"])
-        ref_parts.append(
-            f"[参考{i} - {band_label} | 人工评分: 爽点{ref['human_intensity']:.1f}, 留存{ref['human_retention']:.1f}]\n"
-            f"来源: {ref['book']} 第{ref['ch_num']}章\n"
-            f"标签: {ref.get('tags', '无')}\n"
-            f'"{ref["excerpt"]}"'
-        )
-
-    reference_section = "\n\n".join(ref_parts)
-    return _REF_RUBRIC_TEMPLATE.replace("{reference_section}", reference_section)
-
-
 def llm_score_reference_based(chapter_text, ch_num, references, prev_context="", sub_genre="", temperature=0.0):
     """v8.14: Reference-based scoring (Phase A1).
 
@@ -687,7 +601,7 @@ def llm_score_reference_based(chapter_text, ch_num, references, prev_context="",
         return llm_score_rubric(chapter_text, ch_num, prev_context=prev_context,
                                  sub_genre=sub_genre, temperature=temperature)
 
-    system_msg = _build_reference_system_prompt(references)
+    system_msg = llm_batch_score_reference._build_reference_system_prompt(references)
 
     emphasis = _SUB_GENRE_EMPHASIS.get(sub_genre, "")
     if emphasis:
@@ -752,20 +666,12 @@ def batch_book(txt_path, csv_path, max_chapters=None, sc_samples=1):
         return None
 
     # Load existing rule CSV for base info
-    rule_rows = {}
-    if csv_path and csv_path.exists():
-        with open(csv_path, 'r', encoding='utf-8-sig') as f:
-            for r in csv.DictReader(f):
-                rule_rows[int(r["ch_num"])] = r
+    rule_rows = _io_load_rule_rows(csv_path)
 
     # v7.5: Check existing LLM scores to skip already-scored chapters
-    already_scored = set()
     genre = Path(txt_path).parent.name  # derive from path: data/raw/novels/{genre}/book.txt
     llm_csv_path = _llm_dir(genre) / f"{Path(txt_path).stem}_llm.csv"
-    if llm_csv_path.exists():
-        with open(llm_csv_path, 'r', encoding='utf-8-sig') as f:
-            for r in csv.DictReader(f):
-                already_scored.add(int(r.get("ch_num", 0)))
+    already_scored = _io_load_already_scored(llm_csv_path)
 
     # v22 P2: Stratified sampling — 5-segment proportional (replaces uniform)
     if max_chapters and len(chapters) > max_chapters:
@@ -956,25 +862,7 @@ def batch_book(txt_path, csv_path, max_chapters=None, sc_samples=1):
         if item is None or item[1][0] is None:
             continue
         ch_num, (llm, rule, ch_wc) = item
-        row = {
-            "ch_num": ch_num,
-            "wc": int(rule.get("wc", ch_wc)),
-            # LLM scores (primary)
-            "llm_intensity": float(llm["intensity"]),
-            "llm_conflict": llm["conflict"],
-            "llm_emotion": llm["emotion"],
-            "llm_pace": llm["pace"],
-            "llm_hook": llm["hook"],
-            "llm_retention": float(llm["retention"]),
-            # v18: 置信度指标
-            "llm_low_confidence": llm.get("low_confidence", False),
-            "llm_confidence_note": llm.get("confidence_note", ""),
-            # Rule scores (reference)
-            "rule_intensity": float(rule.get("pleasure_intensity", 0)),
-            "rule_hook": rule.get("hook_type", "none"),
-            "rule_emotion": rule.get("emotion", "日常"),
-            "rule_pace": rule.get("pace", "medium"),
-        }
+        row = _io_build_score_row(ch_num, llm, rule, ch_wc)
         results.append(row)
         conf_tag = "!" if row["llm_low_confidence"] else ""
         logger.info("L:%.0fR:%.1fH:%s%s", llm['intensity'], row['rule_intensity'], llm['hook'], conf_tag)
@@ -987,14 +875,7 @@ def batch_book(txt_path, csv_path, max_chapters=None, sc_samples=1):
     llm_out = _llm_dir(genre)
     llm_out.mkdir(parents=True, exist_ok=True)
     out_path = llm_out / f"{name}_llm.csv"
-    fields = ["ch_num", "wc",
-              "llm_intensity", "llm_conflict", "llm_emotion", "llm_pace", "llm_hook", "llm_retention",
-              "llm_low_confidence", "llm_confidence_note",
-              "rule_intensity", "rule_hook", "rule_emotion", "rule_pace"]
-    with open(out_path, "w", newline="", encoding="utf-8-sig") as f:
-        w = csv.DictWriter(f, fieldnames=fields, extrasaction='ignore')
-        w.writeheader()
-        w.writerows(results)
+    _io_write_score_csv(out_path, results)
 
     # Stats
     intens = [r["llm_intensity"] for r in results]
@@ -1115,33 +996,14 @@ def export_llm_scores_to_decisions(csv_path, book_name=""):
             existing = []
     
     # Load new CSV data
-    new_records = []
     with open(csv_path, "r", encoding="utf-8-sig") as f:
-        for row in csv.DictReader(f):
-            new_records.append({
-                "chapter": int(row.get("ch_num", 0)),
-                "book": book_name,
-                "llm_intensity": float(row.get("llm_intensity", 0)),
-                "llm_retention": float(row.get("llm_retention", 0)),
-                "llm_conflict": row.get("llm_conflict", ""),
-                "llm_emotion": row.get("llm_emotion", ""),
-                "llm_pace": row.get("llm_pace", ""),
-                "llm_hook": row.get("llm_hook", ""),
-                "llm_low_confidence": row.get("llm_low_confidence", "False") == "True",
-                "source": "qwen_llm_batch_score",
-            })
+        new_records = _io_build_decision_records(csv.DictReader(f), book_name)
     
     if not new_records:
         return None
     
     # Merge: replace existing entries for same book+chapter
-    existing_by_key = {(r.get("book", ""), r.get("chapter", 0)): r for r in existing}
-    for rec in new_records:
-        key = (rec["book"], rec["chapter"])
-        existing_by_key[key] = rec
-    
-    merged = list(existing_by_key.values())
-    merged.sort(key=lambda r: (r.get("book", ""), r.get("chapter", 0)))
+    merged = _io_merge_decision_records(existing, new_records)
     
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(merged, f, ensure_ascii=False, indent=2)
@@ -1158,17 +1020,6 @@ def export_llm_scores_to_decisions(csv_path, book_name=""):
 # 参考: LitBench (arXiv 2504.12296), Chatbot Arena Bradley-Terry
 # 研究: pairwise comparison与人类判断一致性比absolute scoring高20-30%
 # 实现: 采样章节对→LLM判断"A vs B哪个更爽"→BT模型转绝对分→与rubric分融合
-
-_PAIRWISE_PROMPT = (
-    "=== 你是专业网文编辑，请对比两章的阅读体验 ===\n\n"
-    "对比维度: 整体爽感、情节张力、阅读流畅度。\n"
-    "只考虑阅读体验，不考虑字数多少。\n\n"
-    "输出格式 (只输出一个字母):\n"
-    "A — 第A章更好\n"
-    "B — 第B章更好\n"
-    "T — 两章差不多\n"
-)
-
 
 def llm_pairwise_compare(ch_a_text, ch_b_text, ch_a_num, ch_b_num, conn=None):
     """v18 O5: Pairwise comparison — ask LLM which chapter is more engaging.
@@ -1188,7 +1039,7 @@ def llm_pairwise_compare(ch_a_text, ch_b_text, ch_a_num, ch_b_num, conn=None):
 
     try:
         from xiaoshuo.infra.llm_client import llm_chat
-        raw = llm_chat(user_msg, system=_PAIRWISE_PROMPT,
+        raw = llm_chat(user_msg, system=llm_batch_score_pairwise._PAIRWISE_PROMPT,
                       max_tokens=10, temperature=0.1, timeout=30,
                       max_retries=1, strip_thinking=True)
         raw = raw.strip().upper()
@@ -1199,44 +1050,6 @@ def llm_pairwise_compare(ch_a_text, ch_b_text, ch_a_num, ch_b_num, conn=None):
         return "T"  # default tie if unparseable
     except Exception:
         return "T"
-
-
-def _bradley_terry_estimate(pairwise_results):
-    """v18 O5: Convert pairwise win/loss records to BT ability scores (0-10 scale).
-    
-    Args:
-        pairwise_results: list of (ch_num_a, ch_num_b, verdict) where verdict='A'/'B'/'T'
-    
-    Returns:
-        {ch_num: bt_score} where bt_score is 0-10 scale
-        
-    Uses simple iterative BT: θ_i = wins_i / (wins_i + losses_i), then scale to 0-10.
-    For small N, uses Laplace smoothing (add 1 to wins and losses).
-    """
-    from collections import defaultdict
-    wins = defaultdict(int)
-    losses = defaultdict(int)
-    all_chs = set()
-    
-    for ch_a, ch_b, verdict in pairwise_results:
-        all_chs.add(ch_a)
-        all_chs.add(ch_b)
-        if verdict == "A":
-            wins[ch_a] += 1
-            losses[ch_b] += 1
-        elif verdict == "B":
-            wins[ch_b] += 1
-            losses[ch_a] += 1
-        # T = tie, no change to win/loss
-    
-    # BT ability with Laplace smoothing: θ = (wins+1)/(wins+losses+2)
-    bt_scores = {}
-    for ch in all_chs:
-        w = wins[ch] + 1  # Laplace
-        l = losses[ch] + 1
-        bt_scores[ch] = round(w / (w + l) * 10, 1)  # scale to 0-10
-    
-    return bt_scores
 
 
 def batch_pairwise_scoring(txt_path, rubric_scores, n_pairs=10, conn=None):
@@ -1291,7 +1104,7 @@ def batch_pairwise_scoring(txt_path, rubric_scores, n_pairs=10, conn=None):
         pairwise_results.append((ch_a, ch_b, verdict))
     
     # Convert to BT scores
-    bt_scores = _bradley_terry_estimate(pairwise_results)
+    bt_scores = llm_batch_score_pairwise._bradley_terry_estimate(pairwise_results)
     
     # Blend BT score with rubric intensity (60% rubric + 40% BT)
     # BT is relative, rubric is absolute — blend for best of both
@@ -1474,28 +1287,15 @@ def apply_golden_set_calibration(csv_path, golden_set_path=None):
         except Exception as e:
             logger.warning("[O8] Calib load failed: %s, fallback to median offset", e)
 
-    # Compute median offset as fallback
-    int_offsets = [h - l for l, h in paired_int]
-    ret_offsets = [h - l for l, h in paired_ret]
-    int_offset = round(statistics.median(int_offsets), 1)
-    ret_offset = round(statistics.median(ret_offsets), 1)
-    SHRINKAGE = 0.6 if len(paired_int) >= 20 else 0.4
-    
-    # v21: Smart-skip — 每个维度独立判断（与e2e_verify.py一致）
-    SKIP_THRESHOLD = 0.5
-    int_skip = abs(int_offset) < SKIP_THRESHOLD
-    ret_skip = abs(ret_offset) < SKIP_THRESHOLD
-    if int_skip and ret_skip:
-        logger.info("[O8] Smart-skip: both |offset| i%+.1f/r%+.1f < %.1f, skipping calibration", int_offset, ret_offset, SKIP_THRESHOLD)
-        return {"intensity_offset": int_offset, "retention_offset": ret_offset,
-                "n_golden": len(paired_int), "method": "smart_skip", "skipped": True}
-    if int_skip:
-        logger.info("[O8] Smart-skip: intensity |offset| %+.1f < %.1f, skipping intensity calibration", int_offset, SKIP_THRESHOLD)
-    if ret_skip:
-        logger.info("[O8] Smart-skip: retention |offset| %+.1f < %.1f, skipping retention calibration", ret_offset, SKIP_THRESHOLD)
-    
-    # v21: Shrinkage factor — n>=20用0.6, 否则0.4
-    SHRINKAGE = 0.6 if len(paired_int) >= 20 else 0.4
+    plan = _calibration_build_plan(paired_int, paired_ret, wls_params)
+    if plan["skipped"]:
+        logger.info("[O8] Smart-skip: both |offset| i%+.1f/r%+.1f < %.1f, skipping calibration", plan["intensity_offset"], plan["retention_offset"], 0.5)
+        return {"intensity_offset": plan["intensity_offset"], "retention_offset": plan["retention_offset"],
+                "n_golden": plan["n_golden"], "method": plan["method"], "skipped": True}
+    if plan["intensity_skip"]:
+        logger.info("[O8] Smart-skip: intensity |offset| %+.1f < %.1f, skipping intensity calibration", plan["intensity_offset"], 0.5)
+    if plan["retention_skip"]:
+        logger.info("[O8] Smart-skip: retention |offset| %+.1f < %.1f, skipping retention calibration", plan["retention_offset"], 0.5)
     
     # Apply calibration to all rows
     calibrated = 0
@@ -1506,12 +1306,7 @@ def apply_golden_set_calibration(csv_path, golden_set_path=None):
     for row in rows:
         old_int = float(row.get("llm_intensity", 5))
         old_ret = float(row.get("llm_retention", 5))
-        if wls_params:
-            new_int = round(max(1.0, min(10.0, wls_params["intensity"]["intercept"] + wls_params["intensity"]["slope"] * old_int)), 1)
-            new_ret = round(max(1.0, min(10.0, wls_params["retention"]["intercept"] + wls_params["retention"]["slope"] * old_ret)), 1)
-        else:
-            new_int = round(max(1.0, min(10.0, old_int + SHRINKAGE * int_offset)), 1) if not int_skip else old_int
-            new_ret = round(max(1.0, min(10.0, old_ret + SHRINKAGE * ret_offset)), 1) if not ret_skip else old_ret
+        new_int, new_ret = _calibration_apply_values(old_int, old_ret, plan)
         row["llm_intensity_calibrated"] = str(new_int)
         row["llm_retention_calibrated"] = str(new_ret)
         row["llm_calibration_offset"] = f"i{new_int-old_int:+.1f},r{new_ret-old_ret:+.1f}"
@@ -1526,12 +1321,12 @@ def apply_golden_set_calibration(csv_path, golden_set_path=None):
         w.writeheader()
         w.writerows(rows)
     
-    _method = "wls" if wls_params else "median_offset_shrinkage"
+    _method = plan["method"]
     logger.info("[O8] %s calibration: %d chapters (n_golden=%d) — original values preserved",
                _method, calibrated, len(paired_int))
-    return {"intensity_offset": int_offset, "retention_offset": ret_offset,
-            "n_golden": len(paired_int), "method": _method,
-            "wls_params": wls_params, "overwrote_original": False}
+    return {"intensity_offset": plan["intensity_offset"], "retention_offset": plan["retention_offset"],
+            "n_golden": plan["n_golden"], "method": _method,
+            "wls_params": plan["wls_params"], "overwrote_original": False}
 
 
 # ── v22.1 P1: Bootstrap Ranking Stability ──
@@ -1549,8 +1344,6 @@ def bootstrap_rank_stability(genre="末世", n_bootstrap=1000):
     
     Outputs JSON file with stability metrics + prints summary table.
     """
-    import random
-    
     llm_path = _llm_dir(genre)
     books = {}
     
@@ -1570,57 +1363,7 @@ def bootstrap_rank_stability(genre="末世", n_bootstrap=1000):
         logger.info("[BOOTSTRAP] Need >=2 books with >=5 chapters each, found %d, skipping", len(books))
         return None
     
-    book_names = list(books.keys())
-    
-    # Storage for bootstrap results
-    boot_means = {name: [] for name in book_names}
-    boot_ranks = {name: [] for name in book_names}
-    
-    random.seed(42)
-    for _ in range(n_bootstrap):
-        means_this_round = {}
-        for name in book_names:
-            scores = books[name]
-            resampled = [random.choice(scores) for _ in range(len(scores))]
-            means_this_round[name] = statistics.mean(resampled)
-        
-        # Rank this round (higher score = better, rank 1 = best)
-        sorted_books = sorted(means_this_round.items(), key=lambda x: -x[1])
-        for rank, (name, _) in enumerate(sorted_books, 1):
-            boot_ranks[name].append(rank)
-            boot_means[name].append(means_this_round[name])
-    
-    # Compute results
-    results = []
-    for name in book_names:
-        means_sorted = sorted(boot_means[name])
-        ranks_sorted = sorted(boot_ranks[name])
-        mean_ci_low = means_sorted[int(0.025 * n_bootstrap)]
-        mean_ci_high = means_sorted[int(0.975 * n_bootstrap)]
-        rank_ci_low = ranks_sorted[int(0.025 * n_bootstrap)]
-        rank_ci_high = ranks_sorted[int(0.975 * n_bootstrap)]
-        rank_median = int(statistics.median(ranks_sorted))
-        
-        # Stability label based on rank CI width
-        rank_range = rank_ci_high - rank_ci_low
-        if rank_range <= 2:
-            stability = "stable"
-        elif rank_range <= 5:
-            stability = "unstable"
-        else:
-            stability = "volatile"
-        
-        results.append({
-            "book": name,
-            "n_chapters": len(books[name]),
-            "mean_intensity": round(statistics.mean(books[name]), 2),
-            "mean_ci_95": [round(mean_ci_low, 2), round(mean_ci_high, 2)],
-            "rank_median": rank_median,
-            "rank_ci_95": [rank_ci_low, rank_ci_high],
-            "stability": stability,
-        })
-    
-    results.sort(key=lambda x: x["rank_median"])
+    results = _calibration_bootstrap_rank_analysis(books, n_bootstrap)
     
     # Save JSON
     out_path = llm_path / "bootstrap_rank_stability.json"
@@ -1647,22 +1390,12 @@ def main():
         return
 
     # Parse args
-    book_filter = None
-    max_ch = 30  # default: 30 chapters per book for speed
-    genre = "末世"  # default from config convention
-    sc_samples = 1  # v8: Self-Consistency samples (1=single, 3=recommended)
-    tier_boost = False  # v22: auto-boost S/A books to 50ch + sc=3
-    for i, arg in enumerate(sys.argv[1:], 1):
-        if arg == "--book" and i < len(sys.argv) - 1:
-            book_filter = sys.argv[i + 1]
-        if arg == "--max" and i < len(sys.argv) - 1:
-            max_ch = int(sys.argv[i + 1])
-        if arg == "--genre" and i < len(sys.argv) - 1:
-            genre = sys.argv[i + 1]
-        if arg == "--sc" and i < len(sys.argv) - 1:
-            sc_samples = int(sys.argv[i + 1])
-        if arg == "--tier-boost":
-            tier_boost = True
+    cli_args = _cli_parse_cli_args(sys.argv[1:])
+    book_filter = cli_args["book_filter"]
+    max_ch = cli_args["max_ch"]
+    genre = cli_args["genre"]
+    sc_samples = cli_args["sc_samples"]
+    tier_boost = cli_args["tier_boost"]
 
     with open(INDEX_PATH, 'r', encoding='utf-8') as f:
         index = json.load(f)
@@ -1691,16 +1424,16 @@ def main():
         csv_path = _rhythm_dir(genre) / csv_name if csv_name else None
 
         # v22: Tier-based sampling configuration
-        book_max_ch = max_ch
-        book_sc = sc_samples
+        tier = None
         if tier_boost:
             tier = _get_book_tier(txt_file)
-            if tier and tier in _TIER_SAMPLING:
-                book_max_ch = _TIER_SAMPLING[tier]["max_ch"]
-                book_sc = _TIER_SAMPLING[tier]["sc_samples"]
-                logger.info("\n[BOOK] %s (tier=%s → %dch, sc=%d)", txt_file[:40], tier, book_max_ch, book_sc)
-            else:
-                logger.info("\n[BOOK] %s (tier=unknown → %dch, sc=%d)", txt_file[:40], book_max_ch, book_sc)
+        book_max_ch, book_sc = _cli_select_book_sampling(
+            tier_boost, txt_file, max_ch, sc_samples, tier, _TIER_SAMPLING
+        )
+        if tier_boost and tier in _TIER_SAMPLING:
+            logger.info("\n[BOOK] %s (tier=%s → %dch, sc=%d)", txt_file[:40], tier, book_max_ch, book_sc)
+        elif tier_boost:
+            logger.info("\n[BOOK] %s (tier=unknown → %dch, sc=%d)", txt_file[:40], tier, book_max_ch, book_sc)
         else:
             logger.info("\n[BOOK] %s", txt_file[:40])
 

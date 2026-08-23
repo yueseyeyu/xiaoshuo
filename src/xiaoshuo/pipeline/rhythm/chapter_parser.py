@@ -23,6 +23,11 @@ def extract_chapters(filepath):
     """Extract chapters. Supports: 第X章 / 序章+章X / 纯数字分章.
     Returns [{num, title, text, wc, paragraphs}]"""
     text = read_file_multi_encoding(filepath)
+    return extract_chapters_from_text(text)
+
+
+def extract_chapters_from_text(text):
+    """Extract chapters from already-read text without filesystem access."""
 
     cn_nums = r"[一二三四五六七八九十百千零\d]+"
 

@@ -6,6 +6,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query
 
 from xiaoshuo.api.services.project_service import (
+    ProjectStorageError,
     list_projects, get_project, create_project, update_project, delete_project,
     get_skeleton, update_skeleton,
     get_world, update_world,
@@ -16,6 +17,16 @@ from xiaoshuo.api.services.project_service import (
 )
 
 router = APIRouter()
+
+
+def _call_project_update(update_fn, *args):
+    try:
+        return update_fn(*args)
+    except ProjectStorageError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={'code': exc.code, 'message': str(exc)},
+        ) from exc
 
 
 @router.get("/api/projects")
@@ -87,7 +98,7 @@ async def api_get_skeleton(project_id: str):
 @router.put("/api/projects/{project_id}/skeleton")
 async def api_update_skeleton(project_id: str, body: dict):
     """更新项目粗纲/细纲"""
-    skeleton = update_skeleton(project_id, body)
+    skeleton = _call_project_update(update_skeleton, project_id, body)
     if skeleton is None:
         raise HTTPException(404, f"Project not found: {project_id}")
     return {"ok": True, "skeleton": skeleton}
@@ -105,7 +116,7 @@ async def api_get_world(project_id: str):
 @router.put("/api/projects/{project_id}/world")
 async def api_update_world(project_id: str, body: dict):
     """更新项目世界观"""
-    world = update_world(project_id, body)
+    world = _call_project_update(update_world, project_id, body)
     if world is None:
         raise HTTPException(404, f"Project not found: {project_id}")
     return {"ok": True, "world": world}
@@ -123,7 +134,7 @@ async def api_get_characters(project_id: str):
 @router.put("/api/projects/{project_id}/characters")
 async def api_update_characters(project_id: str, body: dict):
     """更新项目角色列表"""
-    chars = update_characters(project_id, body)
+    chars = _call_project_update(update_characters, project_id, body)
     if chars is None:
         raise HTTPException(404, f"Project not found: {project_id}")
     return {"ok": True, "characters": chars}
@@ -141,7 +152,7 @@ async def api_get_factions(project_id: str):
 @router.put("/api/projects/{project_id}/factions")
 async def api_update_factions(project_id: str, body: dict):
     """更新项目势力列表"""
-    factions = update_factions(project_id, body)
+    factions = _call_project_update(update_factions, project_id, body)
     if factions is None:
         raise HTTPException(404, f"Project not found: {project_id}")
     return {"ok": True, "factions": factions}
@@ -168,7 +179,7 @@ async def api_get_chapter(project_id: str, chapter_num: int):
 @router.put("/api/projects/{project_id}/chapters/{chapter_num}")
 async def api_update_chapter(project_id: str, chapter_num: int, body: dict):
     """更新单章"""
-    chapter = update_chapter(project_id, chapter_num, body)
+    chapter = _call_project_update(update_chapter, project_id, chapter_num, body)
     if chapter is None:
         raise HTTPException(404, f"Project not found: {project_id}")
     return {"ok": True, "chapter": chapter}

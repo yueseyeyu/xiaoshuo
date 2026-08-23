@@ -8,24 +8,41 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from pathlib import Path
+from typing import Any, TYPE_CHECKING
 
 from xiaoshuo import PROJECT_ROOT
 from xiaoshuo.infra.config_manager import get_config_section, get_config
-from xiaoshuo.pipeline.scene_search import SceneSearch
 from xiaoshuo.api.services.hardware import hardware_state, hardware_lock
+
+if TYPE_CHECKING:
+    from xiaoshuo.pipeline.scene_search import SceneSearch
+else:
+    # 运行时只提供轻量类型占位，避免 get_type_hints 触发重量级导入。
+    SceneSearch = Any
 
 # ── 场景搜索引擎缓存 ──
 
 _search_engines: dict[str, SceneSearch] = {}
+_search_engines_lock = threading.Lock()
 
 
 def get_engine(genre: str) -> SceneSearch:
     """获取（或创建）指定题材的场景搜索引擎。"""
-    if genre not in _search_engines:
-        _search_engines[genre] = SceneSearch(genre)
-    return _search_engines[genre]
+    engine = _search_engines.get(genre)
+    if engine is not None:
+        return engine
+
+    with _search_engines_lock:
+        engine = _search_engines.get(genre)
+        if engine is None:
+            from xiaoshuo.pipeline.scene_search import SceneSearch
+
+            engine = SceneSearch(genre)
+            _search_engines[genre] = engine
+        return engine
 
 
 # ── LLM 健康检查 ──

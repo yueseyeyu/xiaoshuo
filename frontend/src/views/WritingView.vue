@@ -6,7 +6,7 @@
  * 工具栏：章节上下文、上下章导航、字数统计、保存状态
  * 快捷键：Ctrl+S 保存，Ctrl+[ 上一章，Ctrl+] 下一章
  */
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useProjectStore } from '@/stores/project'
 import EmptyState from '@/components/common/EmptyState.vue'
 import { useUiStore } from '@/stores/ui'
@@ -29,6 +29,14 @@ const chapterTitle = ref('')
 const chapterContent = ref('')
 const saveStatus = ref<'saved' | 'unsaved'>('saved')
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
+type SaveResult = 'saved' | 'stale' | 'failed' | 'skipped'
+let savePromise: Promise<SaveResult> | null = null
+let editRevision = 0
+let loadRevision = 0
+let projectLoadRevision = 0
+let editorProjectId: string | null = null
+let editorChapterNum: number | null = null
+let isUnmounting = false
 
 function loadSetting(key: string, fallback: string): string {
   try {
@@ -51,16 +59,50 @@ const searchQuery = ref('')
 const searchResults = ref<SceneResult[]>([])
 const searchLoading = ref(false)
 const showSearchPanel = ref(false)
+const searchStatusMessage = ref('')
+let searchRevision = 0
+
+function invalidateSearch() {
+  searchRevision += 1
+  searchResults.value = []
+  searchStatusMessage.value = ''
+  searchLoading.value = false
+}
+
+watch(searchQuery, invalidateSearch)
 
 async function doSearch() {
-  if (!searchQuery.value.trim()) return
+  const query = searchQuery.value.trim()
+  const revision = ++searchRevision
+  if (!query) {
+    searchResults.value = []
+    searchStatusMessage.value = ''
+    searchLoading.value = false
+    return
+  }
   searchLoading.value = true
   showSearchPanel.value = true
-  const res = await DashboardAPI.search(searchQuery.value, projectStore.projectGenre || '末世', 10)
-  if (res.ok && res.data) {
-    searchResults.value = res.data.results || []
+  searchResults.value = []
+  searchStatusMessage.value = ''
+  try {
+    const res = await DashboardAPI.search(query, projectStore.projectGenre || '末世', 10)
+    if (revision !== searchRevision) return
+    if (res.ok && res.data) {
+      searchResults.value = res.data.results || []
+      if (!res.data.ready) {
+        searchStatusMessage.value = res.data.index_not_ready || '索引尚未建立，请先完成索引构建'
+      }
+    } else {
+      searchResults.value = []
+      searchStatusMessage.value = '搜索服务暂不可用，请稍后重试'
+    }
+  } catch {
+    if (revision !== searchRevision) return
+    searchResults.value = []
+    searchStatusMessage.value = '搜索服务暂不可用，请稍后重试'
+  } finally {
+    if (revision === searchRevision) searchLoading.value = false
   }
-  searchLoading.value = false
 }
 
 // 场景搜索英文标签 → 中文
@@ -187,61 +229,123 @@ function getChapterTitle(num: number): string {
 
 async function loadChapter(num: number) {
   if (!currentProject.value?.id) return
-  await saveChapter()
+  const projectId = currentProject.value.id
+  const requestRevision = ++loadRevision
+  const saveResult = editorProjectId === projectId && editorChapterNum === currentChapter.value
+    ? await saveChapter()
+    : 'saved'
+  if (!['saved', 'skipped'].includes(saveResult) || requestRevision !== loadRevision || currentProject.value?.id !== projectId) return
   currentChapter.value = num
   loading.value = true
+  let contextLoaded = false
   try {
-    const res = await ProjectAPI.getChapter(currentProject.value.id, num)
+    const res = await ProjectAPI.getChapter(projectId, num)
+    if (requestRevision !== loadRevision || currentProject.value?.id !== projectId) return
     if (res.ok && res.data) {
       chapterTitle.value = res.data.title || getChapterTitle(num)
       chapterContent.value = res.data.content || ''
+      contextLoaded = true
     } else {
       chapterTitle.value = getChapterTitle(num)
       chapterContent.value = ''
+      if (res.error?.startsWith('HTTP 404:')) {
+        uiStore.showToast(`第 ${num} 章尚未保存，可直接开始写作`, 'info')
+        contextLoaded = true
+      } else {
+        uiStore.showToast(res.error || '加载章节失败', 'error')
+      }
+    }
+    if (contextLoaded) {
+      editorProjectId = projectId
+      editorChapterNum = num
     }
   } catch {
+    if (requestRevision !== loadRevision || currentProject.value?.id !== projectId) return
     chapterTitle.value = getChapterTitle(num)
     chapterContent.value = ''
+    uiStore.showToast('加载章节失败', 'error')
   }
-  loading.value = false
-  saveStatus.value = 'saved'
+  if (requestRevision === loadRevision && currentProject.value?.id === projectId) {
+    loading.value = false
+    saveStatus.value = contextLoaded ? 'saved' : 'unsaved'
+  }
 }
 
 function prevChapter() { if (currentChapter.value > 1) loadChapter(currentChapter.value - 1) }
 function nextChapter() { if (currentChapter.value < totalChapters.value) loadChapter(currentChapter.value + 1) }
 function jumpToChapter(num: number) { loadChapter(num) }
 
-async function saveChapter() {
+async function saveChapter(): Promise<SaveResult> {
   if (autoSaveTimer) {
     clearTimeout(autoSaveTimer)
     autoSaveTimer = null
   }
-  if (!currentProject.value?.id) return
+  if (!currentProject.value?.id) return 'failed'
+  if (editorProjectId !== currentProject.value.id || editorChapterNum !== currentChapter.value) {
+    return 'skipped'
+  }
+  const requestedProjectId = currentProject.value.id
+  const requestedProjectLoadRevision = projectLoadRevision
+  const requestedLoadRevision = loadRevision
+  const requestedChapterNum = currentChapter.value
+  if (savePromise) {
+    const result = await savePromise
+    if (
+      currentProject.value?.id !== requestedProjectId ||
+      projectLoadRevision !== requestedProjectLoadRevision ||
+      loadRevision !== requestedLoadRevision ||
+      currentChapter.value !== requestedChapterNum ||
+      editorProjectId !== requestedProjectId ||
+      editorChapterNum !== requestedChapterNum
+    ) return 'skipped'
+    if (result === 'stale' || saveStatus.value === 'unsaved') return saveChapter()
+    return result
+  }
   const title = chapterTitle.value || getChapterTitle(currentChapter.value)
   const content = chapterContent.value || ''
   const wc = content.replace(/\s/g, '').length
-  try {
-    await ProjectAPI.updateChapter(currentProject.value.id, currentChapter.value, {
-      title, content, word_count: wc,
-    })
-    const todayKey = 'writing_today_' + new Date().toDateString()
-    const lastKey = `writing_last_saved_${currentProject.value.id}_${currentChapter.value}`
-    const prevLast = parseInt(localStorage.getItem(lastKey) || '0', 10)
-    const diff = wc - prevLast
-    if (diff > 0) {
-      const prevToday = parseInt(localStorage.getItem(todayKey) || '0', 10)
-      localStorage.setItem(todayKey, String(prevToday + diff))
+  const revision = editRevision
+  const projectId = currentProject.value.id
+  const chapterNum = currentChapter.value
+  const currentSave = (async (): Promise<SaveResult> => {
+    try {
+      const res = await ProjectAPI.updateChapter(projectId, chapterNum, {
+        title, content, word_count: wc,
+      })
+      if (!res.ok) throw new Error(res.error || '章节保存失败')
+      const todayKey = 'writing_today_' + new Date().toDateString()
+      const lastKey = `writing_last_saved_${projectId}_${chapterNum}`
+      const prevLast = parseInt(localStorage.getItem(lastKey) || '0', 10)
+      const diff = wc - prevLast
+      if (diff > 0) {
+        const prevToday = parseInt(localStorage.getItem(todayKey) || '0', 10)
+        localStorage.setItem(todayKey, String(prevToday + diff))
+      }
+      localStorage.setItem(lastKey, String(wc))
+      const sameContext = currentProject.value?.id === projectId && currentChapter.value === chapterNum
+      if (sameContext && editRevision === revision) {
+        saveStatus.value = 'saved'
+        return 'saved'
+      }
+      if (sameContext) saveStatus.value = 'unsaved'
+      return 'stale'
+    } catch {
+      if (currentProject.value?.id === projectId && currentChapter.value === chapterNum) {
+        saveStatus.value = 'unsaved'
+        if (!isUnmounting) uiStore.showToast('保存失败', 'error')
+      }
+      return 'failed'
+    } finally {
+      savePromise = null
     }
-    localStorage.setItem(lastKey, String(wc))
-    saveStatus.value = 'saved'
-  } catch {
-    uiStore.showToast('保存失败', 'error')
-  }
+  })()
+  savePromise = currentSave
+  return currentSave
 }
 
 async function saveDraft() {
-  await saveChapter()
-  uiStore.showToast('已保存到项目')
+  const result = await saveChapter()
+  if (result === 'saved') uiStore.showToast('已保存到项目')
 }
 
 function scheduleAutoSave() {
@@ -257,6 +361,7 @@ function scheduleAutoSave() {
 }
 
 function onContentInput() {
+  editRevision += 1
   saveStatus.value = 'unsaved'
   scheduleAutoSave()
 }
@@ -271,14 +376,17 @@ function onKeydown(e: KeyboardEvent) {
 
 // ── 生命周期 ──
 async function loadAllData() {
-  if (!currentProject.value?.id) return
+  const projectId = currentProject.value?.id
+  if (!projectId) return
+  const requestRevision = ++projectLoadRevision
   loading.value = true
   try {
     const [chapsRes, skelRes, charRes] = await Promise.all([
-      ProjectAPI.getChapters(currentProject.value.id),
-      ProjectAPI.getSkeleton(currentProject.value.id),
-      ProjectAPI.getCharacters(currentProject.value.id),
+      ProjectAPI.getChapters(projectId),
+      ProjectAPI.getSkeleton(projectId),
+      ProjectAPI.getCharacters(projectId),
     ])
+    if (requestRevision !== projectLoadRevision || currentProject.value?.id !== projectId) return
     if (chapsRes.ok && chapsRes.data) projectChapters.value = chapsRes.data
     if (skelRes.ok && skelRes.data) {
       skeletonVolumes.value = skelRes.data.volumes || []
@@ -287,9 +395,13 @@ async function loadAllData() {
     if (charRes.ok && charRes.data) projectCharacters.value = charRes.data
     await loadChapter(1)
   } catch {
-    uiStore.showToast('加载写作数据失败', 'error')
+    if (requestRevision === projectLoadRevision && currentProject.value?.id === projectId) {
+      uiStore.showToast('加载写作数据失败', 'error')
+    }
   }
-  loading.value = false
+  if (requestRevision === projectLoadRevision && currentProject.value?.id === projectId) {
+    loading.value = false
+  }
 }
 
 onMounted(async () => {
@@ -301,7 +413,14 @@ onMounted(async () => {
   if (currentProject.value?.id) await loadAllData()
 })
 
-onUnmounted(() => {
+onBeforeUnmount(() => {
+  isUnmounting = true
+  searchRevision += 1
+  loadRevision += 1
+  projectLoadRevision += 1
+  if (saveStatus.value === 'unsaved' && editorProjectId === currentProject.value?.id && editorChapterNum === currentChapter.value) {
+    void saveChapter()
+  }
   window.removeEventListener('keydown', onKeydown)
   document.removeEventListener('fullscreenchange', onFullscreenChange)
   if (autoSaveTimer) {
@@ -315,6 +434,10 @@ watch(focusMode, (val) => {
 })
 
 watch(() => currentProject.value?.id, async (newId) => {
+  projectLoadRevision += 1
+  loadRevision += 1
+  editorProjectId = null
+  editorChapterNum = null
   if (newId) {
     await loadAllData()
   } else {
@@ -481,7 +604,9 @@ watch(() => currentProject.value?.id, async (newId) => {
         <span>场景搜索: "{{ searchQuery }}" ({{ searchResults.length }} 条)</span>
         <button class="btn btn-ghost btn-sm" @click="showSearchPanel = false">×</button>
       </div>
-      <div v-if="searchResults.length === 0" class="text-muted" style="padding:12px">无结果</div>
+      <div v-if="searchLoading" class="text-muted" style="padding:12px">搜索中...</div>
+      <div v-else-if="searchStatusMessage" class="text-muted" style="padding:12px">{{ searchStatusMessage }}</div>
+      <div v-else-if="searchResults.length === 0" class="text-muted" style="padding:12px">无结果</div>
       <div v-else class="search-result-list">
         <div v-for="r in searchResults" :key="r.rank" class="search-result-item">
           <div class="search-result-header">

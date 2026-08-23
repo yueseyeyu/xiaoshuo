@@ -1,0 +1,87 @@
+{
+  "bundle_schema_version": "P1-AE-QUALITY-BUNDLE-V1",
+  "study_id": "quality-fixture-study-v1",
+  "owner_id": "quality-fixture-owner",
+  "authority_ref": "quality-fixture-authority",
+  "source_snapshot_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "rubric_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+  "sampling_plan_hash": "2222222222222222222222222222222222222222222222222222222222222222",
+  "strata": [
+    {
+      "stratum_id": "BOOK_TIER_STANDARD",
+      "book_tier": "STANDARD",
+      "narrative_position": "MIDDLE",
+      "scene_mode": "MIXED",
+      "pipeline_difficulty": "MEDIUM",
+      "pipeline_score_band": "B",
+      "context_requirement": "LOCAL_ONLY"
+    }
+  ],
+  "clusters": [
+    {
+      "book_cluster_ref": "book-fixture-001",
+      "stratum_id": "BOOK_TIER_STANDARD",
+      "case_ids": ["case-fixture-001"]
+    }
+  ],
+  "cases": [
+    {
+      "case_id": "case-fixture-001",
+      "book_cluster_ref": "book-fixture-001",
+      "chapter_id": "chapter-fixture-001",
+      "blind_case_id": "blind-fixture-001",
+      "split": "PILOT",
+      "input_text": "A short owner-provided quality fixture.",
+      "input_text_sha256": "d1b1964faddd6efa120ca5aae2a69b79b1b38ca19037f06abf64c90afef1d216",
+      "pipeline_observation": {
+        "finding": "The fixture contains a clear next action.",
+        "guidance": "Keep the next action concrete."
+      },
+      "annotations": [
+        {
+          "annotation_id": "annotation-fixture-001",
+          "rater_id": "rater-fixture-001",
+          "pass_kind": "PRIMARY",
+          "blindness_status": "BLIND",
+          "visible_ai_metadata": "NONE",
+          "visible_other_rater_annotations": "NONE",
+          "visible_historical_labels": "NONE",
+          "dimension_values": [
+            {"dimension_id": "CAUSAL_COHERENCE", "value": 4},
+            {"dimension_id": "CHARACTER_CONTINUITY", "value": 4},
+            {"dimension_id": "PACING_HOOK", "value": 4},
+            {"dimension_id": "EMOTIONAL_PAYOFF", "value": 3},
+            {"dimension_id": "LANGUAGE_READABILITY", "value": 5},
+            {"dimension_id": "EVIDENCE_SUPPORT", "value": 4},
+            {"dimension_id": "ISSUE_COVERAGE", "value": 4},
+            {"dimension_id": "GUIDANCE_ACTIONABILITY", "value": 5},
+            {"dimension_id": "GUIDANCE_PRIORITY", "value": 4}
+          ],
+          "status": "VALID"
+        },
+        {
+          "annotation_id": "annotation-fixture-002",
+          "rater_id": "rater-fixture-002",
+          "pass_kind": "PRIMARY",
+          "blindness_status": "BLIND",
+          "visible_ai_metadata": "NONE",
+          "visible_other_rater_annotations": "NONE",
+          "visible_historical_labels": "NONE",
+          "dimension_values": [
+            {"dimension_id": "CAUSAL_COHERENCE", "value": 4},
+            {"dimension_id": "CHARACTER_CONTINUITY", "value": 4},
+            {"dimension_id": "PACING_HOOK", "value": 4},
+            {"dimension_id": "EMOTIONAL_PAYOFF", "value": 3},
+            {"dimension_id": "LANGUAGE_READABILITY", "value": 5},
+            {"dimension_id": "EVIDENCE_SUPPORT", "value": 4},
+            {"dimension_id": "ISSUE_COVERAGE", "value": 4},
+            {"dimension_id": "GUIDANCE_ACTIONABILITY", "value": 5},
+            {"dimension_id": "GUIDANCE_PRIORITY", "value": 4}
+          ],
+          "status": "VALID"
+        }
+      ]
+    }
+  ],
+  "status": "READY"
+}

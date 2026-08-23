@@ -41,6 +41,59 @@ data/processed/prompt_templates.json
 # 💾 模型缓存
 memory/
 
+# 模型权重与本机模型目录（禁止提交到 GitHub）
+models/
+model_cache/
+*.safetensors
+*.pt
+*.pth
+*.onnx
+*.ckpt
+
+# 静态/动态评估证据与 D 盘工件不得进入项目仓库
+evidence/
+test-tmp/
+tmp-*/
+tmpyeyu-ai-a3*/
+evaluation-responsibility-split-*/
+
+# 历史审计与治理归档不作为项目源码提交
+_archive/
+archive/
+external_review/
+external_reviews/
+external_review*/
+*_external-audit*/
+docs/
+
+# 本机工具工作目录
+.trae-html-share-packages/
+.trae/
+.reasonix/
+.uploads/
+.codegraph/
+
+# 小说设定、样例文本、历史原型与审查提示词均留在本地
+assets/
+prototype/
+trae_tier1/
+notebooks/
+tests/*.md
+
+# 超大测试夹具不进入源码仓库
+tests/fixture_big.txt
+
+# 本机分析/报告输出和用户生成内容
+data/golden/
+data/reports/
+data/analysis/
+data/projects/
+data/scores/
+data/checkpoints/
+data/contracts/
+data/*.json
+data/*.jsonl
+
 # 🧠 大模型文件（不要上传到 GitHub）
 
 # 🤖 运行时缓存/临时文件
@@ -66,6 +119,7 @@ notebooks/*.ipynb_checkpoints/
 .env
 *.env.local
 secrets.yaml
+config.yaml
 
 # 📋 Marvis 审查工作流（IDE 内部的对话记录，不必上传）
 prompts/

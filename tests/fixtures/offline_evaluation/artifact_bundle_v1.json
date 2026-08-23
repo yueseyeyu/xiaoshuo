@@ -1,0 +1,1 @@
+{"bundle_schema_version":"v1","records":[{"record_id":"r1","text":"offline fixture","tags":["alpha","beta"]}],"references":[],"rules":[{"rule_id":"rule-1","kind":"non_empty_text","expected":true}]}

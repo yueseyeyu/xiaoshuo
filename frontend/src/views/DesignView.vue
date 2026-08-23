@@ -40,6 +40,7 @@ const chapters = ref<SkeletonChapter[]>([])
 const worldData = ref<WorldInfo>({ core: '', powers: '' })
 const characters = ref<Character[]>([])
 const factions = ref<Faction[]>([])
+let designLoadRevision = 0
 
 // ── 编辑抽屉 ──
 const editModalOpen = ref(false)
@@ -47,6 +48,29 @@ const editTitle = ref('')
 const editType = ref<EditType | null>(null)
 const editIndex = ref<number | null>(null)
 const editForm = ref<Record<string, string>>({})
+let designSaveRevision = 0
+let designSavePending = false
+let designSaveWaiters: Array<() => void> = []
+let designLoadWaiters: Array<() => void> = []
+let designSaveQueued = false
+let designQueuedContext: {
+  projectId: string
+  loadRevision: number
+  editType: EditType
+  editIndex: number | null
+} | null = null
+
+function resolveDesignLoadWaiters() {
+  const waiters = designLoadWaiters
+  designLoadWaiters = []
+  waiters.forEach((resolve) => resolve())
+}
+
+async function waitForDesignSaves() {
+  while (designSavePending || designSaveQueued) {
+    await new Promise<void>((resolve) => designLoadWaiters.push(resolve))
+  }
+}
 
 // ── 快速开始向导 ──
 const quickStartOpen = ref(false)
@@ -114,33 +138,59 @@ const powersList = computed(() => {
 })
 
 // ── 方法 ──
-async function loadDesignData() {
-  if (!currentProject.value?.id) return
+async function loadDesignData(): Promise<boolean> {
+  await waitForDesignSaves()
+  const projectId = currentProject.value?.id
+  if (!projectId) return false
+  const requestRevision = ++designLoadRevision
+  const saveRevision = designSaveRevision
   loading.value = true
+  let applied = false
   try {
     const [skelRes, worldRes, charRes, facRes] = await Promise.all([
-      ProjectAPI.getSkeleton(currentProject.value.id),
-      ProjectAPI.getWorld(currentProject.value.id),
-      ProjectAPI.getCharacters(currentProject.value.id),
-      ProjectAPI.getFactions(currentProject.value.id),
+      ProjectAPI.getSkeleton(projectId),
+      ProjectAPI.getWorld(projectId),
+      ProjectAPI.getCharacters(projectId),
+      ProjectAPI.getFactions(projectId),
     ])
+    if (
+      requestRevision !== designLoadRevision ||
+      currentProject.value?.id !== projectId ||
+      designSavePending ||
+      saveRevision !== designSaveRevision
+    ) return false
     if (skelRes.ok && skelRes.data) {
       volumes.value = skelRes.data.volumes || []
       chapters.value = skelRes.data.chapters || []
+      applied = true
     }
     if (worldRes.ok && worldRes.data) {
       worldData.value = worldRes.data
+      applied = true
     }
     if (charRes.ok && charRes.data) {
       characters.value = charRes.data
+      applied = true
     }
     if (facRes.ok && facRes.data) {
       factions.value = facRes.data
+      applied = true
     }
   } catch (e) {
-    uiStore.showToast('加载设计数据失败', 'error')
+    if (
+      requestRevision === designLoadRevision &&
+      currentProject.value?.id === projectId &&
+      !designSavePending &&
+      saveRevision === designSaveRevision
+    ) {
+      uiStore.showToast('加载设计数据失败', 'error')
+    }
   }
-  loading.value = false
+  if (requestRevision === designLoadRevision && currentProject.value?.id === projectId) {
+    loading.value = false
+    return applied
+  }
+  return false
 }
 
 // ── 编辑：打开/保存 ──
@@ -233,18 +283,52 @@ async function saveEdit() {
     uiStore.showToast('请先选择或创建一个项目', 'error')
     return
   }
+  if (!editType.value) return
+  if (designSavePending) {
+    designSaveQueued = true
+    designQueuedContext = {
+      projectId: currentProject.value.id,
+      loadRevision: designLoadRevision,
+      editType: editType.value,
+      editIndex: editIndex.value,
+    }
+    await new Promise<void>((resolve) => designSaveWaiters.push(resolve))
+    const queued = designQueuedContext
+    designQueuedContext = null
+    if (
+      queued &&
+      currentProject.value?.id === queued.projectId &&
+      designLoadRevision === queued.loadRevision &&
+      editType.value === queued.editType &&
+      editIndex.value === queued.editIndex
+    ) return saveEdit()
+    designSaveQueued = false
+    if (!designSavePending) resolveDesignLoadWaiters()
+    return
+  }
+  designSaveQueued = false
+  designSavePending = true
   const pid = currentProject.value.id
+  const saveRevision = ++designSaveRevision
+  let rollback: (() => void) | null = null
   try {
     if (editType.value === 'volume' && editIndex.value !== null) {
-      const v = volumes.value[editIndex.value]
+      const index = editIndex.value
+      const v = volumes.value[index]
+      const original = { ...v, tags: v.tags ? [...v.tags] : v.tags }
+      rollback = () => { volumes.value[index] = original }
       v.title = editForm.value.title
       v.chapters = editForm.value.range
       v.subtitle = editForm.value.subtitle
       v.summary = editForm.value.summary
       v.tags = editForm.value.tags.split(',').map(t => t.trim()).filter(Boolean)
-      await ProjectAPI.updateSkeleton(pid, { volumes: volumes.value, chapters: chapters.value })
+      const res = await ProjectAPI.updateSkeleton(pid, { volumes: volumes.value, chapters: chapters.value })
+      if (!res.ok) throw new Error(res.error || '卷纲保存失败')
     } else if (editType.value === 'chapter' && editIndex.value !== null) {
-      const c = chapters.value[editIndex.value]
+      const index = editIndex.value
+      const c = chapters.value[index]
+      const original = { ...c, scenes: Array.isArray(c.scenes) ? [...c.scenes] : c.scenes }
+      rollback = () => { chapters.value[index] = original }
       c.title = editForm.value.title
       c.goal = editForm.value.goal
       c.conflict = editForm.value.conflict
@@ -254,27 +338,50 @@ async function saveEdit() {
       c.foreshadowing = editForm.value.foreshadowing
       c.expectation = editForm.value.expectation
       c.scenes = editForm.value.scenes.split('\n').map(s => s.trim()).filter(Boolean)
-      await ProjectAPI.updateSkeleton(pid, { volumes: volumes.value, chapters: chapters.value })
+      const res = await ProjectAPI.updateSkeleton(pid, { volumes: volumes.value, chapters: chapters.value })
+      if (!res.ok) throw new Error(res.error || '章节大纲保存失败')
     } else if (editType.value === 'character' && editIndex.value !== null) {
-      const c = characters.value[editIndex.value]
+      const index = editIndex.value
+      const c = characters.value[index]
+      const original = { ...c }
+      rollback = () => { characters.value[index] = original }
       c.name = editForm.value.name
       c.role = editForm.value.role
       c.desc = editForm.value.desc
-      await ProjectAPI.updateCharacters(pid, characters.value)
+      const res = await ProjectAPI.updateCharacters(pid, characters.value)
+      if (!res.ok) throw new Error(res.error || '角色保存失败')
     } else if (editType.value === 'world') {
+      const original = { ...worldData.value }
+      rollback = () => { worldData.value = original }
       worldData.value.core = editForm.value.core
       worldData.value.powers = editForm.value.powers
-      await ProjectAPI.updateWorld(pid, worldData.value)
+      const res = await ProjectAPI.updateWorld(pid, worldData.value)
+      if (!res.ok) throw new Error(res.error || '世界观保存失败')
     } else if (editType.value === 'faction' && editIndex.value !== null) {
-      const f = factions.value[editIndex.value]
+      const index = editIndex.value
+      const f = factions.value[index]
+      const original = { ...f }
+      rollback = () => { factions.value[index] = original }
       f.name = editForm.value.name
       f.desc = editForm.value.desc
-      await ProjectAPI.updateFactions(pid, factions.value)
+      const res = await ProjectAPI.updateFactions(pid, factions.value)
+      if (!res.ok) throw new Error(res.error || '势力保存失败')
     }
-    uiStore.showToast('已保存')
-    closeEdit()
+    if (currentProject.value?.id === pid && saveRevision === designSaveRevision) {
+      uiStore.showToast('已保存')
+      if (!designSaveQueued) closeEdit()
+    }
   } catch (e) {
+    if (currentProject.value?.id === pid && saveRevision === designSaveRevision) {
+      rollback?.()
+    }
     uiStore.showToast('保存失败', 'error')
+  } finally {
+    designSavePending = false
+    const waiters = designSaveWaiters
+    designSaveWaiters = []
+    waiters.forEach((resolve) => resolve())
+    if (!designSavePending && !designSaveQueued) resolveDesignLoadWaiters()
   }
 }
 
@@ -286,8 +393,7 @@ async function loadFromAI() {
   uiStore.showToast('模型已就绪，正在生成骨架...', 'info')
   const skelRes = await ProjectAPI.getSkeleton(currentProject.value.id)
   if (skelRes.ok && skelRes.data && skelRes.data.volumes?.length > 0) {
-    await loadDesignData()
-    uiStore.showToast('项目骨架已加载')
+    if (await loadDesignData()) uiStore.showToast('项目骨架已加载')
   } else {
     uiStore.showToast('骨架暂未生成，请使用快速开始向导', 'info')
     openQuickStart()
@@ -322,6 +428,15 @@ onMounted(async () => {
 })
 
 watch(() => projectStore.currentProject, async (project) => {
+  designSaveRevision += 1
+  designLoadRevision += 1
+  closeEdit()
+  editForm.value = {}
+  volumes.value = []
+  chapters.value = []
+  characters.value = []
+  factions.value = []
+  worldData.value = { core: '', powers: '' }
   if (project?.id) {
     await loadDesignData()
   } else {

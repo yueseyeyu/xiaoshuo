@@ -24,7 +24,19 @@ export async function apiRequest<T>(
     const resp = await fetch(path, init)
     if (!resp.ok) {
       const text = await resp.text().catch(() => '')
-      return { ok: false, error: `HTTP ${resp.status}: ${text}` }
+      let message = text
+      try {
+        const body = JSON.parse(text) as { detail?: unknown }
+        if (typeof body.detail === 'string') {
+          message = body.detail
+        } else if (body.detail && typeof body.detail === 'object' && 'message' in body.detail) {
+          const detailMessage = (body.detail as { message?: unknown }).message
+          if (typeof detailMessage === 'string') message = detailMessage
+        }
+      } catch {
+        // 非 JSON 响应保留原始文本，避免覆盖网关或开发服务器错误。
+      }
+      return { ok: false, error: `HTTP ${resp.status}: ${message || '请求失败'}` }
     }
     const data = await resp.json() as T
     return { ok: true, data }

@@ -9,7 +9,6 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from xiaoshuo import PROJECT_ROOT
-from xiaoshuo.pipeline.canon.extractor import CanonExtractor
 from xiaoshuo.agents.cross_review import scan_fingerprints, estimate_ai_rate
 from xiaoshuo.api.utils import get_available_books, get_chapter_instructions
 from xiaoshuo.api.shared import safe_write_json
@@ -37,23 +36,22 @@ async def instructions(book: str = Query(""), ch: int = Query(1), genre: str = Q
 
 @router.post("/api/style/calibrate", response_model=StyleCalibrateResponse)
 def style_calibrate(req: StyleCalibrateRequest):
-    """从 S3 评审报告文本中提取风格规则并合并到 style_rules.md"""
-    try:
-        extractor = CanonExtractor()
-        result = extractor.extract_style_rules_from_review(
-            s3_review_text=req.text, chapter_num=req.chapter_id, genre="")
-        rules = result["data"].get("s3_review_rules", [])
-        return StyleCalibrateResponse(
-            ok=True, rule_count=len(rules), rules=rules,
-            new_findings=result.get("new_findings", 0), version=req.version)
-    except Exception as e:
-        return StyleCalibrateResponse(
-            ok=False, rule_count=0, rules=[], new_findings=0, version=req.version, error=str(e))
+    """Temporary compatibility freeze for the unsafe direct Canon write path."""
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "DIRECT_CANON_WRITE_DISABLED",
+            "message": "待安全变更提案流程接入",
+        },
+    )
 
 
 @router.get("/api/style/rules", response_model=StyleRulesResponse)
 def style_rules(version: str = Query("")):
     """获取已累积的 S3 风格规则列表"""
+    # Kept local so the frozen POST path never constructs the Canon adapter.
+    from xiaoshuo.pipeline.canon.extractor import CanonExtractor
+
     try:
         extractor = CanonExtractor()
         data = extractor._load_style_rules()

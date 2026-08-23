@@ -120,12 +120,16 @@ export interface SearchData {
   genre: string
   total_scenes: number
   results: SceneResult[]
+  ready: boolean
+  index_not_ready?: string | null
 }
 
 export interface IndexStats {
   genre: string
   total_scenes: number
   total_books: number
+  ready: boolean
+  index_not_ready?: string | null
 }
 
 // ── API 函数 ──

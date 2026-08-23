@@ -1,0 +1,4 @@
+interface:
+  display_name: "xiaoshuo 治理 Adapter"
+  short_description: "绑定 xiaoshuo 项目治理来源"
+  default_prompt: "使用 $xiaoshuo-governance-adapter 读取 xiaoshuo 治理来源并引用治理 core。"

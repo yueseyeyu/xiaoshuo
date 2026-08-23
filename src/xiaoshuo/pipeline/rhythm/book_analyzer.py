@@ -14,30 +14,29 @@ import hashlib
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
 
-from xiaoshuo import PROJECT_ROOT
 from xiaoshuo.infra.logging_config import get_logger
-from xiaoshuo.infra.llm_client import check_llm_health
-from xiaoshuo.pipeline.paths import rhythm_dir as _rhythm_dir, novels_dir as _novels_dir
-from xiaoshuo.pipeline.rhythm.chapter_parser import extract_chapters
+from xiaoshuo.pipeline.rhythm.chapter_parser import extract_chapters, extract_chapters_from_text
 from xiaoshuo.pipeline.rhythm.rule_analyzer import rule_analyze
-from xiaoshuo.pipeline.rhythm.llm_verifier import llm_verify, _map_llm_response
-from xiaoshuo.pipeline.rhythm.cache_manager import (
-    CACHE_VERSION, load_cached_summary, check_cache_version, save_cache_version,
-)
-from xiaoshuo.pipeline.metrics_schema import ChapterMetrics, BookSummary
 
 logger = get_logger("rhythm.book_analyzer")
 
-NOVELS_DIR = _novels_dir()
 
-# bridge to writing_instructions for per-chapter diagnostics
-try:
-    from xiaoshuo.pipeline.writing_instructions import generate_chapter_instructions
-    _instructions_available = True
-except ImportError:
-    _instructions_available = False
+RULE_ONLY_ANALYSIS_POLICY_VERSION = "rule-only-v1"
+
+
+@dataclass(frozen=True)
+class RuleOnlyAnalysisResult:
+    status: str
+    book_id: str
+    total_chaps: int
+    total_words: int
+    rows: list[dict]
+    summary: dict
+    error_code: str | None
+    analysis_policy_version: str
 
 
 def _get_llm_parallel():
@@ -52,7 +51,10 @@ def _get_llm_parallel():
 
 def _write_chapter_instructions(name, results, csv_path):
     """Bridge — generate & write per-chapter writing instructions."""
-    if not _instructions_available:
+    try:
+        from xiaoshuo import PROJECT_ROOT
+        from xiaoshuo.pipeline.writing_instructions import generate_chapter_instructions
+    except ImportError:
         logger.debug("writing_instructions unavailable, skipping")
         return
     lines, issue_count = generate_chapter_instructions(results, name)
@@ -64,6 +66,60 @@ def _write_chapter_instructions(name, results, csv_path):
     logger.info("逐章指令: %s (%d issues)", out_path.name, issue_count)
 
 
+def analyze_book_rule_only(text: str, *, book_id: str, min_rows: int) -> RuleOnlyAnalysisResult:
+    """Analyze text with deterministic rules only; perform no I/O or LLM work."""
+    if min_rows != 10:
+        return RuleOnlyAnalysisResult(
+            status="FAILED", book_id=book_id, total_chaps=0, total_words=0,
+            rows=[], summary={}, error_code="INVALID_MIN_ROWS",
+            analysis_policy_version=RULE_ONLY_ANALYSIS_POLICY_VERSION,
+        )
+    try:
+        chapters = extract_chapters_from_text(text)
+        total_chaps = len(chapters)
+        total_words = sum(chapter.get("wc", 0) for chapter in chapters)
+        if total_chaps < min_rows:
+            return RuleOnlyAnalysisResult(
+                status="INSUFFICIENT", book_id=book_id, total_chaps=total_chaps,
+                total_words=total_words, rows=[], summary={
+                    "book_id": book_id, "total_chaps": total_chaps,
+                    "total_words": total_words,
+                }, error_code="INSUFFICIENT_CHAPTERS",
+                analysis_policy_version=RULE_ONLY_ANALYSIS_POLICY_VERSION,
+            )
+        rows = [rule_analyze(chapter) for chapter in chapters]
+        if not rows:
+            return RuleOnlyAnalysisResult(
+                status="INSUFFICIENT", book_id=book_id, total_chaps=total_chaps,
+                total_words=total_words, rows=[], summary={},
+                error_code="NO_SCORABLE_ROWS",
+                analysis_policy_version=RULE_ONLY_ANALYSIS_POLICY_VERSION,
+            )
+        summary = {
+            "book_id": book_id,
+            "total_chaps": total_chaps,
+            "total_words": total_words,
+            "avg_wc": total_words / total_chaps,
+            "pleasure_density": sum(
+                1 for row in rows if row.get("pleasure_type") != "none"
+            ) / total_chaps,
+            "conflict_rate": sum(1 for row in rows if row.get("conflict")) / total_chaps,
+            "avg_intensity": sum(row.get("pleasure_intensity", 0) for row in rows) / total_chaps,
+            "avg_hook": sum(row.get("hook_density", 0) for row in rows) / total_chaps,
+        }
+        return RuleOnlyAnalysisResult(
+            status="COMPLETE", book_id=book_id, total_chaps=total_chaps,
+            total_words=total_words, rows=rows, summary=summary, error_code=None,
+            analysis_policy_version=RULE_ONLY_ANALYSIS_POLICY_VERSION,
+        )
+    except Exception:
+        return RuleOnlyAnalysisResult(
+            status="FAILED", book_id=book_id, total_chaps=0, total_words=0,
+            rows=[], summary={}, error_code="RULE_ANALYSIS_FAILED",
+            analysis_policy_version=RULE_ONLY_ANALYSIS_POLICY_VERSION,
+        )
+
+
 def analyze_book(filepath):
     """Full analysis. Rule-based + LLM verify 5 key chapters. Saves CSV immediately.
     v6: CSV cache — skip re-analysis if CSV exists and is newer than txt.
@@ -71,6 +127,13 @@ def analyze_book(filepath):
     name = Path(filepath).stem
     logger.info("[BOOK] %s", name)
     t0 = time.time()
+
+    from xiaoshuo.pipeline import paths as _paths
+    from xiaoshuo.pipeline.metrics_schema import BookSummary, ChapterMetrics
+    from xiaoshuo.pipeline.rhythm.cache_manager import (
+        CACHE_VERSION, load_cached_summary, check_cache_version, save_cache_version,
+    )
+    _rhythm_dir = _paths.rhythm_dir
 
     genre = Path(filepath).parent.name
     csv_path = _rhythm_dir(genre) / f"rhythm_{name}.csv"
@@ -178,6 +241,7 @@ def analyze_book(filepath):
     verify_indices.add(sorted_by_conflict[0]["ch_num"] - 1)
     verify_indices = sorted(verify_indices)[:15]
 
+    from xiaoshuo.infra.llm_client import check_llm_health
     server_ok = check_llm_health(timeout=2)
 
     llm_correlation = None
@@ -188,6 +252,7 @@ def analyze_book(filepath):
         valid_indices = [vi for vi in verify_indices if vi < len(results)]
 
         def _verify_one(vi):
+            from xiaoshuo.pipeline.rhythm.llm_verifier import llm_verify
             return vi, llm_verify(chapters[vi], results[vi])
 
         rule_labels = []
@@ -200,6 +265,7 @@ def analyze_book(filepath):
                 r = results[vi]
                 rule_labels.append(r["pleasure_intensity"])
                 if llm:
+                    from xiaoshuo.pipeline.rhythm.llm_verifier import _map_llm_response
                     llm = _map_llm_response(llm)
                     r["pleasure_type"] = llm.get("pleasure_type", r["pleasure_type"])
                     r["pleasure_intensity"] = llm.get("pleasure_intensity", r["pleasure_intensity"])

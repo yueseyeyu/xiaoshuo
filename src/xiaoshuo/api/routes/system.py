@@ -80,7 +80,7 @@ async def save_settings_endpoint(settings: dict = Body(...)):
 
 
 @router.get("/api/search", response_model=SearchResponse)
-async def search(
+def search(
     q: str = Query(..., description="搜索查询"),
     genre: str = Query("末世", description="题材名称"),
     top: int = Query(5, ge=1, le=20, description="返回结果数"),
@@ -88,9 +88,16 @@ async def search(
     engine = get_engine(genre)
     raw = engine.search(q, top_k=top)
     if not raw:
-        return SearchResponse(query=q, genre=genre, total_scenes=0, results=[])
+        return SearchResponse(query=q, genre=genre, total_scenes=0, results=[], ready=True)
     if "error" in raw[0]:
-        return SearchResponse(query=q, genre=genre, total_scenes=0, results=[])
+        return SearchResponse(
+            query=q,
+            genre=genre,
+            total_scenes=0,
+            results=[],
+            ready=False,
+            index_not_ready=raw[0].get("message", "索引未就绪"),
+        )
 
     results = []
     for i, r in enumerate(raw, 1):
@@ -105,14 +112,42 @@ async def search(
             technique_summary=r["technique_summary"],
         ))
     stats = engine.index_stats()
-    return SearchResponse(query=q, genre=genre, total_scenes=stats.get("total_scenes", 0), results=results)
+    if stats.get("status") != "ready":
+        return SearchResponse(
+            query=q,
+            genre=genre,
+            total_scenes=0,
+            results=[],
+            ready=False,
+            index_not_ready=stats.get("index_not_ready", "索引未就绪"),
+        )
+    return SearchResponse(
+        query=q,
+        genre=genre,
+        total_scenes=stats.get("total_scenes", 0),
+        results=results,
+        ready=True,
+    )
 
 
 @router.get("/api/stats", response_model=IndexStats)
-async def stats(genre: str = Query("末世")):
+def stats(genre: str = Query("末世")):
     engine = get_engine(genre)
     s = engine.index_stats()
-    return IndexStats(genre=genre, total_scenes=s.get("total_scenes", 0), total_books=s.get("total_books", 0))
+    if s.get("status") == "index_not_ready":
+        return IndexStats(
+            genre=genre,
+            total_scenes=0,
+            total_books=0,
+            ready=False,
+            index_not_ready=s.get("index_not_ready", "索引未就绪"),
+        )
+    return IndexStats(
+        genre=genre,
+        total_scenes=s.get("total_scenes", 0),
+        total_books=s.get("total_books", 0),
+        ready=True,
+    )
 
 
 @router.get("/api/progress")

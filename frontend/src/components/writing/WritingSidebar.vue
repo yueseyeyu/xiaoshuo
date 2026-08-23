@@ -61,8 +61,8 @@ const chosenDecisionIdx = ref<number | null>(null)
 
 // ── 风格校准 ──
 const styleRules = ref<WritingStyleRule[]>([])
-const styleStatus = ref('')
-const styleCalibrating = ref(false)
+const styleCalibrationFrozen = true
+const styleStatus = ref('待安全变更提案流程接入')
 
 // ── 计算属性 ──
 const volSize = 60
@@ -177,26 +177,17 @@ async function chooseDecision(idx: number) {
 }
 
 // ── 风格校准 ──
-async function calibrateStyle() {
-  styleCalibrating.value = true
-  const res = await WritingAPI.calibrateStyle(props.currentChapter, props.chapterContent || '')
-  styleCalibrating.value = false
-  if (res.ok && res.data?.ok) {
-    styleStatus.value = `累积 ${res.data.rule_count || 0} 条风格规则`
-    styleRules.value = res.data.rules || []
-  } else {
-    styleStatus.value = '校准失败: ' + (res.data?.error || '未知错误')
-  }
+function calibrateStyle() {
+  // 临时兼容冻结：安全变更提案流程接入前不调用后端 Canon 写入接口。
+  styleStatus.value = '待安全变更提案流程接入'
 }
 
 async function loadStyleRules() {
   const res = await WritingAPI.getStyleRules()
   if (res.ok && res.data?.ok) {
-    styleStatus.value = `累积 ${res.data.rule_count || 0} 条风格规则`
     styleRules.value = res.data.rules || []
-  } else {
-    styleStatus.value = '后端未连接'
   }
+  styleStatus.value = '待安全变更提案流程接入'
 }
 
 // ── 生命周期 ──
@@ -420,9 +411,9 @@ defineExpose({ sidebarTab })
       <div class="sb-panel">
         <div class="sb-panel-header">风格校准</div>
         <div class="sb-panel-body">
-          <div class="style-calibrate-status">{{ styleStatus || '点击校准以积累风格规则' }}</div>
-          <button class="btn btn-primary btn-sm" :disabled="styleCalibrating" @click="calibrateStyle" style="margin-top:6px;width:100%;">
-            {{ styleCalibrating ? '校准中...' : '校准当前章节' }}
+          <div class="style-calibrate-status">{{ styleStatus }}</div>
+          <button class="btn btn-primary btn-sm" :disabled="styleCalibrationFrozen" @click="calibrateStyle" title="临时兼容冻结" style="margin-top:6px;width:100%;">
+            校准当前章节
           </button>
         </div>
       </div>

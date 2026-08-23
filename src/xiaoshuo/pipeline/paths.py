@@ -1,164 +1,157 @@
 # -*- coding: utf-8 -*-
-"""
-paths.py — 路径管理 SSOT (Single Source of Truth)
-===================================================
-收敛 pipeline 中 10+ 个文件重复定义的路径函数。
+"""Context-bound pipeline paths.
 
-用法:
-  from xiaoshuo.pipeline.paths import (
-      rhythm_dir, llm_score_dir, writing_manual_dir,
-      quality_manifest_path, novels_dir, summaries_dir,
-      commercial_scores_path, feedback_path, technique_dir,
-  )
+Legacy path helpers remain available by name, but they no longer infer a
+project, genre, current book, config, or ``PROJECT_ROOT``.  Every returned
+path is derived from an explicit activated ExecutionContext and its approved
+D-drive stage/run root.
 """
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Optional
 
-from xiaoshuo import PROJECT_ROOT
+from xiaoshuo.pipeline.provenance import (
+    ExecutionContext,
+    ProvenanceError,
+    execution_root,
+    get_execution_context,
+)
 
 
-# ============================================================
-# 原始数据路径
-# ============================================================
-
-def novels_dir(genre: Optional[str] = None) -> Path:
-    """原始小说目录。
-
-    Args:
-        genre: 题材名 (如 "末世")，None 返回根目录
-
-    Returns:
-        data/raw/novels/{genre} 或 data/raw/novels/
-    """
-    base = PROJECT_ROOT / "data" / "raw" / "novels"
-    return base / genre if genre else base
+def stage_run_root(context: ExecutionContext | None = None) -> Path:
+    context = context or get_execution_context(True)
+    return execution_root(context, create=False)
 
 
-def novel_index_path() -> Path:
-    """小说索引文件路径。"""
-    return PROJECT_ROOT / "data" / "raw" / "novel_index.json"
+def _context_path(*parts: str, context: ExecutionContext | None = None) -> Path:
+    root = stage_run_root(context)
+    path = root.joinpath(*parts)
+    try:
+        path.resolve().relative_to(root.resolve())
+    except ValueError as exc:
+        raise ProvenanceError("PATH_ESCAPE", "path escaped the approved stage root") from exc
+    return path
 
 
-def books_review_dir() -> Path:
-    """待审核书籍目录。"""
-    return PROJECT_ROOT / "books" / "review"
+def _genre(context: ExecutionContext, genre: Optional[str]) -> str:
+    selected = genre if genre is not None else context.genre_identity
+    if selected != context.genre_identity:
+        raise ProvenanceError("PROFILE_MISMATCH", "genre is profile metadata and must match context")
+    return selected
 
 
-# ============================================================
-# 处理数据路径
-# ============================================================
-
-def rhythm_dir(genre: str) -> Path:
-    """节奏分析 CSV 输出目录: data/processed/{genre}/rhythm/"""
-    return PROJECT_ROOT / "data" / "processed" / genre / "rhythm"
-
-
-def llm_score_dir(genre: str) -> Path:
-    """LLM/AI 评分输出目录: data/processed/{genre}/scores/
-
-    包含:
-    - {book}_llm.csv: 本地 Qwen LLM 评分
-    - {book}_ai.csv:  AI (CatPaw) 评分
-    - human_golden.csv: 人工标注 Golden Set (富 CSV)
-    - golden_set.json: 校准用 Golden Set (精简 JSON)
-    """
-    return PROJECT_ROOT / "data" / "processed" / genre / "scores"
+def novels_dir(
+    genre: Optional[str] = None,
+    *,
+    context: ExecutionContext | None = None,
+) -> Path:
+    context = context or get_execution_context(True)
+    return _context_path("data", "raw", "novels", _genre(context, genre), context=context)
 
 
-def golden_set_path(genre: str = "末世") -> Path:
-    """Golden Set JSON 路径 (校准用): data/processed/{genre}/scores/golden_set.json
-
-    v8.7: 从 chapter_decisions/ 迁移到 scores/，与评分数据同目录。
-    被 llm_batch_score.py 的 apply_golden_set_calibration() 使用。
-    """
-    return llm_score_dir(genre) / "golden_set.json"
+def novel_index_path(*, context: ExecutionContext | None = None) -> Path:
+    return _context_path("data", "raw", "novel_index.json", context=context)
 
 
-def summaries_dir(genre: str) -> Path:
-    """递归摘要输出目录: data/processed/{genre}/summaries/"""
-    return PROJECT_ROOT / "data" / "processed" / genre / "summaries"
+def books_review_dir(*, context: ExecutionContext | None = None) -> Path:
+    return _context_path("books", "review", context=context)
 
 
-def quality_dir(genre: str) -> Path:
-    """品质关卡输出目录: data/processed/{genre}/quality/"""
-    return PROJECT_ROOT / "data" / "processed" / genre / "quality"
+def rhythm_dir(genre: Optional[str] = None, *, context: ExecutionContext | None = None) -> Path:
+    context = context or get_execution_context(True)
+    return _context_path("data", "processed", _genre(context, genre), "rhythm", context=context)
 
 
-def quality_manifest_path(genre: str) -> Path:
-    """品质清单 JSON 路径。"""
-    return quality_dir(genre) / "quality_manifest.json"
+def llm_score_dir(genre: Optional[str] = None, *, context: ExecutionContext | None = None) -> Path:
+    context = context or get_execution_context(True)
+    return _context_path("data", "processed", _genre(context, genre), "scores", context=context)
 
 
-def feedback_path(genre: str) -> Path:
-    """反馈数据 JSON 路径。"""
-    return quality_dir(genre) / "feedback.json"
+def golden_set_path(genre: Optional[str] = None, *, context: ExecutionContext | None = None) -> Path:
+    return llm_score_dir(genre, context=context) / "golden_set.json"
 
 
-def commercial_scores_path(genre: str) -> Path:
-    """商业评分 JSON 路径。"""
-    return PROJECT_ROOT / "data" / "processed" / genre / "commercial_scores.json"
+def summaries_dir(genre: Optional[str] = None, *, context: ExecutionContext | None = None) -> Path:
+    context = context or get_execution_context(True)
+    return _context_path("data", "processed", _genre(context, genre), "summaries", context=context)
 
 
-def style_profile_dir() -> Path:
-    """风格画像输出目录。"""
-    return PROJECT_ROOT / "data" / "processed" / "style_profile"
+def quality_dir(genre: Optional[str] = None, *, context: ExecutionContext | None = None) -> Path:
+    context = context or get_execution_context(True)
+    return _context_path("data", "processed", _genre(context, genre), "quality", context=context)
 
 
-# ============================================================
-# 报告路径
-# ============================================================
-
-def writing_manual_dir(genre: str) -> Path:
-    """写作手册输出目录: data/reports/{genre}/writing_manuals/"""
-    return PROJECT_ROOT / "data" / "reports" / genre / "writing_manuals"
+def quality_manifest_path(genre: Optional[str] = None, *, context: ExecutionContext | None = None) -> Path:
+    return quality_dir(genre, context=context) / "quality_manifest.json"
 
 
-def creative_guidance_dir(genre: str) -> Path:
-    """创作指导输出目录: data/reports/{genre}/creative_guidance/"""
-    return PROJECT_ROOT / "data" / "reports" / genre / "creative_guidance"
+def feedback_path(genre: Optional[str] = None, *, context: ExecutionContext | None = None) -> Path:
+    return quality_dir(genre, context=context) / "feedback.json"
 
 
-def deep_diagnosis_dir(genre: str) -> Path:
-    """深度诊断输出目录: data/reports/{genre}/deep_diagnosis/"""
-    return PROJECT_ROOT / "data" / "reports" / genre / "deep_diagnosis"
+def commercial_scores_path(genre: Optional[str] = None, *, context: ExecutionContext | None = None) -> Path:
+    context = context or get_execution_context(True)
+    return _context_path(
+        "data", "processed", _genre(context, genre), "commercial_scores.json", context=context
+    )
 
 
-def evaluation_dir(genre: str) -> Path:
-    """评估报告输出目录: data/reports/{genre}/evaluations/"""
-    return PROJECT_ROOT / "data" / "reports" / genre / "evaluations"
+def style_profile_dir(*, context: ExecutionContext | None = None) -> Path:
+    return _context_path("data", "processed", "style_profile", context=context)
 
 
-def synthesis_dir(genre: str) -> Path:
-    """合成报告输出目录: data/reports/{genre}/synthesis/"""
-    return PROJECT_ROOT / "data" / "reports" / genre / "synthesis"
+def writing_manual_dir(genre: Optional[str] = None, *, context: ExecutionContext | None = None) -> Path:
+    context = context or get_execution_context(True)
+    return _context_path(
+        "data", "reports", _genre(context, genre), "writing_manuals", context=context
+    )
 
 
-def structure_eval_dir(genre: str) -> Path:
-    """结构评估输出目录: data/reports/{genre}/structure_eval/"""
-    return PROJECT_ROOT / "data" / "reports" / genre / "structure_eval"
+def creative_guidance_dir(genre: Optional[str] = None, *, context: ExecutionContext | None = None) -> Path:
+    context = context or get_execution_context(True)
+    return _context_path(
+        "data", "reports", _genre(context, genre), "creative_guidance", context=context
+    )
 
 
-def calibration_dir(genre: str) -> Path:
-    """校准报告输出目录: data/reports/{genre}/calibration/"""
-    return PROJECT_ROOT / "data" / "reports" / genre / "calibration"
+def deep_diagnosis_dir(genre: Optional[str] = None, *, context: ExecutionContext | None = None) -> Path:
+    context = context or get_execution_context(True)
+    return _context_path(
+        "data", "reports", _genre(context, genre), "deep_diagnosis", context=context
+    )
 
 
-# ============================================================
-# 资产路径
-# ============================================================
-
-def canon_dir() -> Path:
-    """世界规则 (Canon) 目录: assets/canon/"""
-    return PROJECT_ROOT / "assets" / "canon"
+def evaluation_dir(genre: Optional[str] = None, *, context: ExecutionContext | None = None) -> Path:
+    context = context or get_execution_context(True)
+    return _context_path("data", "reports", _genre(context, genre), "evaluations", context=context)
 
 
-def contracts_dir() -> Path:
-    """合同链数据目录: data/contracts/"""
-    return PROJECT_ROOT / "data" / "contracts"
+def synthesis_dir(genre: Optional[str] = None, *, context: ExecutionContext | None = None) -> Path:
+    context = context or get_execution_context(True)
+    return _context_path("data", "reports", _genre(context, genre), "synthesis", context=context)
 
 
-def prompts_dir() -> Path:
-    """提示词模板目录: assets/prompts/"""
-    return PROJECT_ROOT / "assets" / "prompts"
+def structure_eval_dir(genre: Optional[str] = None, *, context: ExecutionContext | None = None) -> Path:
+    context = context or get_execution_context(True)
+    return _context_path("data", "reports", _genre(context, genre), "structure_eval", context=context)
+
+
+def calibration_dir(genre: Optional[str] = None, *, context: ExecutionContext | None = None) -> Path:
+    context = context or get_execution_context(True)
+    return _context_path("data", "reports", _genre(context, genre), "calibration", context=context)
+
+
+def canon_dir(*, context: ExecutionContext | None = None) -> Path:
+    return _context_path("assets", "canon", context=context)
+
+
+def contracts_dir(*, context: ExecutionContext | None = None) -> Path:
+    return _context_path("data", "contracts", context=context)
+
+
+def prompts_dir(*, context: ExecutionContext | None = None) -> Path:
+    return _context_path("assets", "prompts", context=context)
+
+
+__all__ = [name for name in globals() if not name.startswith("_")]

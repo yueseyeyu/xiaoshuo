@@ -55,10 +55,9 @@ def _gen_id(prefix: str = "evt") -> str:
 # ── 世界状态 CRUD ──
 
 def get_world_state(project_id: str) -> Optional[dict[str, Any]]:
-    """获取项目的世界状态。
+    """Return persisted world state or a derived read-only compatibility view.
 
-    如果项目存在但没有 world_state 字段，自动从 factions/characters
-    推导初始状态并写入。
+    A derived view remains in memory and is not promoted to formal project state.
     """
     project = get_project(project_id)
     if project is None:
@@ -67,8 +66,8 @@ def get_world_state(project_id: str) -> Optional[dict[str, Any]]:
     ws = project.get("world_state")
     if ws is None:
         # 首次访问：从 factions/characters 推导初始状态
+        # Compatibility view only: GET must not promote it to persisted state.
         ws = _init_world_state_from_project(project)
-        _save_world_state(project_id, ws)
     return ws
 
 

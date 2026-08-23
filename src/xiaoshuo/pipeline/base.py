@@ -1,63 +1,38 @@
 # -*- coding: utf-8 -*-
-"""
-pipeline/base.py — Pipeline 节点基类与运行器
-=============================================
-v8.2: 统一管线节点契约，替代 analyze_all.py 中的 subprocess.run() 调用。
-v8.13: 新增 input_schema / output_schema 声明式验证 (防 CSV 匹配 bug)。
-
-设计原则:
-  - 每个管线节点继承 PipelineNode，实现 run() 方法
-  - PipelineRunner 管理执行顺序、断点续传、进度报告
-  - 支持并行组 (Group 2: rhythm + llm_batch + recursive_summarize)
-  - 错误不中断整条管线，记录到 pipeline_state
-  - schema 验证可选: 节点声明输入/输出文件的结构, Runner 自动校验
-
-用法:
-  from xiaoshuo.pipeline.base import PipelineNode, PipelineRunner
-
-  class MyNode(PipelineNode):
-      name = "my_node"
-      stage_info = (5, 9, "我的节点")
-      input_schema = {
-          "rhythm_csv": {
-              "dir": "data/processed/{genre}/rhythm",
-              "pattern": "rhythm_*.csv",
-              "required_columns": ["ch_num", "hook_density", "conflict_density"],
-          }
-      }
-      output_schema = {
-          "scores_csv": {
-              "dir": "data/processed/{genre}/scores",
-              "pattern": "*_llm.csv",
-              "required_columns": ["t1_intensity", "t1_retention"],
-          }
-      }
-
-      def run(self, genre="末世", **kwargs) -> bool:
-          ...
-          return True
-
-  runner = PipelineRunner()
-  runner.register(MyNode())
-  runner.run(genre="末世")
-"""
-
+"""Context-bound pipeline node and runner contracts."""
 from __future__ import annotations
 
 import csv
-import time
+import io
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Optional
 
-from xiaoshuo import PROJECT_ROOT
 from xiaoshuo.infra.logging_config import get_logger
-from xiaoshuo.infra.pipeline_state import clear_stage, mark_error, write_stage
+from xiaoshuo.infra.pipeline_state import mark_error, write_stage
+from xiaoshuo.pipeline.provenance import (
+    ArtifactRef,
+    BATCH_DIGEST_MISMATCH,
+    BOM_FORBIDDEN,
+    CHECKPOINT_CAPABILITY_UNAVAILABLE,
+    ExecutionContext,
+    INPUT_VALIDATION_FAILED,
+    OUTPUT_VALIDATION_FAILED,
+    PARENT_MISSING,
+    PREREQUISITE_VALIDATION_FAILED,
+    ProvenanceError,
+    PATH_ESCAPE,
+    execution_root,
+    get_execution_context,
+    make_artifact_ref,
+    _validate_content_bytes,
+    _validate_relative_path,
+    _validate_root_path,
+)
+
 
 logger = get_logger("pipeline.base")
 
-# Checkpoint support
 try:
     from xiaoshuo.pipeline.checkpoint import is_done, mark_done
     _CHECKPOINT_AVAILABLE = True
@@ -65,134 +40,119 @@ except ImportError:
     _CHECKPOINT_AVAILABLE = False
 
 
-# ============================================================
-# Schema 类型定义
-# ============================================================
-# input_schema / output_schema 是一个 dict, key 为逻辑名称, value 为:
-#   {
-#       "dir": "data/processed/{genre}/rhythm",  # 支持 {genre} 占位符
-#       "pattern": "rhythm_*.csv",                 # glob 匹配模式
-#       "required_columns": ["chapter", ...],      # CSV 必须包含的列
-#       "min_files": 1,                            # 至少匹配到 N 个文件 (可选, 默认 1)
-#       "allow_empty": False,                       # 文件允许为空 (可选, 默认 False)
-#   }
-# 当 input_schema / output_schema 为 None (默认) 时, 跳过验证。
-
-
 class PipelineNode(ABC):
-    """管线节点抽象基类。
-
-    每个子类需要实现:
-      - name: 节点标识 (与 checkpoint key 一致)
-      - stage_info: (stage_num, total, display_name) 用于进度显示
-      - run(genre, **kwargs) -> bool: 主执行逻辑
-    可选实现:
-      - check_prerequisites(genre) -> bool: 检查前置条件
-      - get_outputs(genre) -> list[Path]: 预期输出文件
-      - input_schema: 输入文件结构声明 (v8.13 新增)
-      - output_schema: 输出文件结构声明 (v8.13 新增)
-    """
-
     name: str = ""
     stage_info: tuple[int, int, str] = (0, 0, "")
     input_schema: dict[str, dict] | None = None
     output_schema: dict[str, dict] | None = None
 
     @abstractmethod
-    def run(self, genre: str = "末世", **kwargs) -> bool:
-        """执行节点逻辑。
+    def run(self, genre: str = "", **kwargs) -> bool:
+        """Execute a node only after the runner has supplied an explicit context."""
+        raise NotImplementedError
 
-        Args:
-            genre: 题材名称
-            **kwargs: 额外参数
-
-        Returns:
-            True 表示成功, False 表示失败
-        """
-        ...
-
-    def check_prerequisites(self, genre: str = "末世") -> bool:
-        """检查前置条件是否满足。默认返回 True。"""
+    def check_prerequisites(self, genre: str = "", **kwargs) -> bool:
         return True
 
-    def get_outputs(self, genre: str = "末世") -> list[Path]:
-        """返回预期输出文件列表。默认返回空列表。"""
+    def get_outputs(self, genre: str = "", **kwargs) -> list[Path]:
         return []
 
-    # ── Schema 验证 (v8.13) ──
+    def validate_inputs(
+        self,
+        genre: str = "",
+        *,
+        context: ExecutionContext | None = None,
+    ) -> list[str]:
+        return _validate_schema(self.input_schema, genre, "input", context=context)
 
-    def validate_inputs(self, genre: str = "末世") -> list[str]:
-        """验证输入文件是否符合 input_schema 声明。
+    def validate_outputs(
+        self,
+        genre: str = "",
+        *,
+        context: ExecutionContext | None = None,
+    ) -> list[str]:
+        return _validate_schema(self.output_schema, genre, "output", context=context)
 
-        Returns:
-            错误消息列表 (空列表 = 全部通过)
-        """
-        return _validate_schema(self.input_schema, genre, "input")
-
-    def validate_outputs(self, genre: str = "末世") -> list[str]:
-        """验证输出文件是否符合 output_schema 声明。
-
-        Returns:
-            错误消息列表 (空列表 = 全部通过)
-        """
-        return _validate_schema(self.output_schema, genre, "output")
-
-    def skip_if_done(self, genre: str = "末世") -> bool:
-        """检查断点续传：如果已完成则跳过。"""
+    def skip_if_done(
+        self,
+        genre: str = "",
+        *,
+        context: ExecutionContext | None = None,
+    ) -> bool:
         if not _CHECKPOINT_AVAILABLE:
-            return False
-        return is_done(self.name)
+            raise ProvenanceError(
+                CHECKPOINT_CAPABILITY_UNAVAILABLE,
+                "checkpoint capability is unavailable",
+            )
+        return is_done(self.name, context=context or get_execution_context(True))
 
-    def mark_completed(self):
-        """标记节点为已完成 (断点续传)。"""
-        if _CHECKPOINT_AVAILABLE:
-            mark_done(self.name)
+    def mark_completed(
+        self,
+        *,
+        artifact_ref: ArtifactRef | None = None,
+        content: bytes | None = None,
+        expected_batch_id: str | None = None,
+        context: ExecutionContext | None = None,
+    ) -> None:
+        if not _CHECKPOINT_AVAILABLE:
+            raise ProvenanceError(
+                CHECKPOINT_CAPABILITY_UNAVAILABLE,
+                "checkpoint capability is unavailable",
+            )
+        if artifact_ref is None or content is None:
+            raise ProvenanceError("PARENT_MISSING", "completed node requires verified artifact lineage")
+        mark_done(
+            self.name,
+            artifact_ref=artifact_ref,
+            content=content,
+            expected_batch_id=expected_batch_id,
+            context=context or get_execution_context(True),
+        )
 
-    def report_progress(self, percent: int, task: str = ""):
-        """向 pipeline_state 报告进度。"""
+    def report_progress(
+        self,
+        percent: int,
+        task: str = "",
+        *,
+        artifact_ref: ArtifactRef | None = None,
+        content: bytes | None = None,
+        expected_batch_id: str | None = None,
+        context: ExecutionContext | None = None,
+    ) -> None:
+        if artifact_ref is None or content is None:
+            raise ProvenanceError("PARENT_MISSING", "progress state requires verified artifact lineage")
         stage_num, total, display_name = self.stage_info
         write_stage(
             stage=self.name,
             stage_num=stage_num,
             total=total,
             percent=percent,
-            current_task=task or f"执行 {display_name}",
+            current_task=task or f"execute {display_name}",
+            artifact_ref=artifact_ref,
+            content=content,
+            expected_batch_id=expected_batch_id,
+            context=context or get_execution_context(True),
         )
 
 
 class PipelineRunner:
-    """管线运行器：管理节点注册、执行顺序、并行组、断点续传。
+    def __init__(self) -> None:
+        self._nodes: list[tuple[PipelineNode, int]] = []
 
-    用法:
-        runner = PipelineRunner()
-        runner.register(BookProcessorNode())
-        runner.register(RhythmAnalyzerNode(), group=2)
-        runner.register(LLMBatchScoreNode(), group=2)
-        runner.run(genre="末世")
-    """
-
-    def __init__(self):
-        self._nodes: list[tuple[PipelineNode, int]] = []  # (node, group)
-        self._timer = None
-
-    def register(self, node: PipelineNode, group: int = 0):
-        """注册节点。
-
-        Args:
-            node: PipelineNode 实例
-            group: 并行组号 (0=顺序执行, 相同组号的节点并行执行)
-        """
+    def register(self, node: PipelineNode, group: int = 0) -> None:
         self._nodes.append((node, group))
 
-    def run(self, genre: str = "末世", **kwargs) -> dict[str, bool]:
-        """执行所有已注册节点。
-
-        Returns:
-            {node_name: success} 字典
-        """
+    def run(
+        self,
+        genre: str = "",
+        *,
+        context: ExecutionContext | None = None,
+        **kwargs,
+    ) -> dict[str, bool]:
+        context = context or get_execution_context(True)
+        if genre != context.genre_identity:
+            raise ProvenanceError("PROFILE_MISMATCH", "genre must match explicit profile context")
         results: dict[str, bool] = {}
-
-        # 按组分组
         groups: dict[int, list[PipelineNode]] = {}
         order: list[int] = []
         for node, group in self._nodes:
@@ -200,162 +160,228 @@ class PipelineRunner:
                 groups[group] = []
                 order.append(group)
             groups[group].append(node)
-
-        # 按组执行
         for group_id in order:
             nodes = groups[group_id]
             if group_id == 0 or len(nodes) == 1:
-                # 顺序执行
                 for node in nodes:
-                    results[node.name] = self._run_node(node, genre, **kwargs)
+                    results[node.name] = self._run_node(node, genre, context=context, **kwargs)
             else:
-                # 并行执行
-                max_workers = min(len(nodes), 3)  # 限制并发数
-                with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                with ThreadPoolExecutor(max_workers=min(len(nodes), 3)) as pool:
                     futures = {
-                        pool.submit(self._run_node, node, genre, **kwargs): node.name
+                        pool.submit(self._run_node, node, genre, context=context, **kwargs): node.name
                         for node in nodes
                     }
                     for future in as_completed(futures):
-                        node_name = futures[future]
+                        name = futures[future]
                         try:
-                            results[node_name] = future.result()
-                        except Exception as e:
-                            logger.error("节点 %s 异常: %s", node_name, e)
-                            results[node_name] = False
-
+                            results[name] = future.result()
+                        except ProvenanceError as exc:
+                            raise exc
+                        except Exception as exc:
+                            logger.error("node %s failed: %s", name, exc)
+                            results[name] = False
         return results
 
-    def _run_node(self, node: PipelineNode, genre: str, **kwargs) -> bool:
-        """执行单个节点，含断点续传、schema 验证和错误处理。"""
+    def _run_node(
+        self,
+        node: PipelineNode,
+        genre: str,
+        *,
+        context: ExecutionContext,
+        **kwargs,
+    ) -> bool:
         stage_num, total, display_name = node.stage_info
-
-        # 断点续传检查
-        if node.skip_if_done(genre):
-            logger.info("[SKIP] %s (checkpoint: already done)", display_name)
+        if node.skip_if_done(genre, context=context):
+            logger.info("[SKIP] %s", display_name)
             return True
-
-        logger.info("=" * 60)
-        logger.info("  %s", display_name)
-        logger.info("=" * 60)
-
-        # 前置条件检查
-        if not node.check_prerequisites(genre):
-            msg = f"{display_name}: 前置条件不满足"
-            logger.warning(msg)
-            mark_error(node.name, msg, stage_num=stage_num, total=total)
-            return False
-
-        # 输入 schema 验证 (v8.13)
+        if not node.check_prerequisites(genre, context=context, **kwargs):
+            message = f"{display_name}: prerequisites not met"
+            raise ProvenanceError(
+                PREREQUISITE_VALIDATION_FAILED,
+                message,
+                node=node.name,
+            )
         if node.input_schema:
-            errors = node.validate_inputs(genre)
-            if errors:
-                for err in errors:
-                    logger.warning("[SCHEMA-IN] %s: %s", node.name, err)
-                # 不阻断执行, 仅警告 — 允许节点自行处理缺失输入
-                # (某些节点在输入部分缺失时仍可工作)
-
-        # 执行
+            input_errors = node.validate_inputs(genre, context=context)
+            if input_errors:
+                raise ProvenanceError(
+                    INPUT_VALIDATION_FAILED,
+                    "; ".join(input_errors),
+                    node=node.name,
+                )
         try:
-            success = node.run(genre=genre, **kwargs)
-        except Exception as e:
-            logger.exception("节点 %s 执行异常", node.name)
-            mark_error(node.name, str(e), stage_num=stage_num, total=total)
+            success = node.run(genre=genre, context=context, **kwargs)
+        except ProvenanceError:
+            raise
+        except Exception as exc:
+            message = str(exc)
+            lineage = _error_lineage(
+                node,
+                context,
+                message,
+                expected_batch_id=kwargs.get("expected_batch_id"),
+            )
+            logger.exception("node %s failed", node.name)
+            mark_error(
+                node.name,
+                message,
+                stage_num=stage_num,
+                total=total,
+                **lineage,
+            )
             return False
-
-        # 输出 schema 验证 (v8.13) — 仅在执行成功时检查
         if success and node.output_schema:
-            errors = node.validate_outputs(genre)
-            if errors:
-                for err in errors:
-                    logger.warning("[SCHEMA-OUT] %s: %s", node.name, err)
-                # 输出验证失败不标记为失败, 但记录警告
-                # (可能是部分成功, 如 30/33 本书完成)
-
+            output_errors = node.validate_outputs(genre, context=context)
+            if output_errors:
+                raise ProvenanceError(
+                    OUTPUT_VALIDATION_FAILED,
+                    "; ".join(output_errors),
+                    node=node.name,
+                )
         if success:
-            node.mark_completed()
+            lineage_values = (
+                kwargs.get("artifact_ref"),
+                kwargs.get("content"),
+                kwargs.get("expected_batch_id"),
+            )
+            if any(value is not None for value in lineage_values):
+                if not all(value is not None for value in lineage_values):
+                    raise ProvenanceError(PARENT_MISSING, "completed node requires complete verified artifact lineage")
+                node.mark_completed(
+                    artifact_ref=lineage_values[0],
+                    content=lineage_values[1],
+                    expected_batch_id=lineage_values[2],
+                    context=context,
+                )
         else:
-            mark_error(node.name, f"{display_name} 执行失败",
-                      stage_num=stage_num, total=total)
-
+            message = f"{display_name}: execution failed"
+            lineage = _error_lineage(
+                node,
+                context,
+                message,
+                expected_batch_id=kwargs.get("expected_batch_id"),
+            )
+            mark_error(
+                node.name,
+                message,
+                stage_num=stage_num,
+                total=total,
+                **lineage,
+            )
         return success
 
-
-# ============================================================
-# Schema 验证辅助函数 (v8.13)
-# ============================================================
 
 def _validate_schema(
     schema: dict[str, dict] | None,
     genre: str,
     phase: str,
+    *,
+    context: ExecutionContext | None = None,
 ) -> list[str]:
-    """验证文件集合是否符合 schema 声明。
-
-    Args:
-        schema: input_schema 或 output_schema 字典
-        genre: 题材名称 (用于 {genre} 占位符替换)
-        phase: "input" 或 "output" (用于错误消息)
-
-    Returns:
-        错误消息列表 (空列表 = 全部通过)
-    """
+    context = context or get_execution_context(True)
+    if genre != context.genre_identity:
+        raise ProvenanceError("PROFILE_MISMATCH", "genre must match explicit profile context")
     if schema is None:
         return []
-
+    root = execution_root(context, create=False)
     errors: list[str] = []
-
     for logical_name, spec in schema.items():
-        dir_template = spec.get("dir", "")
-        dir_path = PROJECT_ROOT / dir_template.format(genre=genre)
+        if not isinstance(spec, dict):
+            raise ProvenanceError(INPUT_VALIDATION_FAILED, f"[{logical_name}] schema is not a mapping")
+        raw_dir = spec.get("dir", "")
+        if not isinstance(raw_dir, str):
+            raise ProvenanceError(PATH_ESCAPE, f"[{logical_name}] schema directory is invalid")
+        try:
+            formatted_dir = raw_dir.format(genre=genre)
+        except (KeyError, ValueError) as exc:
+            raise ProvenanceError(PATH_ESCAPE, f"[{logical_name}] schema directory template is invalid") from exc
+        if formatted_dir:
+            _validate_relative_path(formatted_dir)
+        relative_dir = Path(formatted_dir)
+        dir_path = _validate_root_path(root / relative_dir, root)
         pattern = spec.get("pattern", "*")
+        if not isinstance(pattern, str) or not pattern:
+            raise ProvenanceError(PATH_ESCAPE, f"[{logical_name}] schema pattern is invalid")
+        pattern_path = Path(pattern)
+        if pattern_path.is_absolute() or ":" in pattern or ".." in pattern_path.parts:
+            raise ProvenanceError(PATH_ESCAPE, f"[{logical_name}] schema pattern escaped the run root")
         required_cols = spec.get("required_columns", [])
         min_files = spec.get("min_files", 1)
         allow_empty = spec.get("allow_empty", False)
-
-        # 检查目录是否存在
         if not dir_path.exists():
-            errors.append(
-                f"[{logical_name}] {phase} dir not found: {dir_path}"
-            )
+            errors.append(f"[{logical_name}] {phase} dir not found: {dir_path}")
             continue
-
-        # 匹配文件
-        files = sorted(dir_path.glob(pattern))
+        try:
+            files = sorted(dir_path.glob(pattern))
+        except (OSError, ValueError) as exc:
+            raise ProvenanceError(PATH_ESCAPE, f"[{logical_name}] schema glob is invalid") from exc
+        validated_files: list[tuple[Path, str]] = []
+        for candidate in files:
+            file_path = _validate_root_path(candidate, root)
+            if not file_path.is_file():
+                raise ProvenanceError(PATH_ESCAPE, f"[{logical_name}] schema glob yielded a non-file")
+            try:
+                raw = file_path.read_bytes()
+                _validate_content_bytes(raw)
+                validated_files.append((file_path, raw.decode("utf-8")))
+            except ProvenanceError as exc:
+                if exc.code == BOM_FORBIDDEN:
+                    raise
+                raise ProvenanceError(INPUT_VALIDATION_FAILED, f"[{file_path.name}] schema file is invalid") from exc
+            except (OSError, UnicodeDecodeError) as exc:
+                raise ProvenanceError(INPUT_VALIDATION_FAILED, f"[{file_path.name}] schema file cannot be read") from exc
+        files = [file_path for file_path, _ in validated_files]
         if len(files) < min_files:
             errors.append(
-                f"[{logical_name}] expected >={min_files} files matching "
-                f"'{pattern}' in {dir_path}, found {len(files)}"
+                f"[{logical_name}] expected >={min_files} files matching '{pattern}' in {dir_path}, found {len(files)}"
             )
             continue
-
-        # 检查每个 CSV 文件的列
         if required_cols and pattern.endswith(".csv"):
-            for fp in files:
+            for file_path, text in validated_files:
                 try:
-                    with open(fp, "r", encoding="utf-8-sig") as f:
-                        reader = csv.DictReader(f)
-                        if reader.fieldnames is None:
-                            errors.append(
-                                f"[{logical_name}] {fp.name}: empty CSV header"
-                            )
-                            continue
-                        missing = set(required_cols) - set(reader.fieldnames)
-                        if missing:
-                            errors.append(
-                                f"[{logical_name}] {fp.name}: missing columns "
-                                f"{sorted(missing)}"
-                            )
-                        # 检查文件是否为空 (只有表头无数据)
-                        if not allow_empty:
-                            first_row = next(reader, None)
-                            if first_row is None:
-                                errors.append(
-                                    f"[{logical_name}] {fp.name}: no data rows"
-                                )
-                except Exception as e:
-                    errors.append(
-                        f"[{logical_name}] {fp.name}: read error: {e}"
-                    )
-
+                    reader = csv.DictReader(io.StringIO(text))
+                    if reader.fieldnames is None:
+                        errors.append(f"[{logical_name}] {file_path.name}: empty CSV header")
+                        continue
+                    missing = set(required_cols) - set(reader.fieldnames)
+                    if missing:
+                        errors.append(
+                            f"[{logical_name}] {file_path.name}: missing columns {sorted(missing)}"
+                        )
+                    if not allow_empty and next(reader, None) is None:
+                        errors.append(f"[{logical_name}] {file_path.name}: no data rows")
+                except Exception as exc:
+                    errors.append(f"[{logical_name}] {file_path.name}: read error: {exc}")
     return errors
+
+
+def _error_lineage(
+    node: PipelineNode,
+    context: ExecutionContext,
+    message: str,
+    *,
+    expected_batch_id: str | None,
+) -> dict:
+    if not isinstance(expected_batch_id, str) or not expected_batch_id:
+        raise ProvenanceError(
+            BATCH_DIGEST_MISMATCH,
+            "error lineage requires a real ExecutionBatch batch id",
+        )
+    content = f"{node.name}:{message}".encode("utf-8")
+    artifact_ref = make_artifact_ref(
+        context,
+        f"state/errors/{node.name}.txt",
+        content,
+        source_ref="pipeline-error",
+        batch_id=expected_batch_id,
+        parent_refs=(context.namespace_digest,),
+    )
+    return {
+        "artifact_ref": artifact_ref,
+        "content": content,
+        "expected_batch_id": expected_batch_id,
+        "context": context,
+    }
+
+
+__all__ = ["PipelineNode", "PipelineRunner"]

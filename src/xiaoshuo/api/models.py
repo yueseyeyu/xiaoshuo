@@ -28,12 +28,16 @@ class SearchResponse(BaseModel):
     genre: str
     total_scenes: int
     results: list[SceneResult]
+    ready: bool = True
+    index_not_ready: Optional[str] = None
 
 
 class IndexStats(BaseModel):
     genre: str
     total_scenes: int
     total_books: int
+    ready: bool = True
+    index_not_ready: Optional[str] = None
 
 
 # ── 风格校准 ──

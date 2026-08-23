@@ -21,6 +21,28 @@ from xiaoshuo.infra.config_manager import get_config
 
 CURRENT_SCHEMA_VERSION = "1.2.0"
 
+
+class ProjectStorageError(RuntimeError):
+    '''Raised when an existing project cannot be persisted.'''
+
+    code = "PROJECT_STORAGE_WRITE_FAILED"
+
+    def __init__(self, project_id: str, operation: str):
+        self.project_id = project_id
+        self.operation = operation
+        super().__init__(f'Project storage write failed: {operation} ({project_id})')
+
+
+class ProjectStorageReadError(RuntimeError):
+    """已有项目文件无法读取或解析时抛出。"""
+
+    code = "PROJECT_STORAGE_READ_FAILED"
+
+    def __init__(self, path: Path, reason: str):
+        self.path = path
+        self.reason = reason
+        super().__init__(f"Project storage read failed: {path.name} ({reason})")
+
 _cfg = get_config()
 _projects_dir = _cfg.get("paths", {}).get("projects_dir", "data/projects")
 _PROJECT_DIR = PROJECT_ROOT / _projects_dir if not Path(_projects_dir).is_absolute() else Path(_projects_dir)
@@ -40,8 +62,10 @@ def _safe_read(path: Path) -> Optional[dict]:
     try:
         with path.open("r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except FileNotFoundError:
         return None
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ProjectStorageReadError(path, str(exc)) from exc
 
 
 def _safe_write(path: Path, data: dict) -> bool:
@@ -53,6 +77,11 @@ def _safe_write(path: Path, data: dict) -> bool:
         return True
     except Exception:
         return False
+
+
+def _write_or_raise(path: Path, data: dict, project_id: str, operation: str) -> None:
+    if not _safe_write(path, data):
+        raise ProjectStorageError(project_id, operation)
 
 
 def _new_project_stub(meta: dict) -> dict:
@@ -189,8 +218,6 @@ def list_projects(include_demo: bool = True) -> dict:
 def get_project(project_id: str) -> Optional[dict]:
     """获取完整项目数据。"""
     path = _project_path(project_id)
-    if not path.exists():
-        return None
     return _safe_read(path)
 
 
@@ -221,8 +248,6 @@ def create_project(body: dict) -> Optional[dict]:
 def update_project(project_id: str, body: dict) -> Optional[dict]:
     """更新项目元数据。"""
     path = _project_path(project_id)
-    if not path.exists():
-        return None
     data = _safe_read(path)
     if not data or not data.get("meta"):
         return None
@@ -250,8 +275,6 @@ def delete_project(project_id: str) -> bool:
 def promote_project(project_id: str) -> Optional[dict]:
     """将 demo 项目转为正式项目。"""
     path = _project_path(project_id)
-    if not path.exists():
-        return None
     data = _safe_read(path)
     if not data:
         return None
@@ -275,8 +298,6 @@ def get_skeleton(project_id: str) -> Optional[dict]:
 def update_skeleton(project_id: str, body: dict) -> Optional[dict]:
     """更新粗纲/细纲。"""
     path = _project_path(project_id)
-    if not path.exists():
-        return None
     data = _safe_read(path)
     if not data or not data.get("meta"):
         return None
@@ -285,7 +306,7 @@ def update_skeleton(project_id: str, body: dict) -> Optional[dict]:
         "chapters": body.get("chapters", []),
     }
     data["meta"]["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    _safe_write(path, data)
+    _write_or_raise(path, data, project_id, "update_skeleton")
     return data["skeleton"]
 
 
@@ -302,8 +323,6 @@ def get_world(project_id: str) -> Optional[dict]:
 def update_world(project_id: str, body: dict) -> Optional[dict]:
     """更新世界观。"""
     path = _project_path(project_id)
-    if not path.exists():
-        return None
     data = _safe_read(path)
     if not data or not data.get("meta"):
         return None
@@ -312,7 +331,7 @@ def update_world(project_id: str, body: dict) -> Optional[dict]:
         "powers": body.get("powers", ""),
     }
     data["meta"]["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    _safe_write(path, data)
+    _write_or_raise(path, data, project_id, "update_world")
     return data["world"]
 
 
@@ -329,14 +348,12 @@ def get_characters(project_id: str) -> Optional[dict]:
 def update_characters(project_id: str, body: dict) -> Optional[dict]:
     """更新角色列表。"""
     path = _project_path(project_id)
-    if not path.exists():
-        return None
     data = _safe_read(path)
     if not data or not data.get("meta"):
         return None
     data["characters"] = body.get("characters", [])
     data["meta"]["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    _safe_write(path, data)
+    _write_or_raise(path, data, project_id, "update_characters")
     return {"characters": data["characters"]}
 
 
@@ -353,14 +370,12 @@ def get_factions(project_id: str) -> Optional[dict]:
 def update_factions(project_id: str, body: dict) -> Optional[dict]:
     """更新势力列表。"""
     path = _project_path(project_id)
-    if not path.exists():
-        return None
     data = _safe_read(path)
     if not data or not data.get("meta"):
         return None
     data["factions"] = body.get("factions", [])
     data["meta"]["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    _safe_write(path, data)
+    _write_or_raise(path, data, project_id, "update_factions")
     return {"factions": data["factions"]}
 
 
@@ -388,8 +403,6 @@ def get_chapter(project_id: str, chapter_num: int) -> Optional[dict]:
 def update_chapter(project_id: str, chapter_num: int, body: dict) -> Optional[dict]:
     """更新单章（如果不存在则追加）。"""
     path = _project_path(project_id)
-    if not path.exists():
-        return None
     data = _safe_read(path)
     if not data or not data.get("meta"):
         return None
@@ -406,7 +419,7 @@ def update_chapter(project_id: str, chapter_num: int, body: dict) -> Optional[di
         chapters.append(new_ch)
         chapters.sort(key=lambda x: x.get("num", 0))
     data["meta"]["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    _safe_write(path, data)
+    _write_or_raise(path, data, project_id, "update_chapter")
     return get_chapter(project_id, chapter_num)
 
 
