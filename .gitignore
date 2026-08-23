@@ -83,6 +83,13 @@ tests/*.md
 # 超大测试夹具不进入源码仓库
 tests/fixture_big.txt
 
+# 临时调试文件和异常生成物
+_debug_glob.py
+_extract_glob.py
+30%
+建议
+外部审视
+
 # 本机分析/报告输出和用户生成内容
 data/golden/
 data/reports/
