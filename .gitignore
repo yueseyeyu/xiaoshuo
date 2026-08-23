@@ -5,6 +5,9 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+*.sqlite
+*.sqlite3
+*.db
 
 # Runtime state
 state.json
@@ -30,6 +33,10 @@ data/deepseek_records.jsonl
 data/qwen_scores.jsonl
 data/score_comparison.json
 data/tasks.json
+data/*.txt
+data/*.csv
+data/*.json
+data/*.jsonl
 data/pipeline_fresh_*.log
 data/checkpoints/
 data/contracts/
@@ -49,6 +56,8 @@ model_cache/
 *.pth
 *.onnx
 *.ckpt
+*.gguf
+*.bin
 
 # 静态/动态评估证据与 D 盘工件不得进入项目仓库
 evidence/
@@ -73,6 +82,19 @@ docs/
 .reasonix/
 .uploads/
 .codegraph/
+
+# 本机配置、凭据和环境变量（禁止提交）
+config.yml
+secrets.yml
+*.env
+*.env.*
+*credentials*.json
+*token*.json
+
+# 本机归档包不进入源码仓库。
+*.zip
+*.7z
+*.rar
 
 # 小说设定、样例文本、历史原型与审查提示词均留在本地
 assets/
