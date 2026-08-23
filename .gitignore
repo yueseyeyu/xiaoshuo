@@ -60,6 +60,7 @@ evaluation-responsibility-split-*/
 # 历史审计与治理归档不作为项目源码提交
 _archive/
 archive/
+scripts/_archive/
 external_review/
 external_reviews/
 external_review*/
