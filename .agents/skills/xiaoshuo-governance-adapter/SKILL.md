@@ -9,9 +9,11 @@ description: xiaoshuo 项目治理 adapter；绑定稳定项目规则并引用�
 - `adapter_layer`: `project`
 - `adapter_status`: `CANDIDATE`
 - `core_skill_reference`: `D:/Code/yeyu-ai/.agents/skills/governed-token-efficient-collaboration/SKILL.md`
-- `core_sha256`: `0E492F9B3BCF9FA1E8498D3CB65C5EE742FC161EB5437ED9501932069326182E`
+- `core_sha256`: `44d35b2614e5cba82ddb9fb7df94113c719532029696f263bc7dc2ea93bc4eab`
+- `rule_registry_reference`: `D:/Code/yeyu-ai/.agents/skills/governed-token-efficient-collaboration/references/rule-registry.json`
+- `rule_registry_sha256`: `74889d655ba721bf80cbff7396d8a057adea061aec17a220ab2331f6358dd067`
 - `parent_adapter_reference`: `D:/Code/yeyu-ai/.agents/skills/yeyu-ai-governance-adapter/SKILL.md`
-- `parent_adapter_sha256`: `D39D3823527F0DF35BA7AD499BBFE97F03DAC160229EFCB335B13E8E83F8637E`
+- `parent_adapter_sha256`: `c78ac68a43f1bbdf9f5a190178f952820b1a21c6afdf371486375ab6cf7ad4a2`
 - `skill_layering_spec`: `D:/Code/yeyu-ai/.ai/skill-system.md`
 - `skill_layering_spec_sha256`: `4756C1519233C8CA453A110E513D230DB313DF120FCC6D701E430A1D89B21CBC`
 - `governing_documents`: `AGENTS.md`
