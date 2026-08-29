@@ -1,40 +1,46 @@
 ---
 name: xiaoshuo-governance-adapter
-description: xiaoshuo 项目治理 adapter；绑定项目 AGENTS、会话交接和 config.yaml，并引用项目集治理 core。
+description: xiaoshuo 项目治理 adapter；绑定稳定项目规则并引用项目集治理 core，阶段性输入按批次绑定。
 ---
 
 # xiaoshuo 治理 Adapter
 
 - `project_id`: `xiaoshuo`
+- `adapter_layer`: `project`
 - `adapter_status`: `CANDIDATE`
 - `core_skill_reference`: `D:/Code/yeyu-ai/.agents/skills/governed-token-efficient-collaboration/SKILL.md`
-- `core_sha256`: `941922711c10ce733a1a5e07a1b8c0a1fba7b6d1ec888f35b70c9e469239a1cc`
+- `core_sha256`: `0E492F9B3BCF9FA1E8498D3CB65C5EE742FC161EB5437ED9501932069326182E`
 - `parent_adapter_reference`: `D:/Code/yeyu-ai/.agents/skills/yeyu-ai-governance-adapter/SKILL.md`
-- `parent_adapter_sha256`: `22aca530795721e896e5bd0812ff12081dcb72a614a9a2fe5e6646edeed0e20f`
+- `parent_adapter_sha256`: `D39D3823527F0DF35BA7AD499BBFE97F03DAC160229EFCB335B13E8E83F8637E`
+- `skill_layering_spec`: `D:/Code/yeyu-ai/.ai/skill-system.md`
+- `skill_layering_spec_sha256`: `4756C1519233C8CA453A110E513D230DB313DF120FCC6D701E430A1D89B21CBC`
+- `governing_documents`: `AGENTS.md`
+- `governing_document_sha256`: `AGENTS.md=6076891353818334bd3c5b3f5c16529cdf3b0438654208127ee8ad0767b03130`
 - `adoption_owner`: `用户/外部架构负责人`
-- `ruling_references`: `D:/Code/yeyu-ai/.ai/evaluation-responsibility-split-c1-owner-ruling.md@0439af7050e099d58c9600cbf06f39e60e79e6d43720adbaab55b70a7e0cb02d`; `D:/Code/yeyu-ai/.ai/evaluation-responsibility-split-c1-m1-legacy-correction-authorization.md@bedea83b53251e26a1cdc1698bf840923ddc1c2992d206254a489103141a8f98`
 
 ## 权威来源
 
 | path | sha256 |
 |---|---|
-| `xiaoshuo/AGENTS.md` | `b4391d9ad84219b3f5827a4100abb39e7cb24549fe8fee10c53bcfa7096813cd` |
-| `xiaoshuo/NEW_SESSION_HANDOFF.md` | `7a851329e1619906b1a1d12b581d83691f59b37178c4320bd0c3107f05915cfb` |
-| `xiaoshuo/config.yaml` | `4c983d9f63ff9e27f783951cc36624356912c976f04f4b49aebb26ca1444ff1c` |
+| `AGENTS.md` | `6076891353818334bd3c5b3f5c16529cdf3b0438654208127ee8ad0767b03130` |
 
 ## 绑定
 
-- `planner`: `外部架构顾问（当前编排：Luna Max）`
-- `executor`: `Codex implementation agent`
-- `Reviewer`: `Luna 独立只读 Reviewer（按阶段绑定独立线程）`
-- `authority_owner`: `用户/外部架构负责人`
+角色绑定策略：本 adapter 只声明能力角色和边界，不固定具体模型、供应商、软件或线程；实际绑定必须由阶段计划和授权负责人确定。
+
+- `planner`: `阶段绑定的需求与架构规划角色`
+- `executor`: `阶段绑定的实施与执行角色`
+- `Reviewer`: `阶段绑定的独立只读复审角色（按阶段绑定独立线程）`
+- `authority_owner`: `用户/授权负责人`
 - `allowed_stage_types`: `implementation`, `evaluation_only`, `test_only`
 - `code_review_required_default`: `UNKNOWN`；按已批准阶段计划绑定
-- `independent_review_required`: `true`
+- `independent_review_required`: 按阶段风险路由；L1 局部代码、L2/L3 高风险阶段需要独立复核，L0 普通小阶段不强制 planner_b
 - `evidence_root_policy`: `D:\\tmp\\yeyu-ai-a3\\<stage>\\<run-id>`
 - `run_id_policy`: 新鲜、不可变、合法并 containment 到获准 D 盘 stage/run
 - `protected_paths`: `AI_PROTOCOL.md`, `assets/canon/`, `.codebuddy/`
 - `config_ssot`: `config.yaml` 是运行配置 SSOT，仅在阶段明确绑定时读取或验证，不作为永久 protected path
+- `stage_bound_sources`: `NEW_SESSION_HANDOFF.md`、`.ai/current-focus.md`、`config.yaml` 和阶段计划按当前阶段读取并绑定，不永久钉在 Adapter 来源表
+- `version_integrity_policy`: 遵循治理 Core `references/integrity-and-versioning.md`；普通 MPV 开发使用 Git commit/diff，不手工维护逐文件 SHA
 - `allowed_paths`: 阶段计划逐文件白名单
 - `forbidden_activities`: 网络、服务、模型、生产、Git、白名单外修改和未授权项目测试
 - `artifact_contract`: 使用 core packet、ledger、receipt、checksum 和 evidence closure verifier
@@ -45,7 +51,7 @@ description: xiaoshuo 项目治理 adapter；绑定项目 AGENTS、会话交接�
 
 面向人的文档、Skill、注释、错误说明和回执以中文为主；代码标识符、协议 token、路径和必要标准术语可保留英文。必要英文术语采用“中文（English）”形式，不用英文替代已有清晰中文表达。
 
-角色、授权来源、阶段计划、验证命令和裁决引用没有在本次读取文档中确定的部分均为 `UNKNOWN`，因此不得启动完整协议。此 adapter 只引用 core，不复制正文；未经 xiaoshuo owner 和独立 Reviewer 接受，保持 `CANDIDATE`。
+角色、授权来源、阶段计划和验证命令没有在当前阶段文档中确定的部分均为 `UNKNOWN`，因此不得启动完整协议。阶段裁决引用由当前阶段计划和授权提供，不永久绑定历史裁决文件。此 adapter 只引用 core，不复制正文；未经 xiaoshuo owner 和独立 Reviewer 接受，保持 `CANDIDATE`。
 
 ## C0 稳定 runner
 

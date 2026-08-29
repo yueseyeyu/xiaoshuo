@@ -306,7 +306,7 @@ D:\miniconda3\envs\llm-shared\python.exe -c "from xiaoshuo.pipeline.canon import
 | `config.yaml` | 系统唯一配置文件 (SSOT) |
 | `AI_PROTOCOL.md` | LLM行为协议，由 `agents/skill_loader.py` 注入 System Prompt |
 | `.codebuddy/` | CodeBuddy 专属配置（Trae 不修改） |
-| `.trae/rules/` | Trae IDE 规则文件 |
+| `.agents/skills/` | 当前项目治理与可插拔 Skill 入口 |
 
 ## 快速开始
 
@@ -407,4 +407,4 @@ model_orchestration:
 
 ---
 
-**深度架构见 `docs/design/`** · **AI协议见 `AI_PROTOCOL.md`** · **约束规则见 `.trae/rules/`**
+**深度架构见 `docs/design/`** · **AI协议见 `AI_PROTOCOL.md`** · **约束与 Skill 见项目集根目录 `AGENTS.md`、`.agents/skills/` 及 `.ai/`**

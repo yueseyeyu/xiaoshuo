@@ -1,11 +1,13 @@
 # 新会话交接文档
 
-> 生成时间: 2026-07-14 (v8.15完成: temp=0.0 + OLS + Bootstrap CI + LOOCV + 三方AI最终评审)
+> 生成时间: 2026-07-22 (B1-CLOSE-REPAIR + ADR-014/B2a-DECISION-LANDING)
 > 生成者: CatPaw (项目总负责人角色)
 
 ---
 
 ## 一、项目当前状态总览
+
+### 当前架构阶段: B1 Implementation Completed / Close-Error Repair Passed / SSOT Closed / B2a Decision Approved / B2a Plan Amendment Required / B2 Implementation Not Started
 
 ### 综合可信度: 72/100 (DeepSeek最终评审)
 
@@ -202,6 +204,22 @@ cead657: v8.15: IAA tool title fix + all bugs verified working in browser
 
 ## 七、下一步优先级
 
+### 架构批次
+
+```
+下一阶段: 创建并审查 B2a 实现计划 → 批准前不实现 B2a
+    ↓
+B2a 实现 (经批准后): TransitionOperationContext + REVISION_REQUIRED→DRAFTING + RECOVERY_REQUIRED→retry + TASK_TRANSITIONED Audit
+    ↓
+B2b (独立计划/批准): AuthorDecision 用例 + 角色 ArtifactRef 合同 + artifact 写入入口
+    ↓
+B3: 查询/history → B4: HTTP/API (G05 阻塞)
+```
+
+ADR-014 B2a D01～D05 已裁决（Approved with Amendments）。B2a 已获合同裁决但尚未实现；B2b、B3、B4 未获授权。
+
+### 数据管线批次
+
 ```
 P0 (工具已就绪): 发IAA工具给朋友 → 朋友标注20章 → 计算ICC → 验证golden set地基
     ↓
@@ -251,3 +269,32 @@ D:\miniconda3\envs\llm-shared\python.exe -c "import json; d=json.load(open('data
 8. **后端服务**: 端口8089, `D:\miniconda3\envs\llm-shared\python.exe -m xiaoshuo.api.server --port 8089`
 9. **硬件**: RTX 5060 8GB + 32GB RAM, Qwen3.5-9B Q4_K_M
 10. **十阶段愿景完成度**: Part A 90% → Part B 70% → Part C 60% → Part D 75% → Part E 20%, 整体约50%
+11. **B1 Close-Error Repair**: create_task.py 修复 close() 异常链——原始异常保留、close 异常作为 __cause__；3 项新增测试通过，15 项 B1 测试全部通过，296 项回归测试全部通过
+12. **ADR-014**: B2a Transition 投递边界、无 AuthorDecision 安全迁移与 ArtifactRef 审计合同（Approved with Amendments）；D01～D05 全部裁决落盘
+
+## C5-PIPELINE-FITNESS-P0-PROVENANCE-SSOT-CLOSEOUT-1 当前权威追加
+
+本节仅记录本批 P0 Provenance SSOT 收尾事实，既有 v8.15 历史保持不变。
+
+- 当前状态：`P0 Provenance code accepted / SSOT Closure Completed / Offline Deterministic Pipeline Evaluation Not Authorized`。
+- 计划：`D:\Code\yeyu-ai\xiaoshuo\docs\plans\2026-08-c5-pipeline-fitness-p0-provenance.md`。
+- 005–007 为设计工件，008–012 为实现及修正工件；最终 012 定向测试为 `40 passed in 0.88s`。
+- 三层 identity、genre/profile transition、旧 artifact fail-closed、two-pass batch/envelope hash、ProjectRegistry unknown-project deny、capability deny-first 和 zero-call/zero-write 均已记录。
+- 完整回归、Ruff、mypy、实际 registry backing、完整传递 census、legacy 生产迁移、管线质量、模型质量和商业效果仍未证明。
+- 下一阶段仅为另行授权的 offline deterministic pipeline evaluation；不授权 C5/B4、服务、API、模型、前端或生产执行。
+- 013 证据：`D:\tmp\yeyu-ai-a3\pipeline-fitness-p0-provenance-ssot-close\20260810-000001-013`。
+
+精确下一步：等待 Codex 独立复核本批 SSOT 与 013 证据；复核前保持停止。
+## C5-P1-A-SSOT-CLOSEOUT-1
+
+Current status: `P1-A CODE REVIEW: ACCEPTED / No Code Changes Required / P1-A SSOT: CLOSED / P1-AE EVALUATION: NOT AUTHORIZED`
+
+- P1-A design acceptance: 034; implementation and corrective history: 028–046.
+- Final run: `20260810-000001-046`; evidence: `D:\tmp\yeyu-ai-a3\pipeline-fitness-offline-deterministic-evaluation-corrective\20260810-000001-046`.
+- Final directed result: `189 passed / 0 failed / 0 errors / 0 skipped`.
+- Final P1-A source SHA-256: `evaluation_contracts.py=e486df8b91cf239c62e60d88c4097fb488eef2076d8f84a189163812b4976a5d`; `offline_evaluation.py=6a6fab5b0ea90213164820a7b14e7ecae6faba7fd2b87b9a8f3aef9d758e6680`; `test_offline_deterministic_evaluation.py=126f3e3dbb9eb4409a5f9e8752a0b66209b7a32bb38b001a87c78dc79005b990`.
+- P0 `provenance.py` SHA remains `bbb444616b1be4a099553f0604722ebb76aa692191961a8fe2ecb971e5e79a5a`.
+- The authoritative 045 `SHA256SUMS.txt` SHA is `6149ef36c11fc93d3eb09f0e7c60d29b2381f8ef3eeb1e396f0990afd8bac0bc`; the old `e51df2...` value is not authoritative.
+- P1-A proves only bounded infrastructure structure, provenance, isolation, determinism and failure-evidence boundaries. Model quality, publication quality, reader quality, commercial effect, production pipeline and P1-AE remain `NOT MEASURED`.
+- P1-AE requires a new Codex independent design, Luna read-only review, exact whitelist and explicit authorization. Do not start it from this closeout.
+- This closeout does not modify source, tests, design artifacts, config, Canon, SQLite, schema/migration, ADR, AI_PROTOCOL.md, assets/canon, .codebuddy or production data.
