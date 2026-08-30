@@ -1,18 +1,18 @@
 # MPV-02B DQA 执行 Packet v1
 
-合同正文状态：`IMMUTABLE_CONTRACT / PLAN_A_EXECUTOR_CONTRACT_CORRECTION_03`
+合同正文状态：`IMMUTABLE_CONTRACT / PLAN_A_EXECUTOR_CONTRACT_CORRECTION_05`
 
 当前生命周期状态不由本文件读取：唯一权威来源是 [DQA finding ledger](2026-08-mpv-02b-dqa-finding-ledger-v11.md) 末尾最后一条通过 predecessor 链校验的追加事件。本文件中的 `状态`、`current_state`、Reviewer 回执和 owner disposition 均为历史记录或合同说明，不得覆盖 ledger 当前状态。
 
 `contract_digest` 是独立于生命周期的合同身份：由 packet 绑定的 v2 contract source canonical projection 计算，排除自身 digest 和顶层生命周期字段。`packet_sha256`、设计/packet 完整文件 SHA 只证明相应字节身份，不能替代 `contract_digest`。
 
-当前 packet revision：`PLAN_A_EXECUTOR_CONTRACT_CORRECTION_03`
+当前 packet revision：`PLAN_A_EXECUTOR_CONTRACT_CORRECTION_05`
 
 范围审视：`PLAN-SCOPE-REVIEW: SUFFICIENT`
 
-合同预审：`PLAN_CONTRACT_PREFLIGHT: CHANGES_REQUIRED`
+合同预审：`PLAN_CONTRACT_PREFLIGHT: PENDING_CORRECTION_05_REVIEW`
 
-本文件是未来一次只读 DQA 执行的唯一操作合同。它不执行 DQA，不创建 run，不构成执行授权，也不替代主设计。
+本文件是未来一次只读 DQA 执行的操作合同。17 项检查的机器合同源是 [`dqa-check-contract-matrix-v1.json`](2026-08-mpv-02b-dqa-check-contract-matrix-v1.json)；本 packet 只实例化其输入、环境、输出和封存边界，不得自行维护第二套检查规则。它不执行 DQA，不创建 run，不构成执行授权，也不替代主设计。
 
 ## 最终需求描述
 
@@ -33,17 +33,23 @@
 | 项目 | 绑定值 |
 |---|---|
 | 主设计 | `D:\Code\yeyu-ai\xiaoshuo\docs\plans\2026-08-mpv-02b-dqa-design-v11.md` |
-| 主设计 SHA-256（本次只读核对） | `0A05E756BB0FADD0CE1B0F06E08E10932CBEAC770B6996F1FF7B3B8699C78D11` |
-| 设计 revision | `PLAN_A_EXECUTOR_CONTRACT_CORRECTION_03` |
+| 17 项检查机器合同源 | `D:\Code\yeyu-ai\xiaoshuo\docs\plans\2026-08-mpv-02b-dqa-check-contract-matrix-v1.json` |
+| 机器合同源 schema | `governed-contract-source/v2` |
+| 机器合同源 revision | `PLAN_A_EXECUTOR_CONTRACT_CORRECTION_05` |
+| 机器合同源 matrix SHA-256 | `ad04c7e2b0612273225e83366194de17d6c718b8ef22bd565a8324f4744d9c58` |
+| 机器合同源 contract digest | `9db2edd8d946fcc09eaa6e118ffb977c0f97be255c8a82f609f22d271e2e5470` |
+| rule registry | `.agents/skills/governed-token-efficient-collaboration/references/rule-registry.json`, `rules-r2`, `74889D655BA721BF80CBFF7396D8A057ADEA061AEC17A220AB2331F6358DD067` |
+| 主设计 SHA-256（历史复核快照；授权前 fresh readback 必须重算） | `0A05E756BB0FADD0CE1B0F06E08E10932CBEAC770B6996F1FF7B3B8699C78D11` |
+| 设计 revision | `PLAN_A_EXECUTOR_CONTRACT_CORRECTION_05` |
 | finding ledger | `D:\Code\yeyu-ai\xiaoshuo\docs\plans\2026-08-mpv-02b-dqa-finding-ledger-v11.md` |
-| ledger SHA-256（本次只读核对） | `B5BD29EF0444F7641695A85017A75B8BDD27F927AEA8539FCB6E6BA8272B8F02` |
-| ledger revision | `MPV-02B-DQA-LEDGER-11-EXECUTOR-CORRECTION-03` |
-| current event | `MPV-02B-DQA-LE-20260829-015` |
-| predecessor event | `MPV-02B-DQA-LE-20260828-014` |
-| planner_b receipt | `PENDING: new independent reviewer required for correction-03` |
-| consensus state | `CHANGES_REQUIRED / DQA_NOT_AUTHORIZED` |
+| ledger SHA-256（历史复核快照；授权前 fresh readback 必须重算） | `B5BD29EF0444F7641695A85017A75B8BDD27F927AEA8539FCB6E6BA8272B8F02` |
+| ledger revision | `MPV-02B-DQA-LEDGER-11-EXECUTOR-CORRECTION-05` |
+| current event | `MPV-02B-DQA-LE-20260830-021` |
+| predecessor event | `MPV-02B-DQA-LE-20260830-020` |
+| planner_b receipt | `PENDING: new independent reviewer required for correction-05` |
+| consensus state | `PLAN_B_REVIEW_REQUIRED / CONSENSUS_BLOCKED / DQA_NOT_AUTHORIZED` |
 | 根规则 | `D:\Code\yeyu-ai\AGENTS.md` |
-| 根规则 SHA-256 | `AFAA39433E9EAA15A118F5BB83B92EA7180D9A095CA8B308CA3B657D47CCF6B6` |
+| 根规则 SHA-256（当前 active） | `435498C2929CF0AA79B33EB03BEDF0DA283CDB402AC08D1CAE678EF4155011B6` |
 
 主设计冻结业务检查、状态、退出码、reason code、门禁和证据语义；本 packet 只冻结实际输入、只读执行入口、环境、run、输出、封存、verifier 和 post-review 输入。`SEALED_SUCCESS`/`SEALED_FAILURE` 是封存结果，不是质量门状态。packet 不新增检查，不改变任何业务状态、退出码、reason code、依赖关系或 gate 聚合。
 
@@ -61,6 +67,12 @@
 - 不因某个下游检查已得到结果而覆盖源门传播的 `INVALIDATED` 或 `CONTAMINATED`；不以总体成功率替代逐项状态。
 
 ## 输入 literal allowlist
+
+输入类别固定为三类，执行者不得自行改变：
+
+1. `required_literal_inputs`：本节逐行列出的合同文件、源码、配置、原始正文、样本索引、查询、候选、标注、裁决和指标输入。每项必须 individually 存在、可读、满足类型和 containment；缺失按对应检查合同处理，不得用近似路径替代。
+2. `optional_absence_allowed`：查询 provenance 原始来源、`e06-semantic-review-v1` 语义复核输入，以及已封存 DQA/E 输出。它们缺失时必须记录 absence record；E01 或 E06 按机器矩阵降为 `UNPROVEN`，不能当作 PASS。已封存输出当前为空集合，未来只能逐文件追加到新授权。
+3. `e03_recursive_root`：唯一 literal `e03_inventory_root` 目录及其非 reparse 后代。它不是普通文件 allowlist，也不是自由目录授权；只有 E03 规则允许递归枚举，canonical 三文件缺失由 E03 自身映射为 `FAIL/10`。
 
 以下路径是未来执行的完整输入白名单。文件输入路径必须按给出的绝对 Windows literal 使用；不得通过 glob 扩展、目录复制、隐式 fallback 或当前目录推断增加输入。唯一例外是 E03 明确声明的一个 `e03_inventory_root` 目录：它不是自由目录输入或 stage 扩展，而是只允许按 E03 合同做非 reparse 递归枚举的固定 literal 根。所有输入只读打开；每个 literal 文件以及 E03 枚举到的每个 descendant 都必须在 `inputs-manifest.json` 或 E03 inventory evidence 中记录 `literal/relative path`、用途、文件类型、字节大小、SHA-256（目录/ reparse 条目按合同记录）和 `reparse` 检查结果。
 
@@ -107,6 +119,8 @@
 E03 的 `e03_inventory_root` 是本 packet 唯一允许递归的目录。executor 必须先确认该 literal root 存在、为目录、root 及每一级祖先均非 reparse 且 containment 到该绝对路径；随后收集其全部后代目录/文件但不跟随 reparse，按规范化相对 POSIX 路径 UTF-8 bytes 升序处理。文件名匹配模式是 `annotation*.csv`、`*manifest*.json`、`*protocol*.md` 的 OR 集合；匹配文件全部进入 `entries`，不匹配的 regular file、目录和 reparse 条目全部进入 `excluded_entries`，不得静默忽略。每个 descendant 必须在 E03 inventory evidence 中记录规范化相对路径、kind、size、file SHA-256（目录/reparse 无内容时为 `null`）、CSV 的 `normalized_rows_hash`（非 CSV 为 `null`）和 disposition/reason；每个条目同时进入输入快照引用。canonical annotator 仅允许 root-relative 的 `annotation-blind-codex.csv`、`annotation-blind-glm.csv`、`annotation-blind-deepseek.csv`，TRAE 或其他重复/身份不明文件只能是 `backup`/`excluded`，且必须带非空固定 reason code。不得把该 root 扩展为 stage root、项目目录或 glob；C 盘路径、模型目录、网络资源和未来 run 输出均不属于输入。
 
 当前没有已封存的既有 MPV-02B DQA/E 输出 literal 文件可列入 allowlist；因此 DQA-09/E08 的“previously sealed outputs”输入是一个由 preflight 固定记录的空集合/缺失记录，而不是允许读取某个未声明目录。未来若存在前一批封存输出，必须在新的授权中逐文件追加 literal allowlist 和 hash；不能读取整个 stage root。当前 run 的 `checks/DQA-09.json`、`checks/E08.json`、报告和其他输出一律排除自身作为这两项检查的输入。
+
+E03 输入归属合同：`e03_inventory_root` 对其全部后代承担唯一 filesystem inventory ownership；`inputs-manifest.json` 对每个物理路径只记录一次。DQA/E 检查可以读取其声明的具体 descendant，但必须引用 E03 inventory entry 及其 file hash，不得再次枚举该 root、生成第二份 inventory 或主张第二个输入所有权。物理路径的“唯一归属”与下游检查的“允许消费”是两个概念；同一文件可被多个已声明检查消费，但只有 E03 inventory 负责其范围、路径、reparse、大小和文件身份记录。
 
 E06 语义复核输入当前不在本 packet 的固定输入白名单中。executor 只能生成机械正文证据和待复核对象；若 authority owner 需要完成语义复核，必须在新的 packet revision 或授权回执中逐文件绑定一个只读 `e06-semantic-review-v1` artifact，其每条记录绑定 `query_id、doc_id、raw_body_evidence_ref、original_label、semantic_result、reviewer_ref、review_reason`，且 `semantic_result` 仅允许 `SUPPORTED`、`UNSUPPORTED`、`INSUFFICIENT_EVIDENCE`。没有该 artifact，或无法证明其逐对象覆盖和身份时，E06 固定 `UNPROVEN/30`，reason `SEMANTIC_REVIEW_INPUT_MISSING`；不得由 executor、模型或多数票代填。
 
@@ -162,7 +176,9 @@ D:\tmp\yeyu-ai-a3\mpv-02b-dqa\<run-id>
 7. executor entrypoint 已由 owner 绑定、版本可读、SHA-256 可回读；executor 自身的 compile/readback 结果必须独立记录。授权回执还必须分别绑定 interpreter 的绝对路径、版本、SHA-256 和 interpreter compile/readback，以及 verifier 的 literal path、版本、SHA-256 和 verifier compile/readback；三类身份或任一对应 readback 缺失/不一致均保持 `BLOCKED/40`。
 8. Python 环境、`PYTHONPATH`、UTF-8、`PYTHONDONTWRITEBYTECODE` 和禁止网络/模型/服务的进程策略满足要求。
 
-任一 preflight 项失败即 `preflight_status=BLOCKED`，并按 run-root 安全阶段选择唯一失败路由：`ROOT_UNSAFE_BLOCKED` 表示 run root 自身或其祖先未通过存在性、resolved containment 或 reparse 检查，路径非法或越界；此状态禁止向该 root 写入任何文件，不适用任何 root 内失败封存集合，只产生不依赖该 root 的外部阻断回执并停止。`ROOT_SAFE_INITIAL_FAILURE` 表示 run root 已通过上述安全检查但 preflight 的其他项目失败；此状态只允许向该安全 root 写入初始最小集合 `preflight.json`、双格式失败报告和 `seal.json`，并立即停止，不得把它称为完整 `SEALED_FAILURE`。仅当 run root 安全、执行器已获准启动且已经产生可完整列出的输入/检查输出时，才进入 `ROOT_SAFE_COMPLETE_FAILURE`，允许按完整失败集合补齐 `inputs-manifest`、已完成 check、artifact manifest、checksum、postflight（若能执行）和 `SEALED_FAILURE` seal。三种状态的输出集合互斥且固定；不得先执行部分 DQA 再补 preflight。
+任一 preflight 项失败即 `preflight_status=BLOCKED`，并按 run-root 安全阶段选择唯一失败路由：`ROOT_UNSAFE_BLOCKED` 表示 run root 自身或其祖先未通过存在性、resolved containment 或 reparse 检查，路径非法或越界；此状态禁止向该 root 写入任何文件，不适用任何 root 内失败封存集合，只产生不依赖该 root 的外部阻断回执并停止。外部阻断回执必须是 stdout 的单行 UTF-8 JSON，根字段顺序固定为 `schema_version、receipt_type、run_id、run_root、resolved_run_root、check_status、exit_code、reason_codes、writes_performed、next_step`；`schema_version` 为 `dqa-blocker-receipt-v1`，`receipt_type` 为 `ROOT_UNSAFE_BLOCKED`，`check_status` 为 `BLOCKED`，`exit_code` 为 `40`，`resolved_run_root` 为 `null`，`writes_performed` 为 `false`，`reason_codes` 非空，且不得向 stderr 或项目路径输出替代格式。协调者必须原样保存 stdout 字节、回读 JSON，并将其作为 ledger/授权记录的外部 receipt 引用；executor 不得自行向不安全 root、项目目录或历史 evidence 写入该回执。`ROOT_SAFE_INITIAL_FAILURE` 表示 run root 已通过上述安全检查但 preflight 的其他项目失败；此状态只允许向该安全 root 写入初始最小集合 `preflight.json`、双格式失败报告和 `seal.json`，并立即停止，不得把它称为完整 `SEALED_FAILURE`。仅当 run root 安全、执行器已获准启动且已经产生可完整列出的输入/检查输出时，才进入 `ROOT_SAFE_COMPLETE_FAILURE`，允许按完整失败集合补齐 `inputs-manifest`、已完成 check、artifact manifest、checksum、postflight（若能执行）和 `SEALED_FAILURE` seal。三种状态的输出集合互斥且固定；不得先执行部分 DQA 再补 preflight。
+
+`ROOT_UNSAFE_BLOCKED` 的字段集合、顺序、固定值和字节合同唯一取 correction-05 v2 machine contract 的 `blocker_receipt_contract`：只允许十个字段，JSON 使用 `ensure_ascii=true`、固定字段顺序、紧凑分隔符、LF、无 BOM、无尾随空格；stdout 必须恰好一条 JSON 记录，stderr 不得输出替代回执。任何额外字段、字段缺失、顺序漂移、非 UTF-8、BOM、第二行或 coordinator 原始 stdout bytes 未保存，均为 blocker receipt 合同失败，不得将其降级为普通 preflight 失败。
 
 ## 输出 literal allowlist 与封存
 
@@ -358,6 +374,20 @@ correction 03 复核若返回 `PACKET-REVIEW: ACCEPTED`，packet 即转为 `PACK
 
 该接受只表示 packet 设计冻结并可进入授权评估，不表示 DQA 执行授权、质量门 PASS、生产质量证明或索引授权。执行期尚未产生的事实继续保持 `UNPROVEN`。
 
+## Executor contract correction 04
+
+- `correction_id`: `MPV-02B-DQA-EXECUTOR-CONTRACT-CORRECTION-04`
+- `source_receipt`: Sol executor design receipt, `EXECUTOR-DESIGN: CHANGES_REQUIRED`
+- `predecessor_event`: `MPV-02B-DQA-LE-20260830-019`
+- `delta_class`: `MATERIAL_REVIEW_CHANGE`
+- `machine_contract_source`: `dqa-check-contract-matrix-v1.json`
+- `changes`: 17 项检查改由 packet-bound machine projection 作为唯一执行合同；输入固定分为 required literal、optional absence allowed 和唯一 E03 recursive root；不安全 run root 只返回固定 UTF-8 stdout blocker receipt。
+- `not_changed`: 不新增检查，不改变业务语义、状态/退出码、reason code、依赖关系、gate 聚合、禁止活动或授权边界。
+- `verification`: fresh Reviewer 对 machine source、packet projection、输入类别、阻断回执字段和本 correction 白名单做逐项 readback。
+- `current_state`: `PLAN_B_REVIEW_REQUIRED / CONSENSUS_BLOCKED / DQA_NOT_AUTHORIZED`
+
+在新的独立 Reviewer 最终回执前，不得实现 executor、运行测试、创建 DQA run 或执行 DQA；F-EXE-001 仍必须在未来授权时绑定真实 executor/interpreter/verifier 身份。
+
 
 
 ## PLAN-SCOPE-REVIEW
@@ -368,11 +398,11 @@ correction 03 复核若返回 `PACKET-REVIEW: ACCEPTED`，packet 即转为 `PACK
 
 ## PLAN_CONTRACT_PREFLIGHT
 
-`PLAN_CONTRACT_PREFLIGHT: SUFFICIENT`
+`PLAN_CONTRACT_PREFLIGHT: PENDING_CORRECTION_05_REVIEW`
 
-逐项绑定结果：主设计 v11 的统一 `check_contract_matrix` 17/17 行已映射；每行均保留 input、precondition、procedure、output/evidence、status/exit、reason、blocking/stop、verification 和 owner disposition。packet 只实例化 literal inputs、future command shape、run/output containment 和封存，不改变业务状态、退出码、reason code、依赖或 gate 关系。E06 的 P/O、26 mandatory、label-2 mandatory、0/1 分层、seed、N/K、正文复核已逐项冻结；DQA-09/E08 已排除当前 check 自引用。
+逐项绑定结果：主设计 v11 的 v2 `check_contract_matrix` 17/17 行已映射；每行均保留 input、precondition、procedure、output/evidence、status/exit、reason、blocking/stop、verification 和 owner disposition。packet 只实例化 literal inputs、future command shape、run/output containment 和封存，不改变业务状态、退出码、reason code、依赖或 gate 关系。E06 的 P/O、26 mandatory、label-2 mandatory、0/1 分层、seed、N/K、正文复核已逐项冻结；DQA-09/E08 已排除当前 check 自引用。当前仅等待 correction-05 的独立 Reviewer；在最终接受回执前，预审不是通过状态。
 
-但当前 `EXECUTOR_ENTRYPOINT` 仍为 `BLOCKED_UNBOUND`。这不是 packet contract 缺口，而是未来执行授权的明确前置；在 authority owner 绑定并独立核对 executor 前，不得把本 packet 标为可执行或创建 DQA run。
+但当前 `EXECUTOR_ENTRYPOINT` 仍为 `BLOCKED_UNBOUND`。这不是 packet contract 缺口，而是未来执行授权的明确前置；在 authority owner 绑定并独立核对 executor 前，不得把本 packet 标为可执行或创建 DQA run。correction-05 的独立 Reviewer 尚未返回最终回执，因此当前合同预审仍为 `PENDING_CORRECTION_05_REVIEW`。
 
 ## 未证明项和停止条件
 
@@ -389,9 +419,41 @@ correction 03 复核若返回 `PACKET-REVIEW: ACCEPTED`，packet 即转为 `PACK
 
 ## 当前授权边界与精确下一步
 
-当前授权边界：本 packet 当前为 `CHANGES_REQUIRED / DQA_NOT_AUTHORIZED`；旧 `CONSENSUS_READY` receipt 仅为历史设计复核，不覆盖本 correction。根规则授权前置必须绑定当前磁盘 `D:\Code\yeyu-ai\AGENTS.md` 的 SHA `AFAA39433E9EAA15A118F5BB83B92EA7180D9A095CA8B308CA3B657D47CCF6B6`。本轮只授权新 packet 文档的设计落盘，不授权 run、输入快照、DQA、测试、模型、服务、网络、索引、性能或 post-review。
+当前授权边界：本 packet 当前为 `PLAN_B_REVIEW_REQUIRED / CONSENSUS_BLOCKED / DQA_NOT_AUTHORIZED`；旧 `CONSENSUS_READY` receipt 仅为历史设计复核，不覆盖本 correction。根规则授权前置必须绑定当前磁盘 `D:\Code\yeyu-ai\AGENTS.md` 的 SHA `435498C2929CF0AA79B33EB03BEDF0DA283CDB402AC08D1CAE678EF4155011B6`。本轮只授权新 packet 文档的设计落盘，不授权 run、输入快照、DQA、测试、模型、服务、网络、索引、性能或 post-review。
 
 精确下一步：authority owner 只读复核本 packet 与绑定的主设计/ledger，补发一次新的 `MPV-02B DQA READONLY EXECUTION AUTHORIZATION`，其中必须明确 packet SHA-256、fresh run-id、future executor literal path/version/SHA-256、executor compile/readback、interpreter 绝对路径/version/SHA-256/compile-readback、verifier literal path/version/SHA-256/compile-readback、是否允许创建 D 盘 run，并确认本 packet 的输入/输出 allowlist；随后由 executor 在一次 fresh run 中按本 packet 执行，独立 verifier 读取封存证据，再由全新一次性 post-reviewer 给出 post-review token。任何一步缺少授权、executor 绑定或最终回执，都保持 `DQA_NOT_AUTHORIZED`、`BLOCKED`、`REVIEW_PENDING` 或 `REVIEW_UNAVAILABLE`，不关闭阶段。
+
+## Executor contract correction 05
+
+- `correction_id`: `MPV-02B-DQA-EXECUTOR-CONTRACT-CORRECTION-05`
+- `source_receipt`: Euler 一次性独立 Reviewer 回执，`EXECUTOR-DESIGN-REVIEW: CHANGES_REQUIRED`
+- `plan_path`: `D:\Code\yeyu-ai\xiaoshuo\docs\plans\2026-08-mpv-02b-dqa-design-v11.md`
+- `packet_path`: `D:\Code\yeyu-ai\xiaoshuo\docs\plans\2026-08-mpv-02b-dqa-execution-packet-v1.md`
+- `ledger_path`: `D:\Code\yeyu-ai\xiaoshuo\docs\plans\2026-08-mpv-02b-dqa-finding-ledger-v11.md`
+- `predecessor_event`: `MPV-02B-DQA-LE-20260830-020`
+- `plan_revision`: `PLAN_A_EXECUTOR_CONTRACT_CORRECTION_05`
+- `packet_revision`: `PLAN_A_EXECUTOR_CONTRACT_CORRECTION_05`
+- `ledger_revision`: `MPV-02B-DQA-LEDGER-11-EXECUTOR-CORRECTION-05`
+- `current_event`: `MPV-02B-DQA-LE-20260830-021`
+- `machine_contract_source`: `governed-contract-source/v2`; matrix SHA `ad04c7e2b0612273225e83366194de17d6c718b8ef22bd565a8324f4744d9c58`; contract digest `9db2edd8d946fcc09eaa6e118ffb977c0f97be255c8a82f609f22d271e2e5470`
+- `registry_binding`: `.agents/skills/governed-token-efficient-collaboration/references/rule-registry.json`, revision `rules-r2`, SHA `74889D655BA721BF80CBFF7396D8A057ADEA061AEC17A220AB2331F6358DD067`
+- `active_root_rules_sha256`: `435498C2929CF0AA79B33EB03BEDF0DA283CDB402AC08D1CAE678EF4155011B6`
+- `scope_review`: `PLAN-SCOPE-REVIEW: SUFFICIENT`; only six executor-contract/identity issues are corrected; DQA business checks, E02/E06, both gates and authorization boundary are unchanged.
+- `input_ownership`: the E03 root owns one inventory of all descendants; `inputs-manifest.json` records each physical path once; downstream checks may consume named descendants by E03 entry/hash but may not create a second inventory or ownership claim.
+- `blocker_receipt_contract`: `ROOT_UNSAFE_BLOCKED` is exactly one UTF-8 LF/no-BOM canonical JSON object on stdout, with only the ten frozen fields from the v2 machine contract; stderr and project/run-root writes are forbidden, and the coordinator preserves the raw stdout bytes externally.
+- `current_state`: `PLAN_B_REVIEW_REQUIRED / CONSENSUS_BLOCKED / DQA_NOT_AUTHORIZED`
+- `review_requirement`: correction-05 must receive a final receipt from a new one-time independent Reviewer; before that, no `CONSENSUS_READY`, executor implementation, test, run creation or DQA execution.
+
+### Correction-05 finding map
+
+| finding_id | lineage | minimal correction | verification | current_status |
+|---|---|---|---|---|
+| DQA-EXEC-F05 | UNRESOLVED | upgrade machine matrix to v2 with registry, status enums and transitions | v2 contract verifier and exact matrix/digest readback | DESIGN_BLOCKER_PENDING_REVIEW |
+| DQA-EXEC-F06 | UNRESOLVED | define one physical-path inventory owner and downstream reference rule | inventory/manifest ownership and overlap readback | DESIGN_BLOCKER_PENDING_REVIEW |
+| DQA-EXEC-F07 | UNRESOLVED | freeze strict blocker receipt field set, order, encoding and save boundary | negative receipt/schema and raw stdout byte readback | DESIGN_BLOCKER_PENDING_REVIEW |
+| DQA-EXEC-F08 | UNRESOLVED | synchronize active root-rule provenance in current packet bindings | fresh root SHA and three-document binding readback | DESIGN_BLOCKER_PENDING_REVIEW |
+| DQA-EXEC-F09 | UNRESOLVED | replace contradictory packet preflight status with pending-review state | top/tail state readback and ledger binding | DESIGN_BLOCKER_PENDING_REVIEW |
+| DQA-EXEC-F10 | UNRESOLVED | bind correction-05 event, predecessor and ledger revision in design | three-document event/revision/predecessor readback | DESIGN_BLOCKER_PENDING_REVIEW |
 
 ## Executor preparation correction 01
 

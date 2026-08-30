@@ -585,3 +585,65 @@ At correction-02 creation time, the state was `PLAN_B_REVIEW_REQUIRED`; it did n
 - `owner_disposition`: DQA execution remains unauthorized until current packet, literal inputs, executor, interpreter, verifier and fresh D-drive run are explicitly bound
 
 This append-only event does not authorize DQA, run creation, tests, indexing, performance, model, service or network activity.
+
+## Executor contract correction 04
+
+- `event_id`: `MPV-02B-DQA-LE-20260830-020`
+- `event_version`: `20`
+- `batch`: `executor-preparation / executor-contract-correction-04`
+- `predecessor_event`: `MPV-02B-DQA-LE-20260830-019`
+- `source_receipt`: Sol executor design receipt, `EXECUTOR-DESIGN: CHANGES_REQUIRED`
+- `plan_revision`: `PLAN_A_EXECUTOR_CONTRACT_CORRECTION_04`
+- `packet_revision`: `PLAN_A_EXECUTOR_CONTRACT_CORRECTION_04`
+- `ledger_revision`: `MPV-02B-DQA-LEDGER-11-EXECUTOR-CORRECTION-04`
+- `scope_review`: `PLAN_SCOPE_REVIEW: SUFFICIENT`
+- `delta_class`: `MATERIAL_REVIEW_CHANGE`
+- `changes`: 增加 `dqa-check-contract-matrix-v1.json` 作为 17 项检查的唯一机器合同源；主设计/packet 仅作投影；明确 required literal、optional absence 和唯一 E03 recursive root 三类输入；固定 `ROOT_UNSAFE_BLOCKED` 单行 UTF-8 JSON stdout 回执及协调者原样保存规则。
+- `finding_map`: `DQA-EXEC-F02`、`DQA-EXEC-F03`、`DQA-EXEC-F04` 均沿袭 Sol 首次回执中的 `NEW`，本轮建立最小修复；`DQA-EXEC-F01` 保持 `UNPROVEN/BLOCKED_UNBOUND`，属于未来授权前身份绑定前置，不在本 correction 伪造实现身份。
+- `verification`: fresh independent Reviewer 逐字段回读 machine matrix 17/17、主设计/packet projection、输入类别和 blocker receipt schema；独立核对 UTF-8 JSON 解析、contract revision 和本事件 predecessor。
+- `current_state`: `PLAN_B_REVIEW_REQUIRED / CONSENSUS_BLOCKED / DQA_NOT_AUTHORIZED`
+- `evidence_boundary`: 本轮只修改 DQA 设计合同文档；未实现 executor，未运行测试，未创建 DQA run，未执行 DQA、模型、服务、网络、索引、性能或质量优化。
+
+本事件不产生 `CONSENSUS_READY`，不授予 executor 实现、测试或 DQA 执行授权。修正完成后必须关闭上一独立 Reviewer，并创建全新一次性 Reviewer；最终 token 缺失时保持 `REVIEW_PENDING/REVIEW_UNAVAILABLE`。
+
+## Executor contract correction 05
+
+- `event_id`: `MPV-02B-DQA-LE-20260830-021`
+- `event_version`: `21`
+- `batch`: `executor-preparation / executor-contract-correction-05`
+- `predecessor_event`: `MPV-02B-DQA-LE-20260830-020`
+- `source_receipt`: Euler 一次性独立 Reviewer，`EXECUTOR-DESIGN-REVIEW: CHANGES_REQUIRED`
+- `plan_path`: `D:\Code\yeyu-ai\xiaoshuo\docs\plans\2026-08-mpv-02b-dqa-design-v11.md`
+- `packet_path`: `D:\Code\yeyu-ai\xiaoshuo\docs\plans\2026-08-mpv-02b-dqa-execution-packet-v1.md`
+- `ledger_path`: `D:\Code\yeyu-ai\xiaoshuo\docs\plans\2026-08-mpv-02b-dqa-finding-ledger-v11.md`
+- `plan_revision`: `PLAN_A_EXECUTOR_CONTRACT_CORRECTION_05`
+- `packet_revision`: `PLAN_A_EXECUTOR_CONTRACT_CORRECTION_05`
+- `ledger_revision`: `MPV-02B-DQA-LEDGER-11-EXECUTOR-CORRECTION-05`
+- `machine_contract_source`: `governed-contract-source/v2`
+- `contract_matrix_sha256`: `ad04c7e2b0612273225e83366194de17d6c718b8ef22bd565a8324f4744d9c58`
+- `contract_digest`: `9db2edd8d946fcc09eaa6e118ffb977c0f97be255c8a82f609f22d271e2e5470`
+- `registry_binding`: `.agents/skills/governed-token-efficient-collaboration/references/rule-registry.json`, `rules-r2`, `74889D655BA721BF80CBFF7396D8A057ADEA061AEC17A220AB2331F6358DD067`
+- `active_root_rules_path`: `D:\Code\yeyu-ai\AGENTS.md`
+- `active_root_rules_sha256`: `435498C2929CF0AA79B33EB03BEDF0DA283CDB402AC08D1CAE678EF4155011B6`
+- `scope_review`: `PLAN-SCOPE-REVIEW: SUFFICIENT`
+- `delta_class`: `MATERIAL_REVIEW_CHANGE`
+- `changes`: 将 17 项矩阵升级为既有 `governed-contract-source/v2`，补齐 registry/status/transitions；定义 E03 root 的唯一 inventory ownership 与下游引用规则；冻结 ROOT_UNSAFE_BLOCKED 的严格十字段、顺序、编码和外部保存边界；同步活动根规则身份、预审状态及本事件绑定。
+- `not_changed`: 不新增 DQA 检查，不改变 DQA-01..09/E01..E08、E02、E06、E07、两道质量门、授权边界或禁止活动。
+- `finding_map`: DQA-EXEC-F05..F10 均沿袭 Euler 六项 `CHANGES_REQUIRED`；仅修复合同/绑定，不将未来执行证据伪记为已完成。
+- `verification`: JSON strict parse、v2 contract verifier、17 行矩阵完整性、registry/matrix/digest readback、三文档 revision/event/predecessor/root binding readback、packet 顶部/末尾预审状态一致性和 diff 白名单核对。
+- `current_state`: `PLAN_B_REVIEW_REQUIRED / CONSENSUS_BLOCKED / DQA_NOT_AUTHORIZED`
+- `review_requirement`: 修正落盘后必须关闭 Euler，并创建全新的、一次性独立 Reviewer；最终回执缺失时保持 `REVIEW_PENDING/REVIEW_UNAVAILABLE`，不得恢复 `CONSENSUS_READY`。
+- `evidence_boundary`: 本轮仅修改 DQA 合同文档和机器合同源；未实现 executor，未运行测试，未创建 DQA run，未执行 DQA、模型、服务、网络、索引或性能活动。
+
+### Correction-05 finding map
+
+| finding_id | root_cause_id | lineage | prior_unresolved_reason | revision_location | verification_method | current_status |
+|---|---|---|---|---|---|---|
+| DQA-EXEC-F05 | RC-DQA-V2-CONTRACT-SOURCE | UNRESOLVED | correction-04 的矩阵只有 DQA 专用 schema，未接入 v2 registry/status/transitions 合同 | machine matrix and design/packet contract binding | v2 verifier exact readback | DESIGN_BLOCKER_PENDING_REVIEW |
+| DQA-EXEC-F06 | RC-DQA-E03-PATH-OWNERSHIP | UNRESOLVED | correction-04 识别物理重叠但未声明 inventory owner 与下游消费者关系 | design/packet E03 input ownership clause | manifest/inventory overlap readback | DESIGN_BLOCKER_PENDING_REVIEW |
+| DQA-EXEC-F07 | RC-DQA-BLOCKER-BYTES | UNRESOLVED | correction-04 只列字段，未冻结禁止额外键、canonical bytes 和外部保存规则 | machine blocker receipt contract and packet preflight | strict negative receipt and raw stdout readback | DESIGN_BLOCKER_PENDING_REVIEW |
+| DQA-EXEC-F08 | RC-DQA-ROOT-RULE-PROVENANCE | UNRESOLVED | correction-04 当前活动绑定未覆盖所有旧根规则声明 | design/packet/ledger active binding | fresh root SHA readback | DESIGN_BLOCKER_PENDING_REVIEW |
+| DQA-EXEC-F09 | RC-DQA-PREFLIGHT-STATE | UNRESOLVED | correction-04 packet 顶部和末尾同时保留不同预审结论 | packet current preflight section | top/tail state exact readback | DESIGN_BLOCKER_PENDING_REVIEW |
+| DQA-EXEC-F10 | RC-DQA-LEDGER-EVENT-BINDING | UNRESOLVED | correction-04 缺少 current event、ledger revision 和三文档双向绑定 | design/packet/ledger correction-05 bindings | event/revision/predecessor exact readback | DESIGN_BLOCKER_PENDING_REVIEW |
+
+本事件不产生 `CONSENSUS_READY`，不授予 executor 实现、测试、run 创建或 DQA 执行授权。

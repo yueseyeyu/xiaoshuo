@@ -13,7 +13,7 @@ description: xiaoshuo 项目治理 adapter；绑定稳定项目规则并引用�
 - `rule_registry_reference`: `D:/Code/yeyu-ai/.agents/skills/governed-token-efficient-collaboration/references/rule-registry.json`
 - `rule_registry_sha256`: `74889d655ba721bf80cbff7396d8a057adea061aec17a220ab2331f6358dd067`
 - `parent_adapter_reference`: `D:/Code/yeyu-ai/.agents/skills/yeyu-ai-governance-adapter/SKILL.md`
-- `parent_adapter_sha256`: `ABD1F670F7ACC0412950DE42C8ADB746C45CC2918441EC36377E0126B42AE656`
+- `parent_adapter_sha256`: `72C0B90B5346776B45464DC1B45717561F2AB36F073E3A95DE02C7C24473D75F`
 - `skill_layering_spec`: `D:/Code/yeyu-ai/.ai/skill-system.md`
 - `skill_layering_spec_sha256`: `C0645C79BD6F43F8712CA1AE682D05240CCEC7392D724275F1E3E3EF098A5F09`
 - `governing_documents`: `AGENTS.md`

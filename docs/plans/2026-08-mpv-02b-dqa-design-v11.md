@@ -1,16 +1,16 @@
-# MPV-02B 数据质量审计设计 v11（执行器合同修正 03）
+# MPV-02B 数据质量审计设计 v11（执行器合同修正 05）
 
-合同正文状态：`IMMUTABLE_CONTRACT / PLAN_A_EXECUTOR_CONTRACT_CORRECTION_03`
+合同正文状态：`IMMUTABLE_CONTRACT / PLAN_A_EXECUTOR_CONTRACT_CORRECTION_05`
 
 当前生命周期状态不由本文件读取：唯一权威来源是 [DQA finding ledger](2026-08-mpv-02b-dqa-finding-ledger-v11.md) 末尾最后一条通过 predecessor 链校验的追加事件。本文件中的 `状态`、`current_state`、Reviewer 回执和 owner disposition 均为历史记录或合同说明，不得覆盖 ledger 当前状态。
 
 合同 digest 只针对不可变合同 projection（目标、范围、输入、动作、验收、停止和授权边界），排除自身 digest 与顶层生命周期字段；packet 的 `contract_digest` 必须由 verifier 独立回读，不能用文档完整 SHA 或生命周期状态替代。
 
-轮次：`post-round-20-correction-03`
+轮次：`post-round-20-correction-05`
 
 planner_a 范围审视：`PLAN_SCOPE_REVIEW: SUFFICIENT`。本轮按有界研究结论收敛合同，不新增 DQA 检查项、框架、数据库、模型、服务或扫描范围。
 
-本文件是第 10 轮 `PLAN-B-REVIEW: CHANGES_REQUIRED` 后的唯一 DQA 设计版本；第 12～17 轮及本轮修订均保留在同一文件中。它只定义只读审计，不授权创建 DQA run、修改源码、修改数据、修改索引或进入性能基线。
+本文件是第 10 轮 `PLAN-B-REVIEW: CHANGES_REQUIRED` 后的唯一 DQA 设计版本；第 12～20 轮及本轮修订均保留在同一文件中。逐检查合同的机器可读唯一来源为 [`dqa-check-contract-matrix-v1.json`](2026-08-mpv-02b-dqa-check-contract-matrix-v1.json)，本文件的检查表只作可读投影。它只定义只读审计，不授权创建 DQA run、修改源码、修改数据、修改索引或进入性能基线。
 
 ## 最终需求描述
 
@@ -68,7 +68,9 @@ F08 的主设计要求是执行 packet 提供可复核的输入/输出边界、�
 
 ## 统一检查合同（PLAN_CONTRACT_PREFLIGHT）
 
-本节是 DQA-01～DQA-09、E01～E08 的唯一执行合同入口。执行者只能按本矩阵读取输入、产生证据和决定停止动作；下方各检查章节只补充领域判定，不得重新定义字段、状态或退出码。每个 `checks/<id>.json` 的根对象固定包含：`schema_version="dqa-check-envelope-v1"`、`check_id`、`check_status`、`exit_code`、`input_snapshot_refs`、`preconditions`、`procedure_ref`、`evidence`、`counts`、`reason_codes`、`limitations`、`stop_action`、`next_step`。`evidence` 至少包含 `output_fields`、`artifact_refs`、`canonicalization` 和 `verifier_readback`。状态与退出码一一对应：`PASS/0`、`FAIL/10`、`UNKNOWN/20`、`UNPROVEN/30`、`BLOCKED/40`。
+机器可读唯一合同源：`dqa-check-contract-matrix-v1.json`，schema 为 `governed-contract-source/v2`，revision 为 `PLAN_A_EXECUTOR_CONTRACT_CORRECTION_05`，当前 matrix SHA-256 为 `ad04c7e2b0612273225e83366194de17d6c718b8ef22bd565a8324f4744d9c58`，contract digest 为 `8ce132b6e808029822c4614008cdc77c84323e6026505a69a147da2528fc7657`，并绑定 registry `rules-r2`。该文件冻结 17 个 `check_id`、输入引用、前置、procedure、输出字段、reason code、停止动作、验证方式和 owner disposition；本文件和 execution packet 不得新增、删除或改写这些字段。verifier 必须读取该 v2 JSON 的 UTF-8 canonical bytes、registry binding、matrix SHA 和 contract digest，并逐字段比较本文件/packet 的可读投影；缺失、无法读取、digest 不一致、registry 不一致或检查项不完整时，合同预审为 `PLAN_CONTRACT_INCOMPLETE`，不得派发 executor 或创建 run。
+
+本节是 DQA-01～DQA-09、E01～E08 的人类可读投影。执行者只能按机器合同源读取输入、产生证据和决定停止动作；下方各检查章节只补充领域判定，不得重新定义字段、状态或退出码。每个 `checks/<id>.json` 的根对象固定包含：`schema_version="dqa-check-envelope-v1"`、`check_id`、`check_status`、`exit_code`、`input_snapshot_refs`、`preconditions`、`procedure_ref`、`evidence`、`counts`、`reason_codes`、`limitations`、`stop_action`、`next_step`。`evidence` 至少包含 `output_fields`、`artifact_refs`、`canonicalization` 和 `verifier_readback`。状态与退出码一一对应：`PASS/0`、`FAIL/10`、`UNKNOWN/20`、`UNPROVEN/30`、`BLOCKED/40`。
 
 reason code 枚举固定为：`INPUT_MISSING`、`INPUT_IDENTITY_UNPROVEN`、`ENCODING_ERROR`、`RAW_BODY_MISSING`、`TRANSFORM_UNACCOUNTED`、`BOUNDARY_GAP`、`DUPLICATE_ID`、`MAPPING_MISMATCH`、`COUNT_MISMATCH`、`SORT_CONTRACT_MISMATCH`、`QUERY_SOURCE_MISSING`、`ANNOTATOR_INDEPENDENCE_UNPROVEN`、`SNAPSHOT_REBUILD_MISMATCH`、`FORMULA_MISMATCH`、`INVALID_LABEL`、`MISSING_LABEL`、`MISSING_SCHEMA_INPUT`、`SEMANTIC_REVIEW_INPUT_MISSING`、`UNPROVEN_DENOMINATOR`、`OUT_OF_SCOPE_CLAIM`、`PREFLIGHT_FAILED`、`WORKSPACE_MUTATION`。`FAIL` 只用于能明确检测到输入/不变量违反；`UNKNOWN` 用于信息不可判定；`UNPROVEN` 用于缺少证明材料；`BLOCKED` 只用于前置条件失败导致检查不能开始。每个检查失败或未知都必须写出 `stop_action`，不得由执行者自由决定继续。
 
@@ -309,3 +311,49 @@ E07 JSON schema 还必须引用 E04 的 `label_semantics_ref`、`label_order`、
 - `current_state`: `CONSENSUS_READY / DQA_NOT_AUTHORIZED`
 
 This resync does not authorize DQA, run creation, tests, indexing, performance, model, service or network activity.
+
+## Executor contract correction 04
+
+- `correction_id`: `MPV-02B-DQA-EXECUTOR-CONTRACT-CORRECTION-04`
+- `source_receipt`: Sol executor design receipt, `EXECUTOR-DESIGN: CHANGES_REQUIRED`
+- `predecessor_event`: `MPV-02B-DQA-LE-20260830-019`
+- `delta_class`: `MATERIAL_REVIEW_CHANGE`
+- `scope_review`: `PLAN_SCOPE_REVIEW: SUFFICIENT`
+- `changes`: 增加 packet-bound 的机器可读 17 项检查矩阵；明确 `required_literal_inputs`、`optional_absence_allowed` 和唯一 `e03_recursive_root` 三类输入；固定 `ROOT_UNSAFE_BLOCKED` 的单行 UTF-8 结构化 stdout 回执及协调者原样保存规则。
+- `not_changed`: 不新增 DQA 检查，不改变 DQA-01..09/E01..E08 语义、E02、E06、E07、两道质量门、禁止活动或 DQA 执行授权。
+- `verification`: 独立 Reviewer 逐字段回读机器矩阵 17/17、主设计/packet 投影、三类输入分类和阻断回执 schema；检查 JSON UTF-8 可解析、diff 仅在本 correction 白名单内。
+- `current_state`: `PLAN_B_REVIEW_REQUIRED / CONSENSUS_BLOCKED / DQA_NOT_AUTHORIZED`
+
+F-EXE-001 仍是未来授权前的 executor/interpreter/verifier 身份绑定前置，不因本 correction 伪造入口或 SHA；在入口实现并获授权前保持 `BLOCKED_UNBOUND`。F-EXE-002、F-EXE-003、F-EXE-004 的最小修复已落盘，等待全新一次性 Reviewer；在最终回执前不得恢复 `CONSENSUS_READY`。
+
+## Executor contract correction 05
+
+- `correction_id`: `MPV-02B-DQA-EXECUTOR-CONTRACT-CORRECTION-05`
+- `source_receipt`: Euler 一次性独立 Reviewer 回执，`EXECUTOR-DESIGN-REVIEW: CHANGES_REQUIRED`
+- `plan_path`: `D:\Code\yeyu-ai\xiaoshuo\docs\plans\2026-08-mpv-02b-dqa-design-v11.md`
+- `packet_path`: `D:\Code\yeyu-ai\xiaoshuo\docs\plans\2026-08-mpv-02b-dqa-execution-packet-v1.md`
+- `ledger_path`: `D:\Code\yeyu-ai\xiaoshuo\docs\plans\2026-08-mpv-02b-dqa-finding-ledger-v11.md`
+- `predecessor_event`: `MPV-02B-DQA-LE-20260830-020`
+- `plan_revision`: `PLAN_A_EXECUTOR_CONTRACT_CORRECTION_05`
+- `packet_revision`: `PLAN_A_EXECUTOR_CONTRACT_CORRECTION_05`
+- `ledger_revision`: `MPV-02B-DQA-LEDGER-11-EXECUTOR-CORRECTION-05`
+- `current_event`: `MPV-02B-DQA-LE-20260830-021`
+- `machine_contract_source`: `governed-contract-source/v2`; matrix SHA `ad04c7e2b0612273225e83366194de17d6c718b8ef22bd565a8324f4744d9c58`; contract digest `9db2edd8d946fcc09eaa6e118ffb977c0f97be255c8a82f609f22d271e2e5470`
+- `registry_binding`: `.agents/skills/governed-token-efficient-collaboration/references/rule-registry.json`, revision `rules-r2`, SHA `74889D655BA721BF80CBFF7396D8A057ADEA061AEC17A220AB2331F6358DD067`
+- `active_root_rules_sha256`: `435498C2929CF0AA79B33EB03BEDF0DA283CDB402AC08D1CAE678EF4155011B6`
+- `scope_review`: `PLAN-SCOPE-REVIEW: SUFFICIENT`; only six executor-contract/identity issues are corrected; DQA business checks, E02/E06, both gates and authorization boundary are unchanged.
+- `input_ownership`: the E03 root owns one inventory of all descendants; `inputs-manifest.json` records each physical path once; downstream checks may consume named descendants by E03 entry/hash but may not create a second inventory or ownership claim.
+- `blocker_receipt_contract`: `ROOT_UNSAFE_BLOCKED` is exactly one UTF-8 LF/no-BOM canonical JSON object on stdout, with only the ten frozen fields from the v2 machine contract; stderr and project/run-root writes are forbidden, and the coordinator preserves the raw stdout bytes externally.
+- `current_state`: `PLAN_B_REVIEW_REQUIRED / CONSENSUS_BLOCKED / DQA_NOT_AUTHORIZED`
+- `review_requirement`: correction-05 must receive a final receipt from a new one-time independent Reviewer; before that, no `CONSENSUS_READY`, executor implementation, test, run creation or DQA execution.
+
+### Correction-05 finding map
+
+| finding_id | lineage | minimal correction | verification | current_status |
+|---|---|---|---|---|
+| DQA-EXEC-F05 | UNRESOLVED | upgrade machine matrix to v2 with registry, status enums and transitions | v2 contract verifier and exact matrix/digest readback | DESIGN_BLOCKER_PENDING_REVIEW |
+| DQA-EXEC-F06 | UNRESOLVED | define one physical-path inventory owner and downstream reference rule | inventory/manifest ownership and overlap readback | DESIGN_BLOCKER_PENDING_REVIEW |
+| DQA-EXEC-F07 | UNRESOLVED | freeze strict blocker receipt field set, order, encoding and save boundary | negative receipt/schema and raw stdout byte readback | DESIGN_BLOCKER_PENDING_REVIEW |
+| DQA-EXEC-F08 | UNRESOLVED | synchronize active root-rule provenance in current packet bindings | fresh root SHA and three-document binding readback | DESIGN_BLOCKER_PENDING_REVIEW |
+| DQA-EXEC-F09 | UNRESOLVED | replace contradictory packet preflight status with pending-review state | top/tail state readback and ledger binding | DESIGN_BLOCKER_PENDING_REVIEW |
+| DQA-EXEC-F10 | UNRESOLVED | bind correction-05 event, predecessor and ledger revision in design | three-document event/revision/predecessor readback | DESIGN_BLOCKER_PENDING_REVIEW |
