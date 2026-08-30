@@ -647,3 +647,54 @@ This append-only event does not authorize DQA, run creation, tests, indexing, pe
 | DQA-EXEC-F10 | RC-DQA-LEDGER-EVENT-BINDING | UNRESOLVED | correction-04 缺少 current event、ledger revision 和三文档双向绑定 | design/packet/ledger correction-05 bindings | event/revision/predecessor exact readback | DESIGN_BLOCKER_PENDING_REVIEW |
 
 本事件不产生 `CONSENSUS_READY`，不授予 executor 实现、测试、run 创建或 DQA 执行授权。
+
+## Executor contract identity repair
+
+- `event_id`: `MPV-02B-DQA-LE-20260830-022`
+- `event_version`: `22`
+- `batch`: `executor-preparation / executor-contract-identity-repair`
+- `predecessor_event`: `MPV-02B-DQA-LE-20260830-021`
+- `source_receipt`: correction-05 contract preflight readback, `CHANGES_REQUIRED`
+- `plan_revision`: `PLAN_A_EXECUTOR_CONTRACT_CORRECTION_05`
+- `packet_revision`: `PLAN_A_EXECUTOR_CONTRACT_CORRECTION_05`
+- `ledger_revision`: `MPV-02B-DQA-LEDGER-11-EXECUTOR-CORRECTION-05`
+- `machine_contract_source`: `governed-contract-source/v2`
+- `contract_matrix_sha256`: `204aec682b3a9ddd40a701a9c752e77dd3c67ba954278911c2a389fc02e014fd`
+- `contract_digest`: `c9a8bd12a70784932573256f283a6c3799b46abc0fa75c9e9b7810d47a5d2b02`
+- `registry_binding`: `.agents/skills/governed-token-efficient-collaboration/references/rule-registry.json`, `rules-r2`, `74889D655BA721BF80CBFF7396D8A057ADEA061AEC17A220AB2331F6358DD067`
+- `active_root_rules_path`: `D:\Code\yeyu-ai\AGENTS.md`
+- `active_root_rules_sha256`: `41D233E741BB9351AEFC484D5AB35F91F1F3201435399B5C6B309F36009332E1`
+- `delta_class`: `SAME_SCOPE_HARDENING`
+- `changes`: 将机器合同源重写为 verifier 要求的 canonical UTF-8 JSON，修正 blocker 回执的 canonicalization 文案，并同步当前设计、packet 与 ledger 的 matrix/digest/root-rule active binding；不改变 DQA 检查、质量门、授权边界或禁止活动。
+- `verification`: strict JSON readback、matrix/digest recomputation、design/packet/ledger current binding exact readback；历史 event-021 及更早事件保持只读。
+- `current_state`: `PLAN_B_REVIEW_REQUIRED / CONSENSUS_BLOCKED / DQA_NOT_AUTHORIZED`
+- `review_requirement`: correction-05 identity repair 完成后必须关闭当前 reviewer 上下文并创建全新的、一次性独立 Reviewer；最终回执缺失时保持 `REVIEW_PENDING/REVIEW_UNAVAILABLE`，不得恢复 `CONSENSUS_READY`。
+- `evidence_boundary`: 本事件未实现 executor，未运行测试，未创建 DQA run，未执行 DQA、模型、服务、网络、索引或性能活动。
+
+本事件不产生 `CONSENSUS_READY`，不授予 executor 实现、测试、run 创建或 DQA 执行授权。
+
+## Executor contract identity repair review closure
+
+- `event_id`: `MPV-02B-DQA-LE-20260830-023`
+- `event_version`: `23`
+- `event`: `REVIEW_COMPLETED`
+- `batch`: `executor-preparation / executor-contract-identity-repair`
+- `predecessor_event`: `MPV-02B-DQA-LE-20260830-022`
+- `reviewer_role`: `planner_b / independent Reviewer`
+- `reviewer_agent_id`: `01a0515f-4b33-76f3-a1d8-66c0c11a80a8`
+- `reviewer_lifecycle`: final receipt received; agent closed immediately; context will not be reused
+- `scope_token`: `PLAN-SCOPE-REVIEW: SUFFICIENT`
+- `review_token`: `PLAN-B-REVIEW: ACCEPTED`
+- `reviewed_revision`: `PLAN_A_EXECUTOR_CONTRACT_CORRECTION_05 / event-022`
+- `contract_matrix_sha256`: `204aec682b3a9ddd40a701a9c752e77dd3c67ba954278911c2a389fc02e014fd`
+- `contract_digest`: `c9a8bd12a70784932573256f283a6c3799b46abc0fa75c9e9b7810d47a5d2b02`
+- `active_root_rules_path`: `D:\Code\yeyu-ai\AGENTS.md`
+- `active_root_rules_sha256`: `41D233E741BB9351AEFC484D5AB35F91F1F3201435399B5C6B309F36009332E1`
+- `review_result`: correction-05/event-022 的 canonical 合同、matrix digest、contract digest、17 项检查完整性、registry binding、当前根规则 SHA 及 design/packet/ledger event-022 绑定均独立回读一致；本次修复属于 `SAME_SCOPE_HARDENING`，未改变 DQA 业务检查、两道质量门、授权边界或禁止活动。
+- `finding_updates`: `DQA-EXEC-F05..F10` 的设计修正获得接受，运行证据仍为 `DESIGN_ACCEPTED_EXECUTION_EVIDENCE_PENDING`；`DQA-EXEC-UNPROVEN-01` 记录为通用 JSON ledger verifier 对当前 Markdown ledger 的未证明边界，不构成新的设计阻断。
+- `unproven_boundary`: 通用 `verify_ledger.py --contract` 未对当前 Markdown packet/ledger 完成端到端 closure；未因此创建新的机器 ledger 或扩大本批范围。
+- `status`: `CONSENSUS_READY`
+- `owner_disposition`: `CONSENSUS_READY / DQA_NOT_AUTHORIZED`
+- `execution_boundary`: 未执行 DQA、SOURCE_DATA_GATE、EVALUATION_DATA_GATE、测试、索引、性能、模型、服务或网络活动。
+
+该事件仅关闭 correction-05 的设计复核门，不授予 DQA、executor、run、测试、索引、性能、模型、服务或网络授权。下一步必须由授权负责人对当前 packet、literal 输入、executor、interpreter、verifier 和新的 D 盘 run 发放独立只读 DQA 授权；未授权前仍保持 DQA_NOT_AUTHORIZED。

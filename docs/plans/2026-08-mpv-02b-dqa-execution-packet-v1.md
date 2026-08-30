@@ -36,20 +36,20 @@
 | 17 项检查机器合同源 | `D:\Code\yeyu-ai\xiaoshuo\docs\plans\2026-08-mpv-02b-dqa-check-contract-matrix-v1.json` |
 | 机器合同源 schema | `governed-contract-source/v2` |
 | 机器合同源 revision | `PLAN_A_EXECUTOR_CONTRACT_CORRECTION_05` |
-| 机器合同源 matrix SHA-256 | `ad04c7e2b0612273225e83366194de17d6c718b8ef22bd565a8324f4744d9c58` |
-| 机器合同源 contract digest | `9db2edd8d946fcc09eaa6e118ffb977c0f97be255c8a82f609f22d271e2e5470` |
+| 机器合同源 matrix SHA-256 | `204aec682b3a9ddd40a701a9c752e77dd3c67ba954278911c2a389fc02e014fd` |
+| 机器合同源 contract digest | `c9a8bd12a70784932573256f283a6c3799b46abc0fa75c9e9b7810d47a5d2b02` |
 | rule registry | `.agents/skills/governed-token-efficient-collaboration/references/rule-registry.json`, `rules-r2`, `74889D655BA721BF80CBFF7396D8A057ADEA061AEC17A220AB2331F6358DD067` |
 | 主设计 SHA-256（历史复核快照；授权前 fresh readback 必须重算） | `0A05E756BB0FADD0CE1B0F06E08E10932CBEAC770B6996F1FF7B3B8699C78D11` |
 | 设计 revision | `PLAN_A_EXECUTOR_CONTRACT_CORRECTION_05` |
 | finding ledger | `D:\Code\yeyu-ai\xiaoshuo\docs\plans\2026-08-mpv-02b-dqa-finding-ledger-v11.md` |
 | ledger SHA-256（历史复核快照；授权前 fresh readback 必须重算） | `B5BD29EF0444F7641695A85017A75B8BDD27F927AEA8539FCB6E6BA8272B8F02` |
 | ledger revision | `MPV-02B-DQA-LEDGER-11-EXECUTOR-CORRECTION-05` |
-| current event | `MPV-02B-DQA-LE-20260830-021` |
-| predecessor event | `MPV-02B-DQA-LE-20260830-020` |
+| current event | `MPV-02B-DQA-LE-20260830-022` |
+| predecessor event | `MPV-02B-DQA-LE-20260830-021` |
 | planner_b receipt | `PENDING: new independent reviewer required for correction-05` |
 | consensus state | `PLAN_B_REVIEW_REQUIRED / CONSENSUS_BLOCKED / DQA_NOT_AUTHORIZED` |
 | 根规则 | `D:\Code\yeyu-ai\AGENTS.md` |
-| 根规则 SHA-256（当前 active） | `435498C2929CF0AA79B33EB03BEDF0DA283CDB402AC08D1CAE678EF4155011B6` |
+| 根规则 SHA-256（当前 active） | `41D233E741BB9351AEFC484D5AB35F91F1F3201435399B5C6B309F36009332E1` |
 
 主设计冻结业务检查、状态、退出码、reason code、门禁和证据语义；本 packet 只冻结实际输入、只读执行入口、环境、run、输出、封存、verifier 和 post-review 输入。`SEALED_SUCCESS`/`SEALED_FAILURE` 是封存结果，不是质量门状态。packet 不新增检查，不改变任何业务状态、退出码、reason code、依赖关系或 gate 聚合。
 
@@ -419,7 +419,7 @@ correction 03 复核若返回 `PACKET-REVIEW: ACCEPTED`，packet 即转为 `PACK
 
 ## 当前授权边界与精确下一步
 
-当前授权边界：本 packet 当前为 `PLAN_B_REVIEW_REQUIRED / CONSENSUS_BLOCKED / DQA_NOT_AUTHORIZED`；旧 `CONSENSUS_READY` receipt 仅为历史设计复核，不覆盖本 correction。根规则授权前置必须绑定当前磁盘 `D:\Code\yeyu-ai\AGENTS.md` 的 SHA `435498C2929CF0AA79B33EB03BEDF0DA283CDB402AC08D1CAE678EF4155011B6`。本轮只授权新 packet 文档的设计落盘，不授权 run、输入快照、DQA、测试、模型、服务、网络、索引、性能或 post-review。
+当前授权边界：本 packet 当前为 `PLAN_B_REVIEW_REQUIRED / CONSENSUS_BLOCKED / DQA_NOT_AUTHORIZED`；旧 `CONSENSUS_READY` receipt 仅为历史设计复核，不覆盖本 correction。根规则授权前置必须绑定当前磁盘 `D:\Code\yeyu-ai\AGENTS.md` 的 SHA `41D233E741BB9351AEFC484D5AB35F91F1F3201435399B5C6B309F36009332E1`。本轮只授权新 packet 文档的设计落盘，不授权 run、输入快照、DQA、测试、模型、服务、网络、索引、性能或 post-review。
 
 精确下一步：authority owner 只读复核本 packet 与绑定的主设计/ledger，补发一次新的 `MPV-02B DQA READONLY EXECUTION AUTHORIZATION`，其中必须明确 packet SHA-256、fresh run-id、future executor literal path/version/SHA-256、executor compile/readback、interpreter 绝对路径/version/SHA-256/compile-readback、verifier literal path/version/SHA-256/compile-readback、是否允许创建 D 盘 run，并确认本 packet 的输入/输出 allowlist；随后由 executor 在一次 fresh run 中按本 packet 执行，独立 verifier 读取封存证据，再由全新一次性 post-reviewer 给出 post-review token。任何一步缺少授权、executor 绑定或最终回执，都保持 `DQA_NOT_AUTHORIZED`、`BLOCKED`、`REVIEW_PENDING` 或 `REVIEW_UNAVAILABLE`，不关闭阶段。
 
@@ -430,14 +430,14 @@ correction 03 复核若返回 `PACKET-REVIEW: ACCEPTED`，packet 即转为 `PACK
 - `plan_path`: `D:\Code\yeyu-ai\xiaoshuo\docs\plans\2026-08-mpv-02b-dqa-design-v11.md`
 - `packet_path`: `D:\Code\yeyu-ai\xiaoshuo\docs\plans\2026-08-mpv-02b-dqa-execution-packet-v1.md`
 - `ledger_path`: `D:\Code\yeyu-ai\xiaoshuo\docs\plans\2026-08-mpv-02b-dqa-finding-ledger-v11.md`
-- `predecessor_event`: `MPV-02B-DQA-LE-20260830-020`
+- `predecessor_event`: `MPV-02B-DQA-LE-20260830-021`
 - `plan_revision`: `PLAN_A_EXECUTOR_CONTRACT_CORRECTION_05`
 - `packet_revision`: `PLAN_A_EXECUTOR_CONTRACT_CORRECTION_05`
 - `ledger_revision`: `MPV-02B-DQA-LEDGER-11-EXECUTOR-CORRECTION-05`
-- `current_event`: `MPV-02B-DQA-LE-20260830-021`
-- `machine_contract_source`: `governed-contract-source/v2`; matrix SHA `ad04c7e2b0612273225e83366194de17d6c718b8ef22bd565a8324f4744d9c58`; contract digest `9db2edd8d946fcc09eaa6e118ffb977c0f97be255c8a82f609f22d271e2e5470`
+- `current_event`: `MPV-02B-DQA-LE-20260830-022`
+- `machine_contract_source`: `governed-contract-source/v2`; matrix SHA `204aec682b3a9ddd40a701a9c752e77dd3c67ba954278911c2a389fc02e014fd`; contract digest `c9a8bd12a70784932573256f283a6c3799b46abc0fa75c9e9b7810d47a5d2b02`
 - `registry_binding`: `.agents/skills/governed-token-efficient-collaboration/references/rule-registry.json`, revision `rules-r2`, SHA `74889D655BA721BF80CBFF7396D8A057ADEA061AEC17A220AB2331F6358DD067`
-- `active_root_rules_sha256`: `435498C2929CF0AA79B33EB03BEDF0DA283CDB402AC08D1CAE678EF4155011B6`
+- `active_root_rules_sha256`: `41D233E741BB9351AEFC484D5AB35F91F1F3201435399B5C6B309F36009332E1`
 - `scope_review`: `PLAN-SCOPE-REVIEW: SUFFICIENT`; only six executor-contract/identity issues are corrected; DQA business checks, E02/E06, both gates and authorization boundary are unchanged.
 - `input_ownership`: the E03 root owns one inventory of all descendants; `inputs-manifest.json` records each physical path once; downstream checks may consume named descendants by E03 entry/hash but may not create a second inventory or ownership claim.
 - `blocker_receipt_contract`: `ROOT_UNSAFE_BLOCKED` is exactly one UTF-8 LF/no-BOM canonical JSON object on stdout, with only the ten frozen fields from the v2 machine contract; stderr and project/run-root writes are forbidden, and the coordinator preserves the raw stdout bytes externally.

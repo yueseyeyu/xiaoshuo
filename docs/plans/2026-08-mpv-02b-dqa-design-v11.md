@@ -68,7 +68,7 @@ F08 的主设计要求是执行 packet 提供可复核的输入/输出边界、�
 
 ## 统一检查合同（PLAN_CONTRACT_PREFLIGHT）
 
-机器可读唯一合同源：`dqa-check-contract-matrix-v1.json`，schema 为 `governed-contract-source/v2`，revision 为 `PLAN_A_EXECUTOR_CONTRACT_CORRECTION_05`，当前 matrix SHA-256 为 `ad04c7e2b0612273225e83366194de17d6c718b8ef22bd565a8324f4744d9c58`，contract digest 为 `8ce132b6e808029822c4614008cdc77c84323e6026505a69a147da2528fc7657`，并绑定 registry `rules-r2`。该文件冻结 17 个 `check_id`、输入引用、前置、procedure、输出字段、reason code、停止动作、验证方式和 owner disposition；本文件和 execution packet 不得新增、删除或改写这些字段。verifier 必须读取该 v2 JSON 的 UTF-8 canonical bytes、registry binding、matrix SHA 和 contract digest，并逐字段比较本文件/packet 的可读投影；缺失、无法读取、digest 不一致、registry 不一致或检查项不完整时，合同预审为 `PLAN_CONTRACT_INCOMPLETE`，不得派发 executor 或创建 run。
+机器可读唯一合同源：`dqa-check-contract-matrix-v1.json`，schema 为 `governed-contract-source/v2`，revision 为 `PLAN_A_EXECUTOR_CONTRACT_CORRECTION_05`，当前 matrix SHA-256 为 `204aec682b3a9ddd40a701a9c752e77dd3c67ba954278911c2a389fc02e014fd`，contract digest 为 `c9a8bd12a70784932573256f283a6c3799b46abc0fa75c9e9b7810d47a5d2b02`，并绑定 registry `rules-r2`。该文件冻结 17 个 `check_id`、输入引用、前置、procedure、输出字段、reason code、停止动作、验证方式和 owner disposition；本文件和 execution packet 不得新增、删除或改写这些字段。verifier 必须读取该 v2 JSON 的 UTF-8 canonical bytes、registry binding、matrix SHA 和 contract digest，并逐字段比较本文件/packet 的可读投影；缺失、无法读取、digest 不一致、registry 不一致或检查项不完整时，合同预审为 `PLAN_CONTRACT_INCOMPLETE`，不得派发 executor 或创建 run。
 
 本节是 DQA-01～DQA-09、E01～E08 的人类可读投影。执行者只能按机器合同源读取输入、产生证据和决定停止动作；下方各检查章节只补充领域判定，不得重新定义字段、状态或退出码。每个 `checks/<id>.json` 的根对象固定包含：`schema_version="dqa-check-envelope-v1"`、`check_id`、`check_status`、`exit_code`、`input_snapshot_refs`、`preconditions`、`procedure_ref`、`evidence`、`counts`、`reason_codes`、`limitations`、`stop_action`、`next_step`。`evidence` 至少包含 `output_fields`、`artifact_refs`、`canonicalization` 和 `verifier_readback`。状态与退出码一一对应：`PASS/0`、`FAIL/10`、`UNKNOWN/20`、`UNPROVEN/30`、`BLOCKED/40`。
 
@@ -333,14 +333,14 @@ F-EXE-001 仍是未来授权前的 executor/interpreter/verifier 身份绑定前
 - `plan_path`: `D:\Code\yeyu-ai\xiaoshuo\docs\plans\2026-08-mpv-02b-dqa-design-v11.md`
 - `packet_path`: `D:\Code\yeyu-ai\xiaoshuo\docs\plans\2026-08-mpv-02b-dqa-execution-packet-v1.md`
 - `ledger_path`: `D:\Code\yeyu-ai\xiaoshuo\docs\plans\2026-08-mpv-02b-dqa-finding-ledger-v11.md`
-- `predecessor_event`: `MPV-02B-DQA-LE-20260830-020`
+- `predecessor_event`: `MPV-02B-DQA-LE-20260830-021`
 - `plan_revision`: `PLAN_A_EXECUTOR_CONTRACT_CORRECTION_05`
 - `packet_revision`: `PLAN_A_EXECUTOR_CONTRACT_CORRECTION_05`
 - `ledger_revision`: `MPV-02B-DQA-LEDGER-11-EXECUTOR-CORRECTION-05`
-- `current_event`: `MPV-02B-DQA-LE-20260830-021`
-- `machine_contract_source`: `governed-contract-source/v2`; matrix SHA `ad04c7e2b0612273225e83366194de17d6c718b8ef22bd565a8324f4744d9c58`; contract digest `9db2edd8d946fcc09eaa6e118ffb977c0f97be255c8a82f609f22d271e2e5470`
+- `current_event`: `MPV-02B-DQA-LE-20260830-022`
+- `machine_contract_source`: `governed-contract-source/v2`; matrix SHA `204aec682b3a9ddd40a701a9c752e77dd3c67ba954278911c2a389fc02e014fd`; contract digest `c9a8bd12a70784932573256f283a6c3799b46abc0fa75c9e9b7810d47a5d2b02`
 - `registry_binding`: `.agents/skills/governed-token-efficient-collaboration/references/rule-registry.json`, revision `rules-r2`, SHA `74889D655BA721BF80CBFF7396D8A057ADEA061AEC17A220AB2331F6358DD067`
-- `active_root_rules_sha256`: `435498C2929CF0AA79B33EB03BEDF0DA283CDB402AC08D1CAE678EF4155011B6`
+- `active_root_rules_sha256`: `41D233E741BB9351AEFC484D5AB35F91F1F3201435399B5C6B309F36009332E1`
 - `scope_review`: `PLAN-SCOPE-REVIEW: SUFFICIENT`; only six executor-contract/identity issues are corrected; DQA business checks, E02/E06, both gates and authorization boundary are unchanged.
 - `input_ownership`: the E03 root owns one inventory of all descendants; `inputs-manifest.json` records each physical path once; downstream checks may consume named descendants by E03 entry/hash but may not create a second inventory or ownership claim.
 - `blocker_receipt_contract`: `ROOT_UNSAFE_BLOCKED` is exactly one UTF-8 LF/no-BOM canonical JSON object on stdout, with only the ten frozen fields from the v2 machine contract; stderr and project/run-root writes are forbidden, and the coordinator preserves the raw stdout bytes externally.
