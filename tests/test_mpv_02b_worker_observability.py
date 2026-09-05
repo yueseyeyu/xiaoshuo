@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import uuid
 from pathlib import Path
 
 import pytest
@@ -46,7 +48,7 @@ def _snapshot(run_dir: Path, **limits) -> IndexBuildTaskSnapshot:
         force=True,
         limit=1,
         run_dir=str(run_dir),
-        cache_dir=str(run_dir / "cache"),
+        cache_dir=str(run_dir / "output" / "scene_index.sample"),
         model_local_path=str(run_dir / "model"),
         resource_limits=limits,
         cancel_flag=str(run_dir / "cancel.flag"),
@@ -299,7 +301,7 @@ def test_task_snapshot_is_json_compatible() -> None:
     raw = {
         "task_id": "task-1", "genre": "末世", "force": True, "limit": 1,
         "run_dir": "D:/tmp/yeyu-ai-a3/mpv-02b-worker/20260825-000001-000001",
-        "cache_dir": "D:/Code/yeyu-ai/xiaoshuo/data/processed/末世/scene_index.sample",
+        "cache_dir": "D:/tmp/yeyu-ai-a3/mpv-02b-worker/20260825-000001-000001/output/scene_index.sample",
         "model_local_path": "D:/DaMoXing/embedding/bge-small-zh-v1.5",
         "resource_limits": {"rss_mb": 4096, "disk_free_gb": 10},
         "cancel_flag": "D:/tmp/yeyu-ai-a3/mpv-02b-worker/20260825-000001-000001/cancel.flag",
@@ -308,6 +310,264 @@ def test_task_snapshot_is_json_compatible() -> None:
 
     assert snapshot.limit == 1
     assert isinstance(snapshot.resource_limits, dict)
+
+
+def test_scene_search_explicit_cache_is_bound_to_run_root(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(scene_search_module, "_configure_jieba_cache", lambda _path: None)
+    monkeypatch.setattr(
+        scene_search_module,
+        "get_config",
+        lambda: {"scene_search": {"cache_dir": "data/processed/{genre}/scene_index"}},
+    )
+    run_dir = tmp_path / "20260825-000001-000001"
+    run_dir.mkdir(parents=True)
+    cache = run_dir / "output" / "scene_index.sample"
+
+    engine = scene_search_module.SceneSearch(
+        "测试题材", cache_dir=cache, cache_root=run_dir
+    )
+
+    assert engine._cache == cache.resolve()
+    assert engine._formal_cache == (
+        scene_search_module.PROJECT_ROOT / "data" / "processed" / "测试题材" / "scene_index"
+    ).resolve()
+    with pytest.raises(scene_search_module.IndexNotReadyError, match="越出批准目录"):
+        scene_search_module.SceneSearch(
+            "测试题材", cache_dir=run_dir.parent / "outside", cache_root=run_dir
+        )
+
+
+def test_worker_snapshot_rejects_project_cache_path(monkeypatch) -> None:
+    worker_stage = Path(r"D:\tmp\yeyu-ai-a3\mpv-02b-worker")
+    run_dir = worker_stage / "20260831-999999-999999"
+    model_dir = Path(r"D:\DaMoXing\embedding\bge-small-zh-v1.5")
+    monkeypatch.setattr(worker_module, "WORKER_STAGE_ROOT", worker_stage)
+    snapshot = IndexBuildTaskSnapshot(
+        task_id="task-1",
+        genre="末世",
+        force=True,
+        limit=1,
+        run_dir=str(run_dir),
+        cache_dir=r"D:\Code\yeyu-ai\xiaoshuo\data\processed\末世\tmp",
+        model_local_path=str(model_dir),
+        resource_limits={},
+        cancel_flag=str(run_dir / "cancel.flag"),
+    )
+
+    with pytest.raises(WorkerStop, match="当前 run/output 内"):
+        worker_module._validate_snapshot_paths(snapshot)
+
+
+def test_worker_snapshot_accepts_fixed_run_output_cache(monkeypatch) -> None:
+    worker_stage = Path(r"D:\tmp\yeyu-ai-a3\mpv-02b-worker")
+    run_dir = worker_stage / "20260831-999999-999998"
+    model_dir = Path(r"D:\DaMoXing\embedding\bge-small-zh-v1.5")
+    cache = run_dir / "output" / "scene_index.sample"
+    monkeypatch.setattr(worker_module, "WORKER_STAGE_ROOT", worker_stage)
+    snapshot = IndexBuildTaskSnapshot(
+        task_id="task-1",
+        genre="末世",
+        force=True,
+        limit=1,
+        run_dir=str(run_dir),
+        cache_dir=str(cache),
+        model_local_path=str(model_dir),
+        resource_limits={},
+        cancel_flag=str(run_dir / "cancel.flag"),
+    )
+
+    _, validated_cache, _, _ = worker_module._validate_snapshot_paths(snapshot)
+
+    assert validated_cache == cache.absolute()
+
+
+def test_public_worker_entry_uses_fixed_run_output_cache(monkeypatch) -> None:
+    stage = Path(r"D:\tmp\yeyu-ai-a3\mpv-02b-worker")
+    run_dir = stage / f"20260831-999999-{uuid.uuid4().int % 1000000:06d}"
+    cache = run_dir / "output" / "scene_index.sample"
+    model = Path(r"D:\DaMoXing\embedding\bge-small-zh-v1.5")
+    assert not run_dir.exists()
+    snapshot = {
+        "task_id": "task-1",
+        "genre": "末世",
+        "force": True,
+        "limit": 1,
+        "run_dir": str(run_dir),
+        "cache_dir": str(cache),
+        "model_local_path": str(model),
+        "resource_limits": {},
+        "cancel_flag": str(run_dir / "cancel.flag"),
+    }
+
+    class FakeSceneSearch:
+        embedding_model_path = model
+
+        def __init__(self, genre, resource_guard=None, cache_dir=None, cache_root=None):
+            assert Path(cache_dir) == cache
+            assert Path(cache_root) == run_dir
+            self._cache = cache
+
+        def build_index(self, **kwargs):
+            cache.mkdir(parents=True, exist_ok=True)
+            (cache / "manifest.json").write_text(
+                json.dumps({"n_books": 1, "n_scenes": 1}), encoding="utf-8"
+            )
+            return 1
+
+    monkeypatch.setattr(worker_module, "SceneSearch", FakeSceneSearch)
+
+    try:
+        result = worker_module.run_index_build_worker(snapshot)
+
+        assert result == 0
+        assert (cache / "manifest.json").is_file()
+        assert read_report(run_dir, "task-1")["status"] == "COMPLETED"
+    finally:
+        if run_dir.exists():
+            shutil.rmtree(run_dir)
+
+
+def test_public_worker_entry_uses_fixed_formal_run_output_cache(monkeypatch) -> None:
+    stage = Path(r"D:\tmp\yeyu-ai-a3\mpv-02b-worker")
+    run_dir = stage / f"20260831-999999-{uuid.uuid4().int % 1000000:06d}"
+    cache = run_dir / "output" / "scene_index"
+    model = Path(r"D:\DaMoXing\embedding\bge-small-zh-v1.5")
+    assert not run_dir.exists()
+    snapshot = {
+        "task_id": "task-1",
+        "genre": "末世",
+        "force": True,
+        "limit": 0,
+        "run_dir": str(run_dir),
+        "cache_dir": str(cache),
+        "model_local_path": str(model),
+        "resource_limits": {},
+        "cancel_flag": str(run_dir / "cancel.flag"),
+    }
+
+    class FakeSceneSearch:
+        embedding_model_path = model
+
+        def __init__(self, genre, resource_guard=None, cache_dir=None, cache_root=None):
+            assert Path(cache_dir) == cache
+            assert Path(cache_root) == run_dir
+            self._cache = cache
+
+        def build_index(self, **kwargs):
+            assert kwargs["limit"] == 0
+            cache.mkdir(parents=True, exist_ok=True)
+            (cache / "manifest.json").write_text(
+                json.dumps({"n_books": 1, "n_scenes": 1}), encoding="utf-8"
+            )
+            return 1
+
+    monkeypatch.setattr(worker_module, "SceneSearch", FakeSceneSearch)
+
+    try:
+        result = worker_module.run_index_build_worker(snapshot)
+
+        assert result == 0
+        assert (cache / "manifest.json").is_file()
+        assert read_report(run_dir, "task-1")["status"] == "COMPLETED"
+    finally:
+        if run_dir.exists():
+            shutil.rmtree(run_dir)
+
+
+def test_public_worker_entry_rejects_project_cache_path(capsys) -> None:
+    stage = Path(r"D:\tmp\yeyu-ai-a3\mpv-02b-worker")
+    run_dir = stage / f"20260831-999998-{uuid.uuid4().int % 1000000:06d}"
+    cache = Path(r"D:\Code\yeyu-ai\xiaoshuo\data\processed\末世\scene_index")
+    model = Path(r"D:\DaMoXing\embedding\bge-small-zh-v1.5")
+    snapshot = {
+        "task_id": "task-1",
+        "genre": "末世",
+        "force": True,
+        "limit": 0,
+        "run_dir": str(run_dir),
+        "cache_dir": str(cache),
+        "model_local_path": str(model),
+        "resource_limits": {},
+        "cancel_flag": str(run_dir / "cancel.flag"),
+    }
+
+    result = worker_module.run_index_build_worker(snapshot)
+
+    assert result == EXIT_CODES["PERMISSION_DENIED"]
+    output = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert output["error_code"] == "PERMISSION_DENIED"
+    assert not run_dir.exists()
+    assert not cache.exists()
+
+
+@pytest.mark.parametrize(
+    ("path_kind", "expected_code"),
+    [("outside", "PERMISSION_DENIED"), ("traversal", "WORKER_FAILED")],
+)
+def test_public_worker_entry_rejects_noncontained_run_paths(
+    path_kind: str, expected_code: str, capsys
+) -> None:
+    stage = Path(r"D:\tmp\yeyu-ai-a3\mpv-02b-worker")
+    run_id = f"20260831-999998-{uuid.uuid4().int % 1000000:06d}"
+    if path_kind == "outside":
+        run_dir = stage.parent / "mpv-02b-worker-outside" / run_id
+    else:
+        run_dir = stage / ".." / "mpv-02b-worker-outside" / run_id
+    cache = run_dir / "output" / "scene_index.sample"
+    model = Path(r"D:\DaMoXing\embedding\bge-small-zh-v1.5")
+    snapshot = {
+        "task_id": "task-1",
+        "genre": "末世",
+        "force": True,
+        "limit": 1,
+        "run_dir": str(run_dir),
+        "cache_dir": str(cache),
+        "model_local_path": str(model),
+        "resource_limits": {},
+        "cancel_flag": str(run_dir / "cancel.flag"),
+    }
+
+    result = worker_module.run_index_build_worker(snapshot)
+
+    assert result == EXIT_CODES[expected_code]
+    output = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert output["error_code"] == expected_code
+    assert not run_dir.exists()
+    assert not cache.exists()
+
+
+def test_public_worker_entry_rejects_reparse_cache(monkeypatch, capsys) -> None:
+    stage = Path(r"D:\tmp\yeyu-ai-a3\mpv-02b-worker")
+    run_dir = stage / f"20260831-999998-{uuid.uuid4().int % 1000000:06d}"
+    cache = run_dir / "output" / "scene_index.sample"
+    model = Path(r"D:\DaMoXing\embedding\bge-small-zh-v1.5")
+    snapshot = {
+        "task_id": "task-1",
+        "genre": "末世",
+        "force": True,
+        "limit": 1,
+        "run_dir": str(run_dir),
+        "cache_dir": str(cache),
+        "model_local_path": str(model),
+        "resource_limits": {},
+        "cancel_flag": str(run_dir / "cancel.flag"),
+    }
+    real_reject = worker_module._reject_reparse
+
+    def reject_reparse(path: Path) -> None:
+        if Path(path).absolute() == cache.absolute():
+            raise WorkerStop("PERMISSION_DENIED", "注入缓存 reparse 边界")
+        real_reject(path)
+
+    monkeypatch.setattr(worker_module, "_reject_reparse", reject_reparse)
+
+    result = worker_module.run_index_build_worker(snapshot)
+
+    assert result == EXIT_CODES["PERMISSION_DENIED"]
+    output = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert output["error_code"] == "PERMISSION_DENIED"
+    assert not run_dir.exists()
+    assert not cache.exists()
 
 
 def test_worker_session_cancellation_is_fail_closed(tmp_path: Path, monkeypatch) -> None:
@@ -714,7 +974,7 @@ def test_cleanup_terminal_error_code_matches_report_original_result(
 def test_run_worker_success_writes_contract_report(tmp_path: Path, monkeypatch) -> None:
     stage = tmp_path / "stage"
     run_dir = stage / "20260825-000001-000001"
-    cache = run_dir / "cache"
+    cache = run_dir / "output" / "scene_index"
     model = run_dir / "model"
     run_dir.mkdir(parents=True)
     model.mkdir()
@@ -731,7 +991,7 @@ def test_run_worker_success_writes_contract_report(tmp_path: Path, monkeypatch) 
         embedding_model_path = model
         _formal_cache = cache
 
-        def __init__(self, genre, resource_guard=None):
+        def __init__(self, genre, resource_guard=None, cache_dir=None, cache_root=None):
             self.genre = genre
 
         def build_index(self, **kwargs):
@@ -759,7 +1019,7 @@ def test_run_worker_cleanup_failure_syncs_manifest_and_report_status(
 ) -> None:
     stage = tmp_path / "stage"
     run_dir = stage / "20260825-000001-000001"
-    cache = run_dir / "cache"
+    cache = run_dir / "output" / "scene_index"
     model = run_dir / "model"
     run_dir.mkdir(parents=True)
     model.mkdir()
@@ -776,7 +1036,7 @@ def test_run_worker_cleanup_failure_syncs_manifest_and_report_status(
         embedding_model_path = model
         _formal_cache = cache
 
-        def __init__(self, genre, resource_guard=None):
+        def __init__(self, genre, resource_guard=None, cache_dir=None, cache_root=None):
             self.genre = genre
 
         def build_index(self, **kwargs):
@@ -821,7 +1081,7 @@ def test_run_worker_failure_event_error_is_kept_in_structured_report(
     snapshot = _snapshot(run_dir)
     snapshot = snapshot.__class__(
         task_id=snapshot.task_id, genre=snapshot.genre, force=True, limit=0,
-        run_dir=snapshot.run_dir, cache_dir=str(run_dir / "cache"),
+        run_dir=snapshot.run_dir, cache_dir=str(run_dir / "output" / "scene_index"),
         model_local_path=str(model), resource_limits={}, cancel_flag=snapshot.cancel_flag,
     )
 
@@ -829,7 +1089,7 @@ def test_run_worker_failure_event_error_is_kept_in_structured_report(
         embedding_model_path = model
         _formal_cache = Path(snapshot.cache_dir)
 
-        def __init__(self, genre, resource_guard=None):
+        def __init__(self, genre, resource_guard=None, cache_dir=None, cache_root=None):
             self.genre = genre
 
         def build_index(self, **kwargs):
@@ -858,7 +1118,7 @@ def test_run_worker_manifest_sync_failure_has_persistence_failure_receipt(
 ) -> None:
     stage = tmp_path / "stage"
     run_dir = stage / "20260825-000001-000001"
-    cache = run_dir / "cache"
+    cache = run_dir / "output" / "scene_index"
     model = run_dir / "model"
     run_dir.mkdir(parents=True)
     model.mkdir()
@@ -875,7 +1135,7 @@ def test_run_worker_manifest_sync_failure_has_persistence_failure_receipt(
         embedding_model_path = model
         _formal_cache = cache
 
-        def __init__(self, genre, resource_guard=None):
+        def __init__(self, genre, resource_guard=None, cache_dir=None, cache_root=None):
             self.genre = genre
 
         def build_index(self, **kwargs):
@@ -923,7 +1183,7 @@ def test_cleanup_and_manifest_sync_failure_is_unpersisted(
 ) -> None:
     stage = tmp_path / "stage"
     run_dir = stage / "20260825-000001-000001"
-    cache = run_dir / "cache"
+    cache = run_dir / "output" / "scene_index"
     model = run_dir / "model"
     run_dir.mkdir(parents=True)
     model.mkdir()
@@ -940,7 +1200,7 @@ def test_cleanup_and_manifest_sync_failure_is_unpersisted(
         embedding_model_path = model
         _formal_cache = cache
 
-        def __init__(self, genre, resource_guard=None):
+        def __init__(self, genre, resource_guard=None, cache_dir=None, cache_root=None):
             self.genre = genre
 
         def build_index(self, **kwargs):
@@ -1039,7 +1299,7 @@ def test_run_worker_report_recovery_preserves_original_completed_outcome(
 ) -> None:
     stage = tmp_path / "stage"
     run_dir = stage / "20260825-000001-000001"
-    cache = run_dir / "cache"
+    cache = run_dir / "output" / "scene_index"
     model = run_dir / "model"
     run_dir.mkdir(parents=True)
     model.mkdir()
@@ -1056,7 +1316,7 @@ def test_run_worker_report_recovery_preserves_original_completed_outcome(
         embedding_model_path = model
         _formal_cache = cache
 
-        def __init__(self, genre, resource_guard=None):
+        def __init__(self, genre, resource_guard=None, cache_dir=None, cache_root=None):
             self.genre = genre
 
         def build_index(self, **kwargs):
@@ -1097,7 +1357,7 @@ def test_run_worker_report_recovery_failure_writes_full_failure_contract(
 ) -> None:
     stage = tmp_path / "stage"
     run_dir = stage / "20260825-000001-000001"
-    cache = run_dir / "cache"
+    cache = run_dir / "output" / "scene_index"
     model = run_dir / "model"
     run_dir.mkdir(parents=True)
     model.mkdir()
@@ -1114,7 +1374,7 @@ def test_run_worker_report_recovery_failure_writes_full_failure_contract(
         embedding_model_path = model
         _formal_cache = cache
 
-        def __init__(self, genre, resource_guard=None):
+        def __init__(self, genre, resource_guard=None, cache_dir=None, cache_root=None):
             self.genre = genre
 
         def build_index(self, **kwargs):
@@ -1155,7 +1415,7 @@ def test_run_worker_report_recovery_false_is_structured_as_unpersisted(
 ) -> None:
     stage = tmp_path / "stage"
     run_dir = stage / "20260825-000001-000001"
-    cache = run_dir / "cache"
+    cache = run_dir / "output" / "scene_index"
     model = run_dir / "model"
     run_dir.mkdir(parents=True)
     model.mkdir()
@@ -1172,7 +1432,7 @@ def test_run_worker_report_recovery_false_is_structured_as_unpersisted(
         embedding_model_path = model
         _formal_cache = cache
 
-        def __init__(self, genre, resource_guard=None):
+        def __init__(self, genre, resource_guard=None, cache_dir=None, cache_root=None):
             self.genre = genre
 
         def build_index(self, **kwargs):
@@ -1206,7 +1466,7 @@ def test_run_worker_raw_failure_recovery_false_persists_failure_contract(
 ) -> None:
     stage = tmp_path / "stage"
     run_dir = stage / "20260825-000001-000001"
-    cache = run_dir / "cache"
+    cache = run_dir / "output" / "scene_index"
     model = run_dir / "model"
     run_dir.mkdir(parents=True)
     model.mkdir()
@@ -1223,7 +1483,7 @@ def test_run_worker_raw_failure_recovery_false_persists_failure_contract(
         embedding_model_path = model
         _formal_cache = cache
 
-        def __init__(self, genre, resource_guard=None):
+        def __init__(self, genre, resource_guard=None, cache_dir=None, cache_root=None):
             self.genre = genre
 
         def build_index(self, **kwargs):

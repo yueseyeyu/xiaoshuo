@@ -197,10 +197,15 @@ def _validate_snapshot_paths(snapshot: IndexBuildTaskSnapshot) -> tuple[Path, Pa
     _reject_reparse(cache_dir)
     if cache_dir.drive.upper() != "D:":
         raise WorkerStop("PERMISSION_DENIED", "索引缓存必须位于 D 盘")
+    expected_cache = run_dir / "output" / (
+        "scene_index" if snapshot.limit == 0 else "scene_index.sample"
+    )
     try:
-        cache_dir.resolve(strict=False).relative_to(PROJECT_ROOT.resolve(strict=True))
+        cache_dir.resolve(strict=False).relative_to(run_dir.resolve(strict=False))
     except (OSError, ValueError) as exc:
-        raise WorkerStop("PERMISSION_DENIED", "索引缓存越出项目根目录") from exc
+        raise WorkerStop("PERMISSION_DENIED", "索引缓存必须位于当前 run/output 内") from exc
+    if cache_dir != expected_cache.absolute():
+        raise WorkerStop("WORKER_FAILED", "索引缓存必须绑定当前 run 的固定 output 目录")
     _validate_resource_limits(snapshot.resource_limits)
     return run_dir, cache_dir, model_dir, cancel_flag
 
@@ -427,11 +432,17 @@ def _run_worker_impl(snapshot: IndexBuildTaskSnapshot, run_dir: Path) -> int:
             resources = session.sampler.snapshot()
             session.sampler.check(snapshot.resource_limits, resources)
 
-        engine = SceneSearch(snapshot.genre, resource_guard=guard_resources)
+        cache_dir = Path(snapshot.cache_dir).absolute()
+        engine = SceneSearch(
+            snapshot.genre,
+            resource_guard=guard_resources,
+            cache_dir=cache_dir,
+            cache_root=run_dir,
+        )
         actual_model = Path(engine.embedding_model_path).absolute()
         if actual_model.resolve(strict=False) != Path(snapshot.model_local_path).absolute().resolve(strict=True):
             raise WorkerStop("MODEL_ERROR", "SceneSearch 实际模型目录与任务快照不一致")
-        actual_cache = Path(engine._formal_cache if snapshot.limit == 0 else engine._formal_cache.parent / f"{engine._formal_cache.name}.sample").absolute()
+        actual_cache = Path(getattr(engine, "_cache", cache_dir)).absolute()
         if actual_cache != Path(snapshot.cache_dir).absolute():
             raise WorkerStop("WORKER_FAILED", "SceneSearch 实际缓存目录与任务快照不一致")
         count = engine.build_index(

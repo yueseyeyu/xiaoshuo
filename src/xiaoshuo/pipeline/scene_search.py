@@ -282,19 +282,25 @@ def _reject_contained_path(path: Path, root: Path, label: str) -> None:
         raise IndexNotReadyError(f"{label} 文件越出批准目录：{path}") from exc
 
 
-def _resolve_project_cache_path(path: Path) -> Path:
-    """将缓存路径固定在项目根内，并拒绝越界和 reparse。"""
+def _resolve_cache_path(path: Path, root: Path, label: str) -> Path:
+    """解析缓存目标，并将其限制在调用者声明的边界内。"""
     if ".." in path.parts:
-        raise IndexNotReadyError("scene_search.cache_dir 不得包含 ..")
-    _reject_reparse_ancestors(path, "索引缓存")
+        raise IndexNotReadyError(f"{label} 不得包含 ..")
+    _reject_reparse_ancestors(path, label)
+    _reject_reparse_ancestors(root, label)
     resolved = path.resolve(strict=False)
-    project_root = PROJECT_ROOT.resolve()
+    boundary = root.resolve(strict=True)
     try:
-        resolved.relative_to(project_root)
+        resolved.relative_to(boundary)
     except ValueError as exc:
-        raise IndexNotReadyError("scene_search.cache_dir 必须位于项目目录内") from exc
-    _reject_reparse_ancestors(resolved, "索引缓存")
+        raise IndexNotReadyError(f"{label} 越出批准目录：{path}") from exc
+    _reject_reparse_ancestors(resolved, label)
     return resolved
+
+
+def _resolve_project_cache_path(path: Path) -> Path:
+    """将默认缓存路径固定在项目根内，并拒绝越界和 reparse。"""
+    return _resolve_cache_path(path, PROJECT_ROOT, "索引缓存")
 
 # 中文停用词 (场景检索场景下的常见无信息量词)
 _STOP_WORDS = frozenset([
@@ -792,7 +798,13 @@ class SceneSearch:
             print(r["book_name"], r["technique_summary"])
     """
 
-    def __init__(self, genre="末世", resource_guard: Optional[Callable[[], None]] = None):
+    def __init__(
+        self,
+        genre="末世",
+        resource_guard: Optional[Callable[[], None]] = None,
+        cache_dir: Optional[Path | str] = None,
+        cache_root: Optional[Path | str] = None,
+    ):
         _validate_genre_component(genre)
         self.genre = genre
         cfg = get_config()
@@ -824,6 +836,15 @@ class SceneSearch:
             self._config_error = str(exc)
             self._cache = _cache_dir(genre).resolve(strict=False)
         self._formal_cache = self._cache
+        self._cache_boundary = PROJECT_ROOT.resolve(strict=True)
+        self._explicit_cache_dir = cache_dir is not None
+        if cache_dir is not None:
+            if cache_root is None:
+                raise IndexNotReadyError("显式索引缓存必须提供 cache_root")
+            self._cache_boundary = Path(cache_root).absolute().resolve(strict=True)
+            self._cache = _resolve_cache_path(
+                Path(cache_dir).absolute(), self._cache_boundary, "实验索引缓存"
+            )
         self._state_lock = threading.RLock()
         # BM25 状态
         self._bm25: Optional[BM25Okapi] = None
@@ -1006,11 +1027,11 @@ class SceneSearch:
         if self.method != "hybrid_bm25_bge":
             raise IndexNotReadyError(f"不支持的 scene_search.method：{self.method}")
         lock_path = self._cache.parent / f".{self._cache.name}.lock"
-        _reject_contained_path(self._cache.parent, PROJECT_ROOT, "索引缓存")
+        _reject_contained_path(self._cache.parent, self._cache_boundary, "索引缓存")
         if not self._cache.parent.is_dir():
             raise IndexNotReadyError("索引目录尚未建立，请先执行索引构建")
         safe_lock_path = _validated_optional_file(
-            lock_path, PROJECT_ROOT, "索引锁"
+            lock_path, self._cache_boundary, "索引锁"
         ) or lock_path
         try:
             with safe_lock_path.open("a+b") as handle:
@@ -1061,7 +1082,11 @@ class SceneSearch:
         if on_progress is not None and not callable(on_progress):
             raise IndexNotReadyError("索引构建 on_progress 必须是可调用对象")
         self._validate_method()
-        if limit > 0:
+        if self._explicit_cache_dir:
+            self._cache = _resolve_cache_path(
+                self._cache, self._cache_boundary, "实验索引缓存"
+            )
+        elif limit > 0:
             sample_cache = self._formal_cache.parent / f"{self._formal_cache.name}.sample"
             self._cache = _resolve_project_cache_path(sample_cache)
         else:
@@ -1233,7 +1258,7 @@ class SceneSearch:
             for name in ("bm25_index.pkl", "bge_embeddings.npy", "metadata.json", "manifest.json")
         )
         cache_ready = all(
-            _validated_optional_file(path, PROJECT_ROOT, "索引缓存") is not None
+            _validated_optional_file(path, self._cache_boundary, "索引缓存") is not None
             for path in cache_files
         )
         if not force and cache_ready:
@@ -1425,12 +1450,12 @@ class SceneSearch:
 
         required = (cache_bm25, cache_bge, cache_meta, cache_manifest)
         if any(
-            _validated_optional_file(item, PROJECT_ROOT, "索引") is None
+            _validated_optional_file(item, self._cache_boundary, "索引") is None
             for item in required
         ):
             raise IndexNotReadyError("索引未建立，请先执行索引构建")
         cache_root = _validated_file_for_read(
-            cache_manifest, PROJECT_ROOT, "索引 manifest"
+            cache_manifest, self._cache_boundary, "索引 manifest"
         ).parent.resolve(strict=True)
         for path in required:
             _validated_file_for_read(path, cache_root, "索引")
